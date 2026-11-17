@@ -98,5 +98,4 @@ export type Platform = {
   feeds: Omit<FeedUrlTable<never>, 'read'> & {
     read: (url: string) => UrlMatch<string, FeedUrlRow> | undefined
   }
-  getFeedHint?: FeedUrlTable['getFeedHint']
 }

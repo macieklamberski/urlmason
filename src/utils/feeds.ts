@@ -96,13 +96,10 @@ export const defineFeedUrls = <const Key extends string>(
   }
 }
 
-// The main URL of a feed, from the first platform that claims the URL. A platform's own
-// `getFeedHint` decides the claim, so a URL its guard refuses is never rewritten.
+// The main URL of a feed, from the first platform whose table claims the URL.
 export const getMainFeedUrl = (url: string, platforms: Array<Platform>): string | undefined => {
   for (const platform of platforms) {
-    const getFeedHint = platform.getFeedHint ?? platform.feeds.getFeedHint
-
-    if (getFeedHint(url)) {
+    if (platform.feeds.getFeedHint(url)) {
       return platform.feeds.getMainFeedUrl(url)
     }
   }

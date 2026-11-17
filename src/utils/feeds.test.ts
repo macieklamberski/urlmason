@@ -2142,48 +2142,43 @@ describe('defineFeedUrls', () => {
 })
 
 describe('getMainFeedUrl', () => {
-  const userFeeds = defineFeedUrls('example', [
+  const rows = [
     {
       key: 'sounds',
       main: 'https://feeds.example.com/users/{userId}/sounds.rss',
       aliases: ['https://feeds.example.com/users/{userId}'],
     },
-  ])
-  const guarded: Platform = {
-    feeds: userFeeds,
-    getFeedHint: (url) => {
-      if (!includesAnyOf(url, 'example:users:')) {
-        return
-      }
-
-      return userFeeds.getFeedHint(url)
-    },
+  ]
+  const checked: Platform = {
+    feeds: defineFeedUrls('example', rows, {
+      checks: { userId: (value) => includesAnyOf(value, 'example:users:') },
+    }),
   }
-  const unguarded: Platform = { feeds: userFeeds }
+  const unchecked: Platform = { feeds: defineFeedUrls('example', rows) }
 
   it('should write an alias a platform claims as its main URL', () => {
     const value = 'https://feeds.example.com/users/example:users:123'
     const expected = 'https://feeds.example.com/users/example:users:123/sounds.rss'
 
-    expect(getMainFeedUrl(value, [guarded])).toBe(expected)
+    expect(getMainFeedUrl(value, [checked])).toBe(expected)
   })
 
-  it('should return undefined for a URL the guard of the platform refuses', () => {
+  it('should return undefined for a URL the check of the table refuses', () => {
     const value = 'https://feeds.example.com/users/123'
 
-    expect(getMainFeedUrl(value, [guarded])).toBeUndefined()
+    expect(getMainFeedUrl(value, [checked])).toBeUndefined()
   })
 
-  it('should read the table itself for a platform without a guard', () => {
+  it('should return the main URL from the next platform that claims the URL', () => {
     const value = 'https://feeds.example.com/users/123'
     const expected = 'https://feeds.example.com/users/123/sounds.rss'
 
-    expect(getMainFeedUrl(value, [unguarded])).toBe(expected)
+    expect(getMainFeedUrl(value, [checked, unchecked])).toBe(expected)
   })
 
   it('should return undefined for a URL no platform claims', () => {
     const value = 'https://example.org/feed'
 
-    expect(getMainFeedUrl(value, [guarded, unguarded])).toBeUndefined()
+    expect(getMainFeedUrl(value, [checked, unchecked])).toBeUndefined()
   })
 })
