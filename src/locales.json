@@ -1,0 +1,7 @@
+{
+  "errors": {
+    "invalidFeedTemplate": "Not a feed URL template: {{template}}",
+    "missingFeedTemplate": "No feed template for {{key}}",
+    "missingFeedHosts": "No hosts for the {{key}} feed"
+  }
+}
