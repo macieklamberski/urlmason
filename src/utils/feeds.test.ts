@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { isLocale } from 'trousse'
-import type { FeedEntry, FeedHint } from '../types.js'
-import { defineFeedUrls } from './feeds.js'
+import { includesAnyOf, isLocale } from 'trousse'
+import type { FeedEntry, FeedHint, Platform } from '../types.js'
+import { defineFeedUrls, getMainFeedUrl } from './feeds.js'
 
 const feeds = defineFeedUrls(
   'example',
@@ -2138,5 +2138,52 @@ describe('defineFeedUrls', () => {
         expect(checkedFeeds.getFeedHint(value)).toBeUndefined()
       })
     })
+  })
+})
+
+describe('getMainFeedUrl', () => {
+  const userFeeds = defineFeedUrls('example', [
+    {
+      key: 'sounds',
+      main: 'https://feeds.example.com/users/{userId}/sounds.rss',
+      aliases: ['https://feeds.example.com/users/{userId}'],
+    },
+  ])
+  const guarded: Platform = {
+    feeds: userFeeds,
+    getFeedHint: (url) => {
+      if (!includesAnyOf(url, 'example:users:')) {
+        return
+      }
+
+      return userFeeds.getFeedHint(url)
+    },
+  }
+  const unguarded: Platform = { feeds: userFeeds }
+
+  it('should write an alias a platform claims as its main URL', () => {
+    const value = 'https://feeds.example.com/users/example:users:123'
+    const expected = 'https://feeds.example.com/users/example:users:123/sounds.rss'
+
+    expect(getMainFeedUrl(value, [guarded])).toBe(expected)
+  })
+
+  it('should return undefined for a URL the guard of the platform refuses', () => {
+    const value = 'https://feeds.example.com/users/123'
+
+    expect(getMainFeedUrl(value, [guarded])).toBeUndefined()
+  })
+
+  it('should read the table itself for a platform without a guard', () => {
+    const value = 'https://feeds.example.com/users/123'
+    const expected = 'https://feeds.example.com/users/123/sounds.rss'
+
+    expect(getMainFeedUrl(value, [unguarded])).toBe(expected)
+  })
+
+  it('should return undefined for a URL no platform claims', () => {
+    const value = 'https://example.org/feed'
+
+    expect(getMainFeedUrl(value, [guarded, unguarded])).toBeUndefined()
   })
 })

@@ -9,6 +9,7 @@ import {
   isHttpUrl,
   isString,
   parseUrl,
+  startsWithAnyOf,
   stripWww,
   t,
   trimObject,
@@ -29,9 +30,21 @@ type CompiledTemplate = {
   optionalWwwRegex: RegExp
   // The values of a URL the template takes, read as given or with an optional `www`.
   readParams: (tableUrl: TableUrl, isWwwOptional: boolean) => Record<string, string> | undefined
+  // The values of a URL in the spelling it has, read only from a URL written as the template is:
+  // the same case, the same trailing slash, each own parameter once and under its own name.
+  readRawParams: (url: URL, isWwwOptional: boolean) => RawParams | undefined
+  // The template's URL with values written as they were read, and the query no row names kept.
+  getRawUrl: (rawParams: RawParams, keptQuery: string) => string | undefined
+  // The scheme and host of a template that writes `https` and its host itself.
+  fixedOrigin?: string
   passesChecks: (params: Record<string, string>) => boolean
   getUrl: (params?: UrlParams) => string | undefined
 }
+
+type UrlPart = 'host' | 'path' | 'query'
+
+// A value as the URL spells it, with the part of the URL it was read from.
+type RawParams = Record<string, { value: string; part: UrlPart }>
 
 // A URL as the templates read it: the host joined to the decoded path without its trailing slash.
 type TableUrl = {
@@ -49,6 +62,10 @@ const leadingSlashesRegex = /^\/{2,}/
 const anchorsRegex = /^\^|\$$/g
 const passedQueryRegex = /^\{(\w+)\}$/
 const leadingQuestionMarkRegex = /^\?/
+// A value every part of a URL reads the same way, so it can move from one part to another.
+const plainValueRegex = /^[\w.~-]+$/
+const pairSeparatorRegex = /=(.*)/s
+const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 const captureRegex = /\(\?<p\d+>/g
 
 const rootPlaceholder = '{root}'
@@ -243,17 +260,20 @@ const compileTemplate = (
 
   const names = [...template.matchAll(placeholderRegex)].map(([, name]) => name)
   const checks = options.checks ?? {}
-  const capturedNames: Array<string> = []
+  const captured: Array<{ name: string; part: UrlPart }> = []
   // Every placeholder is captured as `p{index}`, so a URL is read back to its values.
-  const wrapCapture = (name: string, source: string): string => {
-    capturedNames.push(toBareName(name))
+  const wrapCaptureIn = (part: UrlPart) => {
+    return (name: string, source: string): string => {
+      captured.push({ name: toBareName(name), part })
 
-    return `(?<${captureGroupPrefix}${capturedNames.length - 1}>${source})`
+      return `(?<${captureGroupPrefix}${captured.length - 1}>${source})`
+    }
   }
+  const getCaptured = (group: string) => captured[Number(group.slice(captureGroupPrefix.length))]
   // A name the template holds twice keeps the first value read.
   const readGroups = (params: Record<string, string>, groups: Record<string, string> = {}) => {
     for (const [group, value] of Object.entries(groups)) {
-      const name = capturedNames[Number(group.slice(captureGroupPrefix.length))]
+      const { name } = getCaptured(group)
 
       if (value !== undefined && params[name] === undefined) {
         params[name] = value
@@ -277,11 +297,19 @@ const compileTemplate = (
     '[^/]+',
     multiSegmentCaptures,
     true,
-    wrapCapture,
+    wrapCaptureIn('path'),
+  )
+  // The path as the template writes it, for a URL read in its own spelling.
+  const rawPathSource = toRegexSource(
+    path,
+    '[^/]+',
+    multiSegmentCaptures,
+    false,
+    wrapCaptureIn('path'),
   )
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.
-  const toHostPathRegex = (isWwwOptional: boolean): RegExp => {
+  const toHostPathRegex = (isWwwOptional: boolean, isRaw = false): RegExp => {
     const wwwSource = isWwwOptional ? '(?:www\\.)?' : ''
     const tenantWwwSource = options.isWwwTenantPrefix ? wwwSource : ''
     const normalize = (value: string): string => (isWwwOptional ? stripWww(value) : value)
@@ -304,15 +332,39 @@ const compileTemplate = (
       tenantSource,
       hostCaptures,
       false,
-      wrapCapture,
+      wrapCaptureIn('host'),
     )
+    const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`
 
-    return new RegExp(`^${fixedPrefixSource}${tenantPrefixSource}${hostSource}${pathSource}$`, 'i')
+    if (isRaw) {
+      return new RegExp(`^${prefixSource}${hostSource}${rawPathSource}$`)
+    }
+
+    return new RegExp(`^${prefixSource}${hostSource}${pathSource}$`, 'i')
   }
   const asGivenRegex = toHostPathRegex(false)
   const optionalWwwRegex = toHostPathRegex(true)
+  const rawAsGivenRegex = toHostPathRegex(false, true)
+  const rawOptionalWwwRegex = toHostPathRegex(true, true)
   const queryRegexes = query.map(([name, value]): [string, RegExp] => {
-    return [name, new RegExp(`^${toRegexSource(value, '.+', {}, false, wrapCapture)}$`, 'i')]
+    const source = toRegexSource(value, '.+', {}, false, wrapCaptureIn('query'))
+
+    return [name, new RegExp(`^${source}$`, 'i')]
+  })
+  // The text a row writes itself in a query value, encoded as `getUrl` encodes it.
+  const encodeQueryText = (literal: string): string => {
+    return encodeQueryParameter('', literal).slice(1).replace(nonAsciiRegex, encodeURIComponent)
+  }
+  const rawQueryRegexes = query.map(([name, value]): [string, RegExp] => {
+    const wrapCapture = wrapCaptureIn('query')
+    const source = value
+      .split(placeholderRegex)
+      .map((piece, index) => {
+        return index % 2 === 1 ? wrapCapture(piece, '.+') : escapeRegex(encodeQueryText(piece))
+      })
+      .join('')
+
+    return [name, new RegExp(`^${source}$`)]
   })
   const repeatedNames = ownNames.filter((name, index) => ownNames.indexOf(name) !== index)
 
@@ -361,6 +413,130 @@ const compileTemplate = (
     }
 
     return params
+  }
+
+  // A name the template holds twice reads one value, so two different ones read nothing.
+  const readRawGroups = (rawParams: RawParams, groups: Record<string, string> = {}): boolean => {
+    return Object.entries(groups).every(([group, value]) => {
+      const { name, part } = getCaptured(group)
+
+      if (value === undefined) {
+        return true
+      }
+
+      if (rawParams[name] && rawParams[name].value !== value) {
+        return false
+      }
+
+      rawParams[name] = { value, part }
+
+      return true
+    })
+  }
+
+  const readRawParams = (url: URL, isWwwOptional: boolean): RawParams | undefined => {
+    const regex = isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex
+    const match = regex.exec(url.hostname + url.pathname)
+    const rawParams: RawParams = {}
+
+    // A row that repeats a parameter name is read loosely, so a URL that gives the name once is
+    // not written as the row writes it.
+    if (!match || repeatedNames.length > 0 || !readRawGroups(rawParams, match.groups)) {
+      return
+    }
+
+    const pairs = url.search
+      .replace(leadingQuestionMarkRegex, '')
+      .split('&')
+      .map((pair) => pair.split(pairSeparatorRegex))
+
+    for (const [name, rawRegex] of rawQueryRegexes) {
+      const [own, ...others] = pairs.filter(([pairName]) => isAnyOf(decodePercent(pairName), name))
+
+      // A parameter given twice or under another case is read differently from server to server.
+      if (!own || others.length > 0 || own[0] !== name) {
+        return
+      }
+
+      const [, value] = own
+
+      if (flags.has(name)) {
+        if (value !== undefined) {
+          return
+        }
+
+        continue
+      }
+
+      const queryMatch = rawRegex.exec(value ?? '')
+
+      if (!queryMatch || !readRawGroups(rawParams, queryMatch.groups)) {
+        return
+      }
+    }
+
+    if ('host' in rawParams) {
+      rawParams.host.value = url.host
+    }
+
+    if (scheme === schemePlaceholder) {
+      rawParams.scheme = { value: url.protocol.slice(0, -1), part: 'host' }
+    }
+
+    if (isRootTemplate) {
+      rawParams.root = { value: url.origin, part: 'host' }
+    }
+
+    return rawParams
+  }
+
+  const getRawUrl = (rawParams: RawParams, keptQuery: string): string | undefined => {
+    let isFilled = true
+    // A value moved to another part of the URL is written only when it reads the same there.
+    const fill = (text: string, part: UrlPart, encode = (literal: string) => literal): string => {
+      return text
+        .split(placeholderRegex)
+        .map((piece, index) => {
+          if (index % 2 === 0) {
+            return encode(piece)
+          }
+
+          const rawParam = rawParams[toBareName(piece)]
+
+          if (!rawParam || (rawParam.part !== part && !plainValueRegex.test(rawParam.value))) {
+            isFilled = false
+
+            return ''
+          }
+
+          return rawParam.value
+        })
+        .join('')
+    }
+    const origin = isRootTemplate
+      ? fill(rootPlaceholder, 'host')
+      : `${fill(scheme, 'host')}://${fill(host, 'host')}`
+    const hasPassedQuery = queryEntries.some((entry) => getPassedQueryName(entry) !== undefined)
+    const queryParts = queryEntries.map((entry) => {
+      const [name, value] = entry
+
+      if (getPassedQueryName(entry) !== undefined) {
+        return keptQuery
+      }
+
+      return flags.has(name) ? name : `${name}=${fill(value, 'query', encodeQueryText)}`
+    })
+    const joinedQuery = [...queryParts, hasPassedQuery ? '' : keptQuery]
+      .filter((queryPart) => queryPart)
+      .join('&')
+    const filledPath = fill(path, 'path')
+
+    // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
+    if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
+      return
+    }
+
+    return `${origin}${filledPath}${joinedQuery ? `?${joinedQuery}` : ''}`
   }
 
   // A template whose placeholders the values do not all fill builds no URL.
@@ -425,6 +601,9 @@ const compileTemplate = (
     asGivenRegex,
     optionalWwwRegex,
     readParams,
+    readRawParams,
+    getRawUrl,
+    fixedOrigin: isAnyOf(scheme, 'https') && !host.includes('{') ? `https://${host}` : undefined,
     passesChecks,
     getUrl,
   }
@@ -432,7 +611,7 @@ const compileTemplate = (
 
 // One table of URLs, keyed by what each row is. `build` writes a row's URL from the values a page
 // gave, `buildAll` lists every spelling of it, `read` takes a URL back to its row and values, and
-// `getMainUrl` rewrites an alias to its row's main URL.
+// `getMainUrl` writes a URL in its row's main spelling.
 export const defineUrls = <const Key extends string, Extra extends object = object>(
   rows: Array<UrlRow<Key> & Extra>,
   options: UrlTableOptions = {},
@@ -508,7 +687,14 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
   const readTemplate = (
     url: string,
-  ): { template: CompiledTemplate; params: Record<string, string>; url: URL } | undefined => {
+  ):
+    | {
+        template: CompiledTemplate
+        params: Record<string, string>
+        url: URL
+        isWwwOptional: boolean
+      }
+    | undefined => {
     const tableUrl = readTableUrl(url)
 
     if (!tableUrl) {
@@ -528,7 +714,12 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       return
     }
 
-    return { template: found.template, params: found.params, url: tableUrl.url }
+    return {
+      template: found.template,
+      params: found.params,
+      url: tableUrl.url,
+      isWwwOptional: !asGiven,
+    }
   }
 
   const read: UrlTable<Key, Row>['read'] = (url) => {
@@ -543,44 +734,76 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     return { key: row.key, params: found.params, row, isAlias: found.template.isAlias }
   }
 
-  // An alias written as its row's main URL. The parameters neither URL names are kept as given,
-  // and an alias without a value the main URL needs gives nothing.
+  // A URL written as its row's main URL, every value in the spelling it has. A main URL written
+  // with `http` or another `www` is rewritten too. Any other difference, a URL with credentials
+  // and a value or a port the main URL cannot keep give nothing.
   const getMainUrl: UrlTable<Key, Row>['getMainUrl'] = (url) => {
     const found = readTemplate(url)
 
-    // A URL with credentials is left as it is: the main URL has no place that holds them.
-    if (!found?.template.isAlias || found.url.username || found.url.password) {
+    if (!found || found.url.username || found.url.password) {
       return
     }
 
+    // Where `www` can be a tenant, a URL read only by setting it aside is not known to be this row.
+    if (options.isWwwTenant && found.isWwwOptional) {
+      return
+    }
+
+    const rawParams = found.template.readRawParams(found.url, found.isWwwOptional)
     const [main] = compiledRows[found.template.rowIndex]
-    const ownNames = [...found.template.ownNames, ...main.ownNames]
-    const keptQuery = found.url.search
-      .replace(leadingQuestionMarkRegex, '')
-      .split('&')
-      .filter((part) => part && !isAnyOf(decodePercent(part.split('=')[0]), ownNames))
-      .join('&')
-    const [passedQueryName] = main.passedQueryNames
-    // A main URL that takes a passed query gets the kept parameters through it.
-    const params = passedQueryName
-      ? { [passedQueryName]: keptQuery, ...found.params }
-      : found.params
-    const builtUrl = main.getUrl(params)
 
-    if (!builtUrl) {
+    if (!rawParams) {
       return
     }
 
-    const separator = builtUrl.includes('?') ? '&' : '?'
-    const withQuery =
-      passedQueryName || !keptQuery ? builtUrl : `${builtUrl}${separator}${keptQuery}`
+    if (!found.template.isAlias) {
+      if (!main.fixedOrigin || found.url.port) {
+        return
+      }
+
+      const respelledUrl = `${main.fixedOrigin}${found.url.href.slice(found.url.origin.length)}`
+
+      if (respelledUrl === found.url.href) {
+        return
+      }
+
+      return respelledUrl
+    }
+
+    const pairs = found.url.search.replace(leadingQuestionMarkRegex, '').split('&')
+    const isNamed = (pair: string, names: Array<string>): boolean => {
+      return isAnyOf(decodePercent(pair.split('=')[0]), names)
+    }
+    const ownNames = [...found.template.ownNames, ...main.ownNames]
+    const keptQuery = pairs.filter((pair) => pair && !isNamed(pair, ownNames)).join('&')
+    const mainUrl = main.getRawUrl(rawParams, keptQuery)
 
     // A port the main URL cannot keep, as one on a host it writes itself, leaves the URL as it is.
-    if (found.url.port && parseUrl(withQuery)?.port !== found.url.port) {
+    if (!mainUrl || (found.url.port && parseUrl(mainUrl)?.port !== found.url.port)) {
       return
     }
 
-    return withQuery
+    // An `https` URL is never written down to `http`.
+    if (found.url.protocol === 'https:' && startsWithAnyOf(mainUrl, 'http:')) {
+      return
+    }
+
+    const mainPairs = mainUrl.split('?')[1]?.split('&') ?? []
+    const hasOtherValue = pairs.some((pair) => {
+      return (
+        isNamed(pair, main.ownNames) &&
+        !isNamed(pair, found.template.ownNames) &&
+        !mainPairs.includes(pair)
+      )
+    })
+
+    // A parameter the main URL sets, given under another value, is read differently from server
+    // to server.
+    if (hasOtherValue) {
+      return
+    }
+
+    return mainUrl
   }
 
   // The table for one page: `{scheme}`, `{host}` and `{root}` come from the page URL, `{domain}` is

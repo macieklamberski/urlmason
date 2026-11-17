@@ -3,6 +3,7 @@ import type {
   FeedHint,
   FeedUrlRow,
   FeedUrlTable,
+  Platform,
   UrlParams,
   UrlTableOptions,
 } from '../types.js'
@@ -91,5 +92,17 @@ export const defineFeedUrls = <const Key extends string>(
         getFeedSpellings: (key, params, format) => getFeedSpellingsOn(page, key, params, format),
       }
     },
+  }
+}
+
+// The main URL of a feed, from the first platform that claims the URL. A platform's own
+// `getFeedHint` decides the claim, so a URL its guard refuses is never rewritten.
+export const getMainFeedUrl = (url: string, platforms: Array<Platform>): string | undefined => {
+  for (const platform of platforms) {
+    const getFeedHint = platform.getFeedHint ?? platform.feeds.getFeedHint
+
+    if (getFeedHint(url)) {
+      return platform.feeds.getMainFeedUrl(url)
+    }
   }
 }
