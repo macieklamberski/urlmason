@@ -31,6 +31,8 @@ export type PlatformFeed<Key extends string = string> = {
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type PlatformFeedParams = Record<string, string | undefined>
 
+export type PlatformFeedCheck = (value: string) => boolean
+
 export type PlatformFeedTableOptions = {
   // The hosts a `{host}` placeholder stands for, with every one-label tenant under `tenantDomains`.
   // A pattern stands for one name across suffixes, such as `/^example\.(?:com|de)$/`, anchored at
@@ -44,6 +46,9 @@ export type PlatformFeedTableOptions = {
   // Whether `www` in front of a tenant label is dropped, so `www.alice.example.com` matches as
   // `alice.example.com`.
   isWwwTenantPrefix?: boolean
+  // A check per placeholder name, such as `{ locale: isLocale }`. A feed URL whose value fails its
+  // check is not built, and `getFeedHint` claims no URL whose value fails it.
+  checks?: Record<string, PlatformFeedCheck>
 }
 
 // A table's methods take only the keys of its feeds, so a key the table does not hold fails the
