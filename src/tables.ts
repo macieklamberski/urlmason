@@ -731,7 +731,13 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
     const row = rows[found.template.rowIndex]
 
-    return { key: row.key, params: found.params, row, isAlias: found.template.isAlias }
+    return {
+      key: row.key,
+      params: found.params,
+      row,
+      isAlias: found.template.isAlias,
+      isExact: found.template.readRawParams(found.url, found.isWwwOptional) !== undefined,
+    }
   }
 
   // A URL written as its row's main URL, every value in the spelling it has. A main URL written

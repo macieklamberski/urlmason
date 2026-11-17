@@ -64,6 +64,9 @@ export type UrlMatch<Key extends string, Row> = {
   params: Record<string, string>
   row: Row
   isAlias: boolean
+  // Whether the URL is written as the row writes it: the same case, the same trailing slash and
+  // each own parameter once. A platform can answer any other spelling with another feed.
+  isExact: boolean
 }
 
 // A table's methods take only the keys of its rows, so a key the table does not hold fails the
@@ -82,6 +85,7 @@ export type FeedUrlTable<Key extends string = string> = {
   getFeedSpellings: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
   getFeedHint: (url: string) => FeedHint | undefined
   getMainFeedUrl: (url: string) => string | undefined
+  read: (url: string) => UrlMatch<Key, FeedUrlRow<Key>> | undefined
   forUrl: (
     url: string,
   ) => Pick<FeedUrlTable<Key>, 'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'> | undefined
@@ -89,7 +93,10 @@ export type FeedUrlTable<Key extends string = string> = {
 
 export type Platform = {
   hosts?: UrlHosts
-  // A table takes only its own keys, so only a table of no keys stands for every table.
-  feeds: FeedUrlTable<never>
+  // A table takes only its own keys, so only a table of no keys stands for every table. What a
+  // table reads comes back under any key.
+  feeds: Omit<FeedUrlTable<never>, 'read'> & {
+    read: (url: string) => UrlMatch<string, FeedUrlRow> | undefined
+  }
   getFeedHint?: FeedUrlTable['getFeedHint']
 }

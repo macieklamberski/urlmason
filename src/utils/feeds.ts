@@ -79,6 +79,7 @@ export const defineFeedUrls = <const Key extends string>(
       return composeHint(match.key, match.row.format)
     },
     getMainFeedUrl: urls.getMainUrl,
+    read: urls.read,
     forUrl: (url) => {
       const page = urls.forUrl(url)
 

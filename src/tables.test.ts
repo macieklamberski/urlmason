@@ -110,6 +110,7 @@ describe('defineUrls', () => {
         params: { videoId: 'x8abc' },
         row: playerRows[0],
         isAlias: false,
+        isExact: true,
       }
 
       expect(players.read(value)).toEqual(expected)
@@ -128,6 +129,27 @@ describe('defineUrls', () => {
       const match = players.read(value)
 
       expect(match?.row.ratio).toBe(expected)
+    })
+
+    it('should mark a URL with its fixed text in another case as not exact', () => {
+      const value = 'https://www.example.com/EMBED/x8abc'
+      const match = players.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should mark a URL with a trailing slash the row does not write as not exact', () => {
+      const value = 'https://www.example.com/embed/x8abc/'
+      const match = players.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should mark a URL under another scheme and without www as exact', () => {
+      const value = 'http://example.com/embed/x8abc'
+      const match = players.read(value)
+
+      expect(match?.isExact).toBe(true)
     })
 
     it('should read a value from the query', () => {
