@@ -31,16 +31,21 @@ export type PlatformFeed<Key extends string = string> = {
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type PlatformFeedParams = Record<string, string | undefined>
 
+export type PlatformHosts = {
+  // The exact hosts a `{host}` placeholder stands for. A pattern stands for one name across
+  // suffixes, such as `/^example\.(?:com|de)$/`, anchored at both ends, and matches the host as
+  // given or without `www`.
+  exact?: Array<string | RegExp>
+  // The domains tenants live under: a `{domain}` placeholder stands for one, and `{host}` for every
+  // one-label tenant under one. A pattern stands for a family of domains, such as
+  // `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends.
+  tenants?: Array<string | RegExp>
+}
+
 export type PlatformFeedCheck = (value: string) => boolean
 
 export type PlatformFeedTableOptions = {
-  // The hosts a `{host}` placeholder stands for, with every one-label tenant under `tenantDomains`.
-  // A pattern stands for one name across suffixes, such as `/^example\.(?:com|de)$/`, anchored at
-  // both ends, and matches the host as given or without `www`.
-  hosts?: Array<string | RegExp>
-  // The domains a `{domain}` placeholder stands for. A pattern stands for a family of domains,
-  // such as `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends.
-  tenantDomains?: Array<string | RegExp>
+  hosts?: PlatformHosts
   // Whether `www` can be a tenant, so `www.example.com` matches a `{user}.example.com` feed.
   isWwwTenant?: boolean
   // Whether `www` in front of a tenant label is dropped, so `www.alice.example.com` matches as
@@ -72,8 +77,7 @@ export type PlatformFeedTable<Key extends string = string> = {
 }
 
 export type Platform = {
-  hosts?: Array<string | RegExp>
-  tenantDomains?: Array<string | RegExp>
+  hosts?: PlatformHosts
   // A table takes only its own keys, so only a table of no keys stands for every table.
   feeds: PlatformFeedTable<never>
   getFeedHint?: PlatformFeedTable['getFeedHint']

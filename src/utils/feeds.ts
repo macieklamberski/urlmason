@@ -244,8 +244,8 @@ const compileTemplate = (
   }
   // A name with no value, such as `?rss`, is a flag, built with no value.
   const flags = new Set(query.filter(([, value]) => !value).map(([name]) => name))
-  const hosts = options.hosts ?? []
-  const tenantDomains = (options.tenantDomains ?? []).map((domain) => toEntrySource(domain))
+  const hosts = options.hosts?.exact ?? []
+  const tenantDomains = (options.hosts?.tenants ?? []).map((domain) => toEntrySource(domain))
   const domainSource = `(?:${tenantDomains.join('|')})`
   // One host label other than `www` unless `www` is a tenant.
   const tenantSource = options.isWwwTenant ? '[^./]+' : '(?!www\\.)[^./]+'
@@ -574,7 +574,7 @@ export const definePlatformFeeds = <const Key extends string>(
   }
 
   // The table for one page: `{scheme}`, `{host}` and `{root}` come from the page URL, `{domain}` is
-  // its host without the tenant under `tenantDomains`, `example.co.uk` for `alice.example.co.uk`.
+  // its host without the tenant under `hosts.tenants`, `example.co.uk` for `alice.example.co.uk`.
   // A value the caller passes wins, so a caller passes a root with the base path the page names.
   const forUrl: PlatformFeedTable<Key>['forUrl'] = (url) => {
     const parsedUrl = parseUrl(url)
@@ -583,7 +583,7 @@ export const definePlatformFeeds = <const Key extends string>(
       return
     }
 
-    const subdomain = getSubdomain(parsedUrl, options.tenantDomains ?? [])
+    const subdomain = getSubdomain(parsedUrl, options.hosts?.tenants ?? [])
     const urlParams: PlatformFeedParams = {
       scheme: parsedUrl.protocol.slice(0, -1),
       host: parsedUrl.host,

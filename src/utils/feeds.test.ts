@@ -25,7 +25,7 @@ const feeds = definePlatformFeeds(
     { key: 'example:handle', main: 'https://www.example.com/rss/@{username}' },
     { key: 'example:topic', main: 'https://www.example.com/topics/tag:{tag}/feed' },
   ],
-  { hosts: ['example.com', 'www.example.com'], tenantDomains: ['example.net', 'example.edu'] },
+  { hosts: { exact: ['example.com', 'www.example.com'], tenants: ['example.net', 'example.edu'] } },
 )
 
 const encodedFeeds = definePlatformFeeds([
@@ -57,7 +57,7 @@ const wwwPrefixDomainFeeds = definePlatformFeeds(
     { key: 'example:blog', main: '{scheme}://{username}.{domain}/feed' },
     { key: 'example:site', main: 'https://{host}/feeds/site' },
   ],
-  { tenantDomains: ['example.net'], isWwwTenantPrefix: true },
+  { hosts: { tenants: ['example.net'] }, isWwwTenantPrefix: true },
 )
 
 const domainPatternTemplates = [
@@ -66,14 +66,14 @@ const domainPatternTemplates = [
 ]
 
 const domainPatternOptions = {
-  tenantDomains: ['example.net', /^example\.(?:com|co\.[a-z]{2}|[a-z]{2})$/],
+  hosts: { tenants: ['example.net', /^example\.(?:com|co\.[a-z]{2}|[a-z]{2})$/] },
 }
 
 const domainPatternFeeds = definePlatformFeeds(domainPatternTemplates, domainPatternOptions)
 
 const hostPatternFeeds = definePlatformFeeds(
   [{ key: 'example:profile', main: 'https://{host}/-{username}/feed' }],
-  { hosts: ['example.org', /^example\.(?:com|co\.[a-z]{2}|[a-z]{2})$/] },
+  { hosts: { exact: ['example.org', /^example\.(?:com|co\.[a-z]{2}|[a-z]{2})$/] } },
 )
 
 const rootTemplates = [
@@ -82,8 +82,7 @@ const rootTemplates = [
 ]
 
 const rootFeeds = definePlatformFeeds(rootTemplates, {
-  hosts: ['example.com'],
-  tenantDomains: ['example.net'],
+  hosts: { exact: ['example.com'], tenants: ['example.net'] },
 })
 
 const selfHostedRootFeeds = definePlatformFeeds(rootTemplates)
@@ -101,7 +100,7 @@ const pathFeeds = definePlatformFeeds(
     { key: 'example:search', main: 'https://www.example.com/c/{path*}.rss?q={query}' },
     { key: 'example:site', main: '{root}/site/{path*}.rss' },
   ],
-  { hosts: ['example.com', 'www.example.com'] },
+  { hosts: { exact: ['example.com', 'www.example.com'] } },
 )
 
 const passedQueryFeeds = definePlatformFeeds(
@@ -111,7 +110,7 @@ const passedQueryFeeds = definePlatformFeeds(
     { key: 'example:search', main: '{root}/jobs/feed?sort=date&{query}' },
     { key: 'example:site', main: '{root}/index.php?format=feed&type=atom' },
   ],
-  { hosts: ['example.com'] },
+  { hosts: { exact: ['example.com'] } },
 )
 
 const repeatedQueryFeeds = definePlatformFeeds(
@@ -125,7 +124,7 @@ const repeatedQueryFeeds = definePlatformFeeds(
       main: 'https://{host}/createrssfeed.action?types=page&spaces=conf_all',
     },
   ],
-  { hosts: ['example.com'] },
+  { hosts: { exact: ['example.com'] } },
 )
 
 const formQueryFeeds = definePlatformFeeds(
@@ -145,7 +144,7 @@ const formQueryFeeds = definePlatformFeeds(
     { key: 'example:profile', main: '{root}/index.php?title={title}&rss', queryEncoding: 'form' },
     { key: 'example:search', main: '{root}/search?q={terms}&feed=atom' },
   ],
-  { hosts: ['example.com'] },
+  { hosts: { exact: ['example.com'] } },
 )
 
 const directoryFeeds = definePlatformFeeds([
@@ -167,7 +166,7 @@ const checkedFeeds = definePlatformFeeds(
     { key: 'example:site', main: 'https://{host}/site.rss' },
   ],
   {
-    hosts: ['example.org', /^[a-z]{2}\.example\.org$/],
+    hosts: { exact: ['example.org', /^[a-z]{2}\.example\.org$/] },
     checks: { locale: isLocale, country: isShortLabel, host: (host) => host !== 'example.org' },
   },
 )
@@ -733,7 +732,7 @@ describe('definePlatformFeeds', () => {
     it('should return the key of a feed on www of a listed domain with isWwwTenant', () => {
       const wwwTenantHostFeeds = definePlatformFeeds(
         [{ key: 'example:site', main: 'https://{host}/feeds/site' }],
-        { tenantDomains: ['example.net'], isWwwTenant: true },
+        { hosts: { tenants: ['example.net'] }, isWwwTenant: true },
       )
       const value = 'https://www.example.net/feeds/site'
       const expected = 'example:site'
@@ -751,7 +750,7 @@ describe('definePlatformFeeds', () => {
     it('should return the key of a feed on a listed host under a listed domain', () => {
       const hostFeeds = definePlatformFeeds(
         [{ key: 'example:site', main: 'https://{host}/feeds/site' }],
-        { hosts: ['example.net'], tenantDomains: ['example.net'] },
+        { hosts: { exact: ['example.net'], tenants: ['example.net'] } },
       )
       const value = 'https://example.net/feeds/site'
       const expected = 'example:site'
@@ -1286,7 +1285,7 @@ describe('definePlatformFeeds', () => {
         { key: 'example:posts', main: '{scheme}://{blog}.{domain}/feed' },
         { key: 'ocnk:products', main: '{scheme}://{host}/feed' },
       ],
-      { tenantDomains: ['example.net', 'example.org'] },
+      { hosts: { tenants: ['example.net', 'example.org'] } },
     )
 
     it('should fill the scheme of an http page', () => {
@@ -1960,7 +1959,7 @@ describe('definePlatformFeeds', () => {
         { key: 'example:news', main: 'https://www.example.com/{team}/news.rss' },
         { key: 'example:news', main: '{scheme}://{host}/news.rss', isBuildOnly: true },
       ],
-      { hosts: ['example.com', 'www.example.com'] },
+      { hosts: { exact: ['example.com', 'www.example.com'] } },
     )
 
     describe('getFeedUrl', () => {
