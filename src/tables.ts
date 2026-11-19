@@ -25,6 +25,10 @@ type CompiledTemplate = {
   // The query parameters the template sets itself, and the placeholders that take a passed query.
   ownNames: Array<string>
   passedQueryNames: Array<string>
+  // The parameters the template sets to a fixed value, as `alt=rss`, and the ones it reads a
+  // value from, as `id={id}`.
+  fixedQuery: Array<[name: string, value: string]>
+  valueNames: Array<string>
   // The host and path a URL the template takes matches, as given and with an optional `www`.
   asGivenRegex: RegExp
   optionalWwwRegex: RegExp
@@ -217,6 +221,8 @@ const compileTemplate = (
   // A passed query names no parameter of the row, so it is neither matched nor counted.
   const query = queryEntries.filter((entry) => getPassedQueryName(entry) === undefined)
   const ownNames = query.map(([name]) => name)
+  const fixedQuery = query.filter(([, value]) => !value.includes('{'))
+  const valueNames = query.filter(([, value]) => value.includes('{')).map(([name]) => name)
   const encodeQueryParameter = (name: string, value: string | true): string => {
     if (value === true || queryEncoding !== 'form') {
       return composeQuery({ [name]: value }).slice(1)
@@ -620,6 +626,8 @@ const compileTemplate = (
     queryCount: query.length,
     ownNames,
     passedQueryNames: [...passedQueryNames].filter((name) => name !== undefined),
+    fixedQuery,
+    valueNames,
     asGivenRegex,
     optionalWwwRegex,
     readParams,
@@ -701,8 +709,87 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     return []
   }
 
+  // A parameter that the templates of a key set to different fixed values, or that only some of
+  // them set, tells that key's feeds apart, as `alt=rss` beside a row with no `alt`. Under
+  // another value it names a feed no row knows.
+  const getSelectorNames = (key: string): Array<string> => {
+    const keyTemplates = compiledRows
+      .filter((_templates, rowIndex) => rows[rowIndex].key === key)
+      .flat()
+    const fixedNames = keyTemplates.flatMap((template) => template.fixedQuery.map(([name]) => name))
+    const getFixedValues = (template: CompiledTemplate, name: string): string => {
+      const values = template.fixedQuery
+        .filter(([fixedName]) => fixedName === name)
+        .map(([, value]) => value)
+
+      return JSON.stringify(values.toSorted((left, right) => left.localeCompare(right)))
+    }
+
+    return [...new Set(fixedNames)].filter((name) => {
+      return new Set(keyTemplates.map((template) => getFixedValues(template, name))).size > 1
+    })
+  }
+  const keys = [...new Set(rows.map((row) => row.key))]
+  const keySelectorNames: Record<string, Array<string>> = Object.fromEntries(
+    keys.map((key) => [key, getSelectorNames(key)]),
+  )
+  // A parameter another template taking the same host and path sets to a value this one does
+  // not set, tells the two apart too, also across keys, as `type=comments` on `/feed`.
+  const getPathSelectorNames = (
+    template: CompiledTemplate,
+    hostPath: string,
+    isWwwOptional: boolean,
+  ): Array<string> => {
+    return compiled
+      .filter((candidate) => {
+        return (isWwwOptional ? candidate.optionalWwwRegex : candidate.asGivenRegex).test(hostPath)
+      })
+      .flatMap((candidate) => candidate.fixedQuery)
+      .filter(([name, value]) => {
+        return !template.fixedQuery.some(([ownName, ownValue]) => {
+          return isAnyOf(name, ownName) && isAnyOf(value, ownValue)
+        })
+      })
+      .map(([name]) => name)
+  }
+
+  const hasUnlistedSelector = (
+    template: CompiledTemplate,
+    tableUrl: TableUrl,
+    isWwwOptional: boolean,
+  ): boolean => {
+    const url = tableUrl.url
+    const row = rows[template.rowIndex]
+    const names = [
+      ...keySelectorNames[row.key],
+      ...getPathSelectorNames(template, tableUrl.hostPath, isWwwOptional),
+    ]
+
+    // A row that passes the page's query on takes any parameter.
+    if (names.length === 0 || template.passedQueryNames.length > 0) {
+      return false
+    }
+
+    const rowFixedQuery = compiledRows[template.rowIndex].flatMap(
+      (candidate) => candidate.fixedQuery,
+    )
+    const openNames = [...template.valueNames, ...(row.keptParams ?? options.keptParams ?? [])]
+
+    return [...url.searchParams].some(([name, value]) => {
+      if (!isAnyOf(name, names) || isAnyOf(name, openNames)) {
+        return false
+      }
+
+      // A fixed value is read in any case, as the template reads it.
+      return !rowFixedQuery.some(([fixedName, fixedValue]) => {
+        return isAnyOf(name, fixedName) && isAnyOf(value, fixedValue)
+      })
+    })
+  }
+
   // The first template that takes the URL decides: a value its check refuses refuses the URL, so
-  // a looser row such as one without the query does not take it in its place.
+  // a looser row such as one without the query does not take it in its place. So does a selector
+  // under a value no row lists.
   const findTemplate = (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
@@ -711,7 +798,10 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       const params = template.readParams(tableUrl, isWwwOptional)
 
       if (params) {
-        return { template, params: template.passesChecks(params) ? params : undefined }
+        const isRefused =
+          !template.passesChecks(params) || hasUnlistedSelector(template, tableUrl, isWwwOptional)
+
+        return { template, params: isRefused ? undefined : params }
       }
     }
   }
@@ -876,6 +966,11 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     // A parameter the main URL sets, given under another value, is read differently from server
     // to server.
     if (hasOtherValue) {
+      return
+    }
+
+    // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`.
+    if (readTemplate(mainUrl)?.template.rowIndex !== found.template.rowIndex) {
       return
     }
 

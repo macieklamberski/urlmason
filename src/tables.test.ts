@@ -118,6 +118,49 @@ const paged = defineUrls(
   { keptParams: ['max-results', 'start-index'] },
 )
 
+const formats = defineUrls(
+  [
+    { key: 'posts', main: 'https://example.com/feed' },
+    {
+      key: 'posts',
+      main: 'https://example.com/feed?alt=rss',
+      aliases: ['https://example.com/rss.xml'],
+    },
+    { key: 'search', main: 'https://example.com/search.xml?q={query}&types=page&types=post' },
+  ],
+  { keptParams: ['max-results'] },
+)
+
+const routes = defineUrls([
+  { key: 'posts', main: 'https://example.com/feed', aliases: ['https://example.com/rss'] },
+  { key: 'comments', main: 'https://example.com/feed?type=comments' },
+  { key: 'list', main: 'https://example.com/list?sort=new' },
+  { key: 'list', main: 'https://example.com/list?sort={sort}' },
+])
+
+const sections = defineUrls([
+  { key: 'posts', main: 'https://example.com/news/feed' },
+  { key: 'comments', main: 'https://example.com/{section}/feed?type=comments' },
+])
+
+const wwwRoutes = defineUrls([
+  { key: 'posts', main: 'https://www.example.com/feed' },
+  { key: 'comments', main: 'https://example.com/feed?type=comments' },
+])
+
+const keptFormats = defineUrls(
+  [
+    { key: 'posts', main: 'https://example.com/feed' },
+    { key: 'posts', main: 'https://example.com/feed?alt=rss' },
+  ],
+  { keptParams: ['alt'] },
+)
+
+const passedFormats = defineUrls([
+  { key: 'posts', main: 'https://example.com/feed?alt=rss' },
+  { key: 'posts', main: 'https://example.com/feed?{query}' },
+])
+
 const bare = defineUrls(
   [
     {
@@ -669,6 +712,157 @@ describe('defineUrls', () => {
       const value = 'https://example.com/alice/about'
 
       expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a parameter that tells rows apart', () => {
+    it('should read the row that sets the value', () => {
+      const value = 'https://example.com/feed?alt=rss'
+      const expected = 'https://example.com/feed?alt=rss'
+
+      const main = formats.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should return undefined for a value no row lists', () => {
+      const value = 'https://example.com/feed?alt=rss2'
+
+      expect(formats.read(value)).toBeUndefined()
+    })
+
+    it('should read a listed value in another case', () => {
+      const value = 'https://example.com/feed?ALT=RSS'
+      const expected = 'https://example.com/feed?alt=rss'
+      const main = formats.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should return undefined for a value no row lists under a name in another case', () => {
+      const value = 'https://example.com/feed?ALT=rss2'
+
+      expect(formats.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a listed value beside one no row lists', () => {
+      const value = 'https://example.com/feed?alt=rss&alt=rss2'
+
+      expect(formats.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value no row lists on an alias', () => {
+      const value = 'https://example.com/rss.xml?alt=rss2'
+
+      expect(formats.read(value)).toBeUndefined()
+    })
+
+    it('should read an alias with the value its row sets', () => {
+      const value = 'https://example.com/rss.xml?alt=rss'
+      const expected = 'https://example.com/feed?alt=rss'
+
+      expect(formats.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a URL with a parameter no row sets', () => {
+      const value = 'https://example.com/feed?page=2'
+      const expected = 'https://example.com/feed'
+
+      const main = formats.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should read another value of a parameter every template of the key sets alike', () => {
+      const value = 'https://example.com/search.xml?q=feeds&types=page&types=post&types=comment'
+      const expected = 'search'
+
+      const key = formats.read(value)?.key
+
+      expect(key).toBe(expected)
+    })
+
+    it('should return undefined for a value only a row of another key on the path sets', () => {
+      const value = 'https://example.com/feed?type=other'
+
+      expect(routes.read(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for a value only a row of another key on the path sets', () => {
+      const value = 'http://example.com/feed?type=other'
+
+      expect(routes.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read any value on a row that takes the parameter as a value', () => {
+      const value = 'https://example.com/list?sort=old'
+      const expected = 'https://example.com/list?sort={sort}'
+      const main = routes.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should read any value of a parameter the table keeps', () => {
+      const value = 'https://example.com/feed?alt=rss2'
+      const expected = 'https://example.com/feed'
+      const main = keptFormats.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should read any value on a row that passes the query on', () => {
+      const value = 'https://example.com/feed?alt=rss2'
+      const expected = 'https://example.com/feed?{query}'
+      const main = passedFormats.read(value)?.row.main
+
+      expect(main).toBe(expected)
+    })
+
+    it('should return no main URL for an alias whose parameter picks another row on the main path', () => {
+      const value = 'https://example.com/rss?type=comments'
+
+      expect(routes.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read a parameter another path sets as a parameter of no row', () => {
+      const value = 'https://example.com/list?sort=new&type=other'
+      const expected = 'list'
+      const key = routes.read(value)?.key
+
+      expect(key).toBe(expected)
+    })
+
+    it('should return undefined for a value a template with a placeholder path sets', () => {
+      const value = 'https://example.com/news/feed?type=other'
+
+      expect(sections.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value a template on the host without www sets, given with www', () => {
+      const value = 'https://www.example.com/feed?type=other'
+
+      expect(wwwRoutes.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value a template on the host without www sets', () => {
+      const value = 'https://example.com/feed?type=other'
+
+      expect(wwwRoutes.read(value)).toBeUndefined()
+    })
+
+    it('should read 200 kB of a listed value within a second', () => {
+      const value = `https://example.com/feed?alt=rss${'&alt=rss'.repeat(25000)}`
+      const startedAt = performance.now()
+
+      formats.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should return no main URL for a value no row lists', () => {
+      const value = 'http://example.com/feed?alt=rss2'
+
+      expect(formats.getMainUrl(value)).toBeUndefined()
     })
   })
 
