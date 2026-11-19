@@ -5,10 +5,14 @@ import type {
   FeedUrlRow,
   FeedUrlTable,
   Platform,
-  UrlParams,
   UrlTableOptions,
 } from '../types.js'
 import { defineUrls } from './tables.js'
+
+type FeedPage<Key extends string> = Pick<
+  FeedUrlTable<Key>,
+  'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'
+>
 
 // One table of a platform's feed URLs, each row keyed by its kind. A hint is keyed
 // `{platform}:{kind}`, as `dailymotion:playlist`.
@@ -37,40 +41,34 @@ export const defineFeedUrls = <const Key extends string>(
     return (row: FeedUrlRow<Key>): boolean => row.format === format
   }
 
-  type Page = Pick<
-    ReturnType<typeof defineUrls<Key, { format?: FeedFormat }>>,
-    'build' | 'buildAll'
-  >
+  // The feed methods on a table or on the table of one page.
+  const onPage = (page: Pick<typeof urls, 'build' | 'buildAll'>): FeedPage<Key> => {
+    return {
+      getFeedUrl: (key, params, format) => page.build(key, params, selectFormat(format)),
+      getFeedEntry: (key, params, format) => {
+        const uri = page.build(key, params, selectFormat(format))
 
-  const getFeedUrlOn = (page: Page, key: Key, params?: UrlParams, format?: FeedFormat) => {
-    return page.build(key, params, selectFormat(format))
-  }
+        if (!uri) {
+          return
+        }
 
-  const getFeedEntryOn = (page: Page, key: Key, params?: UrlParams, format?: FeedFormat) => {
-    const uri = getFeedUrlOn(page, key, params, format)
+        return { uri, hint: composeHint(key, format) }
+      },
+      getFeedSpellings: (key, params, format) => {
+        const uris = page.buildAll(key, params, selectFormat(format))
 
-    if (!uri) {
-      return
+        if (uris.length === 0) {
+          return
+        }
+
+        return { uri: uris.length === 1 ? uris[0] : uris, hint: composeHint(key, format) }
+      },
     }
-
-    return { uri, hint: composeHint(key, format) }
-  }
-
-  const getFeedSpellingsOn = (page: Page, key: Key, params?: UrlParams, format?: FeedFormat) => {
-    const uris = page.buildAll(key, params, selectFormat(format))
-
-    if (uris.length === 0) {
-      return
-    }
-
-    return { uri: uris.length === 1 ? uris[0] : uris, hint: composeHint(key, format) }
   }
 
   return {
     rows: urls.rows,
-    getFeedUrl: (key, params, format) => getFeedUrlOn(urls, key, params, format),
-    getFeedEntry: (key, params, format) => getFeedEntryOn(urls, key, params, format),
-    getFeedSpellings: (key, params, format) => getFeedSpellingsOn(urls, key, params, format),
+    ...onPage(urls),
     getFeedHint: (url) => {
       const match = urls.read(url)
 
@@ -89,11 +87,7 @@ export const defineFeedUrls = <const Key extends string>(
         return
       }
 
-      return {
-        getFeedUrl: (key, params, format) => getFeedUrlOn(page, key, params, format),
-        getFeedEntry: (key, params, format) => getFeedEntryOn(page, key, params, format),
-        getFeedSpellings: (key, params, format) => getFeedSpellingsOn(page, key, params, format),
-      }
+      return onPage(page)
     },
   }
 }

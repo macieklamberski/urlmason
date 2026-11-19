@@ -387,6 +387,149 @@ const ampersandAlias = defineUrls([
   },
 ])
 
+const escapedName = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?item%20id={id}',
+    aliases: ['https://old.example.com/item/{id}'],
+  },
+])
+
+const formName = defineUrls([
+  { key: 'item', main: 'https://example.com/items?item:id={id}', queryEncoding: 'form' },
+])
+
+const joined = defineUrls([
+  { key: 'plain', main: 'https://example.com/search?q={first}{second}' },
+  { key: 'form', main: 'https://example.com/find?q={first}{second}', queryEncoding: 'form' },
+])
+
+const escapedFlag = defineUrls([
+  {
+    key: 'list',
+    main: 'https://example.com/list?my%20flag',
+    aliases: ['https://old.example.com/list'],
+  },
+])
+
+const formFlag = defineUrls([
+  { key: 'list', main: 'https://example.com/list?my:flag', queryEncoding: 'form' },
+  { key: 'page', main: 'https://example.com/page?{query}&x={query}', queryEncoding: 'form' },
+])
+
+const brokenName = defineUrls([{ key: 'item', main: 'https://example.com/items?id%FF={id}' }])
+
+const brokenSecondName = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?page={id}&id%FF={id}',
+    aliases: ['https://old.example.com/item/{id}'],
+  },
+])
+
+const mirrored = defineUrls([{ key: 'entry', main: 'https://{host}/feed/{id}' }], {
+  hosts: { exact: [/(?<x>www2\.)?example\.com/] },
+})
+
+const mirroredMarked = defineUrls([{ key: 'entry', main: 'https://{host}/feed/{id}' }], {
+  hosts: { exact: [/(?<x>www2\.)?example\.com/] },
+  lenient: { case: ['id'] },
+})
+
+const mirroredQuery = defineUrls([{ key: 'entry', main: 'https://{host}/feed?id={id}' }], {
+  hosts: { exact: [/(?<mirror>www2\.)?example\.com/] },
+})
+
+const escapedPercentName = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?%25FF={id}',
+    aliases: ['https://old.example.com/item/{id}'],
+  },
+])
+
+const keptEscape = defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
+  keptParams: ['%FF'],
+})
+
+const movedFormat = defineUrls([
+  {
+    key: 'posts',
+    main: 'https://example.com/feed?alt=rss',
+    aliases: ['https://old.example.com/feed'],
+  },
+])
+
+const formAlias = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?item:id={id}',
+    aliases: ['https://old.example.com/item/{id}'],
+    queryEncoding: 'form',
+  },
+])
+
+const percentName = defineUrls([
+  {
+    key: 'entry',
+    main: 'https://example.com/entries?rate%25={id}',
+    aliases: ['https://old.example.com/entry/{id}'],
+  },
+])
+
+const spaceAndPlusNames = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?a%2Bb={id}&a%20b={other}',
+    aliases: ['https://old.example.com/item/{id}/{other}'],
+  },
+])
+
+const letterAndEscapeNames = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?A={id}&%2541={other}',
+    aliases: ['https://old.example.com/item/{id}/{other}'],
+  },
+])
+
+const percentFlag = defineUrls([
+  {
+    key: 'list',
+    main: 'https://example.com/list?rate%25',
+    aliases: ['https://old.example.com/list'],
+  },
+])
+
+const formSecondName = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?v=2&item:id={id}',
+    aliases: ['https://old.example.com/item/{id}'],
+    queryEncoding: 'form',
+  },
+])
+
+const renamed = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?id={id}',
+    aliases: ['https://example.com/legacy?i={id}'],
+  },
+])
+
+const movedVersion = defineUrls([
+  {
+    key: 'posts',
+    main: 'https://example.com/feed?v=2',
+    aliases: ['https://old.example.com/feed'],
+  },
+])
+
+const passedTwice = defineUrls([
+  { key: 'page', main: 'https://example.com/page?{query}&x={query}' },
+])
+
 describe('defineUrls', () => {
   describe('rows', () => {
     it('should return the rows it was given', () => {
@@ -603,6 +746,24 @@ describe('defineUrls', () => {
       expect(players.read(value)).toEqual(expected)
     })
 
+    it('should mark a URL as exact on a host whose pattern leaves a group of its own unset', () => {
+      const value = 'https://example.com/feed/5'
+      const match = mirrored.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should read a query value on a host whose pattern sets a group of its own', () => {
+      const value = 'https://www2.example.com/feed?id=5'
+      const expected = {
+        host: 'www2.example.com',
+        id: '5',
+      }
+      const match = mirroredQuery.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
     it('should mark a URL an alias takes', () => {
       const value = 'https://example.net/x8abc'
       const match = players.read(value)
@@ -797,6 +958,13 @@ describe('defineUrls', () => {
       expect(unsorted.build('filtered', value)).toBe(expected)
     })
 
+    it('should sort a name with an escape that is no UTF-8 as written', () => {
+      const value = { query: 'z=2&%FF=1' }
+      const expected = 'https://example.com/filter.rss?%FF=1&view=rss&z=2'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
     it('should sort a digit in a name before an underscore', () => {
       const value = { query: 'a_=2&a1=1' }
       const expected = 'https://example.com/filter.rss?a1=1&a_=2&view=rss'
@@ -816,12 +984,90 @@ describe('defineUrls', () => {
       expect(table.build('agenda', value)).toBeUndefined()
     })
 
+    it('should throw for a passed query whose braces the row escapes', () => {
+      const value = [{ key: 'list', main: 'https://example.com/list?%7Bquery%7D' }]
+      const throwing = () => defineUrls(value)
+
+      expect(throwing).toThrow('Not a feed URL template: https://example.com/list?%7Bquery%7D')
+    })
+
+    it('should throw for a passed query whose braces the row escapes beside a path value', () => {
+      const value = [{ key: 'list', main: 'https://example.com/{user}/list?%7Bquery%7D' }]
+      const throwing = () => defineUrls(value)
+
+      expect(throwing).toThrow(
+        'Not a feed URL template: https://example.com/{user}/list?%7Bquery%7D',
+      )
+    })
+
+    it('should build nothing from a passed query of null', () => {
+      const table = defineUrls([
+        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
+      ])
+      const value = {
+        id: '7',
+        query: null,
+      }
+
+      // @ts-expect-error: This is for testing purposes.
+      expect(table.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a passed query that is no text', () => {
+      const table = defineUrls([
+        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
+      ])
+      const value = {
+        id: '7',
+        query: 5,
+      }
+
+      // @ts-expect-error: This is for testing purposes.
+      expect(table.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should build a name the row gives as a flag and with a value as the flag twice', () => {
+      const table = defineUrls([{ key: 'entry', main: 'https://example.com/feed?rss&rss={id}' }])
+      const value = { id: '7' }
+      const expected = 'https://example.com/feed?rss&rss'
+
+      expect(table.build('entry', value)).toBe(expected)
+    })
+
+    it('should build a placeholder name with a value as a parameter of the row', () => {
+      const table = defineUrls([{ key: 'list', main: 'https://example.com/list?{query}=5' }])
+      const value = { query: 'page=2' }
+      const expected = 'https://example.com/list?{query}=5'
+
+      expect(table.build('list', value)).toBe(expected)
+    })
+
+    it('should build a placeholder name with a value beside a passed query of that name', () => {
+      const table = defineUrls([
+        { key: 'list', main: 'https://example.com/list?{query}&{query}=5' },
+      ])
+      const value = { query: 'page=2' }
+      const expected = 'https://example.com/list?page=2&{query}=5'
+
+      expect(table.build('list', value)).toBe(expected)
+    })
+
     it('should drop a passed parameter the row sets, its name written with +', () => {
       const table = defineUrls([
         { key: 'filtered', main: 'https://example.com/filter.rss?{query}&sort%20by=date' },
       ])
       const value = { query: 'sort+by=title&year=2024' }
       const expected = 'https://example.com/filter.rss?sort%20by=date&year=2024'
+
+      expect(table.build('filtered', value)).toBe(expected)
+    })
+
+    it('should drop a passed parameter the row sets, its name an escape that is no UTF-8', () => {
+      const table = defineUrls([
+        { key: 'filtered', main: 'https://example.com/filter.rss?{query}&id%FF=1' },
+      ])
+      const value = { query: 'id%FF=2&year=2024' }
+      const expected = 'https://example.com/filter.rss?id%EF%BF%BD=1&year=2024'
 
       expect(table.build('filtered', value)).toBe(expected)
     })
@@ -844,6 +1090,62 @@ describe('defineUrls', () => {
       const value = unsorted.build('search', { query: 'feeds' }) ?? ''
 
       expect(unsorted.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should escape a character split across two values of one query value', () => {
+      const value = {
+        first: 'a\ud83d',
+        second: '\ude00b',
+      }
+      const expected = 'https://example.com/search?q=a%F0%9F%98%80b'
+
+      expect(joined.build('plain', value)).toBe(expected)
+    })
+
+    it('should escape a character split across two values under the form encoding', () => {
+      const value = {
+        first: '\ud83d',
+        second: '\ude00',
+      }
+      const expected = 'https://example.com/find?q=%F0%9F%98%80'
+
+      expect(joined.build('form', value)).toBe(expected)
+    })
+
+    it('should write a value that is no text as its text', () => {
+      const value = { id: true }
+      const expected = 'https://example.com/items?id=true'
+
+      // @ts-expect-error: This is for testing purposes.
+      expect(moved.build('item', value)).toBe(expected)
+    })
+
+    it('should write a flag as the row spells it under the form encoding', () => {
+      const value = {}
+      const expected = 'https://example.com/list?my:flag'
+
+      expect(formFlag.build('list', value)).toBe(expected)
+    })
+
+    it('should write an empty value under the form encoding', () => {
+      const value = { query: '' }
+      const expected = 'https://example.com/page?x='
+
+      expect(formFlag.build('page', value)).toBe(expected)
+    })
+
+    it('should write no pair for an empty value under the default encoding', () => {
+      const value = { query: '' }
+      const expected = 'https://example.com/page'
+
+      expect(passedTwice.build('page', value)).toBe(expected)
+    })
+
+    it('should drop a passed pair without a name', () => {
+      const value = { query: '=1&year=2024' }
+      const expected = 'https://example.com/filter.rss?view=rss&year=2024'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
     })
 
     it('should sort 200 kB of a passed query within a second', () => {
@@ -1081,6 +1383,15 @@ describe('defineUrls', () => {
 
     it('should sort 200 kB of parameters within a second', () => {
       const value = `https://feeds.example.com/alice/rss20.xml?${'b=1&a=1&'.repeat(25000)}`
+      const startedAt = performance.now()
+
+      spellings.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read 200 kB of names with an escape within a second', () => {
+      const value = `https://feeds.example.com/alice/rss20.xml?${'%C3=1&a+b=1&'.repeat(16000)}`
       const startedAt = performance.now()
 
       spellings.getMainUrl(value)
@@ -1565,6 +1876,13 @@ describe('defineUrls', () => {
       expect(marked.getMainUrl(value)).toBe(expected)
     })
 
+    it('should write a value in lowercase on a host whose pattern leaves a group of its own unset', () => {
+      const value = 'https://example.com/feed/AB'
+      const expected = 'https://example.com/feed/ab'
+
+      expect(mirroredMarked.getMainUrl(value)).toBe(expected)
+    })
+
     it('should write a value of an alias in lowercase', () => {
       const value = 'https://example.com/Alice/feed/'
       const expected = 'https://feeds.example.com/alice'
@@ -1942,6 +2260,15 @@ describe('defineUrls', () => {
       const match = ampersands.read(value)
 
       expect(match?.params).toEqual(expected)
+    })
+
+    it('should refuse 8 MB of query on a host no row names within 50 ms', () => {
+      const value = `https://other.example.org/Feed.ashx?${'ID=7&'.repeat(1600000)}`
+      const startedAt = performance.now()
+
+      ampersands.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(50)
     })
 
     it('should write &amp; between query pairs as &', () => {
@@ -2365,6 +2692,288 @@ describe('defineUrls', () => {
       }
 
       expect(throwing).toThrow('The search row keeps q, which its URL already sets')
+    })
+  })
+
+  describe('with a parameter name the row writes with an escape', () => {
+    it('should mark the URL the row builds as exact', () => {
+      const value = 'https://example.com/items?item%20id=5'
+      const match = escapedName.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should write the http spelling of the URL the row builds as its main URL', () => {
+      const value = 'http://example.com/items?item%20id=5'
+      const expected = 'https://example.com/items?item%20id=5'
+
+      expect(escapedName.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the name on an alias as the row builds it', () => {
+      const value = 'https://old.example.com/item/5'
+      const expected = 'https://example.com/items?item%20id=5'
+
+      expect(escapedName.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should not mark the name written with + as exact', () => {
+      const value = 'https://example.com/items?item+id=5'
+      const match = escapedName.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should leave a flag the alias gives with an equals sign as the main URL escapes it', () => {
+      const value = 'https://old.example.com/list?my%20flag='
+      const expected = 'https://example.com/list?my%20flag'
+
+      expect(escapedFlag.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should mark the name as the form encoding writes it as exact', () => {
+      const value = 'https://example.com/items?item%3Aid=5'
+      const match = formName.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should mark the name as the row spells it as exact', () => {
+      const value = 'https://example.com/items?item:id=5'
+      const match = formName.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should keep the name as the URL spells it', () => {
+      const value = 'http://example.com/items?item:id=5'
+      const expected = 'https://example.com/items?item:id=5'
+
+      expect(formName.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should not mark a name with an escape that is no UTF-8 as exact', () => {
+      const value = 'https://example.com/items?id%FF=5'
+      const match = brokenName.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not mark a name given twice, once with an escape that is no UTF-8, as exact', () => {
+      const value = 'https://example.com/items?id%FF=1&id%EF%BF%BD=5'
+      const match = brokenName.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should leave a URL with a name given twice, once with an escape that is no UTF-8', () => {
+      const value = 'http://example.com/items?id%FF=6&id%EF%BF%BD=5'
+
+      expect(brokenName.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should leave an alias with another value under a name with an escape that is no UTF-8', () => {
+      const value = 'https://old.example.com/item/5?id%FF=rss'
+
+      expect(brokenSecondName.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should leave an alias with a pair some servers read as the name the row escapes', () => {
+      const value = 'https://old.example.com/item/5?%FF=9'
+
+      expect(escapedPercentName.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should keep a pair a kept list names with an escape that is no UTF-8', () => {
+      const value = 'http://example.com/items/5?%FF=1&page=2'
+      const expected = 'https://example.com/items/5?%FF=1'
+
+      expect(keptEscape.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives the parameter of the main URL as the row spells it', () => {
+      const value = 'https://old.example.com/item/5?item:id=5'
+      const expected = 'https://example.com/items?item%3Aid=5'
+
+      expect(formAlias.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives the parameter of the main URL as the row builds it', () => {
+      const value = 'https://old.example.com/item/5?item%3Aid=5'
+      const expected = 'https://example.com/items?item%3Aid=5'
+
+      expect(formAlias.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives a name with a percent sign as the row names it', () => {
+      const value = 'https://old.example.com/entry/5?rate%=5'
+      const expected = 'https://example.com/entries?rate%25=5'
+
+      expect(percentName.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should leave an alias that gives the parameter as the row spells it another value', () => {
+      const value = 'https://old.example.com/item/5?item:id=6'
+
+      expect(formAlias.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should leave an alias that gives the parameter in a third spelling', () => {
+      const value = 'https://old.example.com/item/5?item%3aid=5'
+
+      expect(formAlias.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should write an alias that gives a flag with a percent sign as the row names it', () => {
+      const value = 'https://old.example.com/list?rate%'
+      const expected = 'https://example.com/list?rate%25'
+
+      expect(percentFlag.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives the second parameter as the row spells it', () => {
+      const value = 'https://old.example.com/item/5?item:id=5'
+      const expected = 'https://example.com/items?item%3Aid=5&v=2'
+
+      expect(formSecondName.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should leave an alias with a name read as one parameter and spelled as another', () => {
+      const value = 'https://old.example.com/item/5/7?a+b=5'
+
+      expect(spaceAndPlusNames.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should leave an alias with an escaped name spelled as another parameter', () => {
+      const value = 'https://old.example.com/item/7/5?%41=5'
+
+      expect(letterAndEscapeNames.getMainUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a question mark inside a query', () => {
+    it('should throw for a row whose query opens with a second question mark', () => {
+      const value = [{ key: 'item', main: 'https://example.com/items??id={id}' }]
+      const throwing = () => defineUrls(value)
+
+      expect(throwing).toThrow('Not a feed URL template: https://example.com/items??id={id}')
+    })
+
+    it('should throw for a passed query behind a second question mark', () => {
+      const value = [{ key: 'list', main: 'https://example.com/list??{query}&type=rss' }]
+      const throwing = () => defineUrls(value)
+
+      expect(throwing).toThrow(
+        'Not a feed URL template: https://example.com/list??{query}&type=rss',
+      )
+    })
+
+    it('should throw for an alias whose query opens with a second question mark', () => {
+      const value = [
+        {
+          key: 'posts',
+          main: 'https://example.com/feed',
+          aliases: ['https://old.example.com/feed??alt=rss'],
+        },
+      ]
+      const throwing = () => defineUrls(value)
+
+      expect(throwing).toThrow('Not a feed URL template: https://old.example.com/feed??alt=rss')
+    })
+
+    it('should write an alias that gives a parameter of the main URL behind a name that opens with a question mark', () => {
+      const value = 'https://old.example.com/feed??page=2&alt=rss'
+      const expected = 'https://example.com/feed??page=2&alt=rss'
+
+      expect(movedFormat.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives a parameter of the main URL behind a value with a question mark', () => {
+      const value = 'https://old.example.com/feed?a=1?&alt=rss'
+      const expected = 'https://example.com/feed?a=1?&alt=rss'
+
+      expect(movedFormat.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should leave an alias that gives the parameter of the main URL a value cut at a question mark', () => {
+      const value = 'https://example.com/legacy?i=q?r&id=q'
+
+      expect(renamed.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read 200 kB of a parameter of the main URL on an alias within a second', () => {
+      const value = `https://old.example.com/feed?${'a=1&'.repeat(25000)}${'v=2&'.repeat(25000)}`
+      const startedAt = performance.now()
+
+      movedVersion.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should keep a bare question mark of a URL it drops the trailing slash of', () => {
+      const value = 'https://feeds.example.com/alice/?'
+      const expected = 'https://feeds.example.com/alice?'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should drop a bare fragment mark of a URL it sorts the query of', () => {
+      const value = 'https://example.com/feed?type=RSS&q=news#'
+      const expected = 'https://example.com/feed?q=news&type=RSS'
+
+      expect(unsorted.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a bare fragment mark of a URL it writes the flag of', () => {
+      const value = 'https://feeds.example.com/list.php?xml=#'
+      const expected = 'https://feeds.example.com/list.php?xml#'
+
+      expect(flaggedMain.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a question mark that opens the first name under the ampersand mark', () => {
+      const value = 'https://example.com/old.rss??page=2&amp;a=1'
+      const expected = 'https://example.com/feed.rss??page=2&a=1'
+
+      expect(ampersandAlias.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with a URL read twice', () => {
+    it('should not let an edit of the values read change the next read', () => {
+      const value = 'https://example.com/items?id=5'
+      const expected: Record<string, string> = { id: '5' }
+      const match = moved.read(value)
+
+      if (match) {
+        match.params.id = '7'
+      }
+
+      const nextMatch = moved.read(value)
+
+      expect(nextMatch?.params).toEqual(expected)
+    })
+
+    it('should ask a check again for a URL it read before', () => {
+      const state = { isAllowed: true }
+      const table = defineUrls([{ key: 'item', main: 'https://example.com/items?id={id}' }], {
+        checks: { id: () => state.isAllowed },
+      })
+      const value = 'https://example.com/items?id=5'
+
+      table.read(value)
+      state.isAllowed = false
+
+      expect(table.read(value)).toBeUndefined()
+    })
+
+    it('should write the main URL of a URL it read before', () => {
+      const value = 'https://example.com/item/5'
+      const expected = 'https://example.com/items?id=5'
+
+      moved.read(value)
+
+      expect(moved.getMainUrl(value)).toBe(expected)
     })
   })
 })
