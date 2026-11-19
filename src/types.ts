@@ -94,8 +94,11 @@ export type UrlMatch<Key extends string, Row> = {
 }
 
 // A table's methods take only the keys of its rows, so a key the table does not hold fails the
-// typecheck. `select` narrows the key's rows, as to one format.
+// typecheck. `select` narrows the key's rows by their fields, as to one format: it gets a copy of
+// each row, never the object given. A built URL and a main URL write their query sorted by name.
 export type UrlTable<Key extends string, Row> = {
+  // A copy of each row given, for a caller that walks every row of a table.
+  rows: Array<Row>
   build: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => string | undefined
   buildAll: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => Array<string>
   read: (url: string) => UrlMatch<Key, Row> | undefined
@@ -104,6 +107,7 @@ export type UrlTable<Key extends string, Row> = {
 }
 
 export type FeedUrlTable<Key extends string = string> = {
+  rows: Array<FeedUrlRow<Key>>
   getFeedUrl: (key: Key, params?: UrlParams, format?: FeedFormat) => string | undefined
   getFeedEntry: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
   getFeedSpellings: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
@@ -119,7 +123,8 @@ export type Platform = {
   hosts?: UrlHosts
   // A table takes only its own keys, so only a table of no keys stands for every table. What a
   // table reads comes back under any key.
-  feeds: Omit<FeedUrlTable<never>, 'read'> & {
+  feeds: Omit<FeedUrlTable<never>, 'rows' | 'read'> & {
+    rows: Array<FeedUrlRow>
     read: (url: string) => UrlMatch<string, FeedUrlRow> | undefined
   }
   // The sites of the platform, each row an origin with no path, for the host and scheme facts

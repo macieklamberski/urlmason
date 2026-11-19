@@ -67,6 +67,7 @@ export const defineFeedUrls = <const Key extends string>(
   }
 
   return {
+    rows: urls.rows,
     getFeedUrl: (key, params, format) => getFeedUrlOn(urls, key, params, format),
     getFeedEntry: (key, params, format) => getFeedEntryOn(urls, key, params, format),
     getFeedSpellings: (key, params, format) => getFeedSpellingsOn(urls, key, params, format),

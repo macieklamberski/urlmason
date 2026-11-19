@@ -52,7 +52,7 @@ type CompiledTemplate = {
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, string>) => boolean
-  getUrl: (params?: UrlParams) => string | undefined
+  getUrl: (params?: UrlParams) => string | typeof refusedQuery | undefined
 }
 
 type UrlPart = 'host' | 'path' | 'query'
@@ -93,11 +93,15 @@ const pairSeparatorRegex = /=(.*)/s
 const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
+// A URL parser removes a tab, a line feed and a carriage return, so `I\nD` is fetched as `ID`.
+const parserRemovedRegex = /[\t\n\r]/
 
 const rootPlaceholder = '{root}'
 const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
+// What a template builds from values that fill it and a passed query it cannot write.
+const refusedQuery = Symbol('refusedQuery')
 
 const isMultiSegment = (placeholder: string): boolean => {
   return placeholder.endsWith('*')
@@ -165,6 +169,36 @@ const decodePath = (path: string): string => {
     .split('/')
     .map((segment) => decodePercent(segment).replaceAll('%', '%25').replaceAll('/', '%2F'))
     .join('/')
+}
+
+// The name of a query pair as a server reads it: `+` and `%20` are both a space.
+const getPairName = (pair: string): string => {
+  return decodePercent(pair.split('=')[0].replaceAll('+', ' '))
+}
+
+// A row the table keeps to itself, so an edit of a row given, returned or selected changes no read.
+const copyRow = <Row extends UrlRow>(row: Row): Row => {
+  if (!row.keptParams) {
+    return { ...row }
+  }
+
+  return { ...row, keptParams: [...row.keptParams] }
+}
+
+// A table writes a query sorted by name, in a main URL and in a built one alike, so one feed has
+// one spelling whatever order the URL or the row had. Pairs of one name keep their order.
+const sortPairs = (pairs: Array<string>): Array<string> => {
+  // A name is read in any case, so two cases of one name are one name here too.
+  return pairs.toSorted((left, right) => {
+    const leftName = getPairName(left).toLowerCase()
+    const rightName = getPairName(right).toLowerCase()
+
+    if (leftName === rightName) {
+      return 0
+    }
+
+    return leftName < rightName ? -1 : 1
+  })
 }
 
 const toTableUrl = (url: URL): TableUrl => {
@@ -236,6 +270,7 @@ const compileTemplate = (
   isAlias: boolean,
   options: UrlTableOptions,
   lenient: UrlLenient | undefined,
+  hasAmpersandMark: boolean,
 ): CompiledTemplate => {
   const isRootTemplate = template.startsWith(rootPlaceholder)
   // A `{root}` template reads as one on `{host}`: a tenant serves from its origin.
@@ -269,20 +304,33 @@ const compileTemplate = (
     // biome-ignore lint/plugin/useComposeQuery: The form option asks for what URLSearchParams writes.
     return new URLSearchParams([[name, value]]).toString()
   }
-  // A passed query is written as given, without its `?` and the parameters the row sets itself.
-  const passQuery = (text: string): string => {
-    const parts = text.replace(leadingQuestionMarkRegex, '').split('&')
+  const isAmpersandEntityRead = lenient?.ampersandEntity === true
+  // Behind another pair a name that starts with `amp;` is written `&amp;`, which a table with a
+  // row under the mark reads as `&` on every row.
+  const entityName = ownNames.find((name) => name.startsWith('amp;'))
+
+  if (hasAmpersandMark && entityName !== undefined) {
+    throw new Error(t(locales.errors.ampersandEntityName, { key, name: entityName }))
+  }
+
+  // A passed query is written as given, without its `?`, the parameters the row sets itself and
+  // what follows a `#`, where a query ends. Under the ampersand mark `&amp;` separates pairs too.
+  const passQuery = (text: string): string | typeof refusedQuery => {
+    if (parserRemovedRegex.test(text)) {
+      return refusedQuery
+    }
+
+    const [passedQuery] = text.replace(leadingQuestionMarkRegex, '').split('#')
+    const pairsText = isAmpersandEntityRead ? passedQuery.replaceAll('&amp;', '&') : passedQuery
+    const parts = pairsText.split('&')
+
+    // A table with a row under the mark reads a pair that starts with `amp;` as another pair.
+    if (hasAmpersandMark && parts.some((part) => part.startsWith('amp;'))) {
+      return refusedQuery
+    }
 
     return parts
-      .filter((part) => {
-        const [name] = part.split('=')
-
-        if (!name) {
-          return false
-        }
-
-        return !isAnyOf(decodePercent(name), ownNames)
-      })
+      .filter((part) => part.split('=')[0] && !isAnyOf(getPairName(part), ownNames))
       .join('&')
   }
   // A name with no value, such as `?rss`, is a flag, built with no value.
@@ -569,7 +617,7 @@ const compileTemplate = (
 
     for (const [name, rawRegex] of rawQueryRegexes) {
       const [index, ...others] = [...pairs.keys()].filter((pairIndex) => {
-        return isAnyOf(decodePercent(pairs[pairIndex].split('=')[0]), name)
+        return isAnyOf(getPairName(pairs[pairIndex]), name)
       })
 
       if (index === undefined) {
@@ -722,7 +770,7 @@ const compileTemplate = (
   }
 
   // A template whose placeholders the values do not all fill builds no URL.
-  const getUrl = (params: UrlParams = {}): string | undefined => {
+  const getUrl: CompiledTemplate['getUrl'] = (params = {}) => {
     const values: Record<string, string> = {}
 
     for (const name of names) {
@@ -759,12 +807,19 @@ const compileTemplate = (
 
       return encodeQueryParameter(name, flags.has(name) ? true : fillPlaceholders(value))
     })
+
+    if (queryParts.includes(refusedQuery)) {
+      return refusedQuery
+    }
+
     // Pages link a query value percent-encoded, as `?tag=%E6%8A%80%E8%A1%93` for `技術`.
     const joinedQuery = queryParts
+      .filter(isString)
       .filter((part) => part)
       .join('&')
       .replace(nonAsciiRegex, encodeURIComponent)
-    const builtQuery = joinedQuery ? `?${joinedQuery}` : ''
+    const sortedQuery = sortPairs(joinedQuery.split('&')).join('&')
+    const builtQuery = sortedQuery ? `?${sortedQuery}` : ''
 
     // A root is written as given, without the trailing slash the path brings.
     const origin = isRootTemplate
@@ -789,7 +844,7 @@ const compileTemplate = (
     readRawParams,
     isSlashRespelled,
     takesSlashedHostPath,
-    isAmpersandEntityRead: lenient?.ampersandEntity === true,
+    isAmpersandEntityRead,
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
@@ -802,25 +857,29 @@ const compileTemplate = (
 // `getMainUrl` writes a URL in its row's main spelling.
 export const defineUrls = <const Key extends string, Extra extends object = object>(
   // Extra is never read off the rows, so a field no row type names fails the typecheck.
-  rows: Array<UrlRow<Key> & NoInfer<Extra>>,
+  givenRows: Array<UrlRow<Key> & NoInfer<Extra>>,
   options: UrlTableOptions = {},
 ): UrlTable<Key, UrlRow<Key> & Extra> => {
   type Row = UrlRow<Key> & Extra
   type Select = (row: Row) => boolean
 
+  const rows: Array<Row> = givenRows.map(copyRow)
+
   const getLenient = (row: Row): UrlLenient => {
     const marks: UrlLenient = { ...options.lenient, ...row.lenient }
 
     // A case mark in another form than a list, as `case: true` past the types, is no mark.
-    return { ...marks, case: Array.isArray(marks.case) ? marks.case : undefined }
+    return { ...marks, case: Array.isArray(marks.case) ? [...marks.case] : undefined }
   }
   const lenients = rows.map(getLenient)
+  const hasAmpersandMark = lenients.some((lenient) => lenient.ampersandEntity === true)
   const compiledRows = rows.map((row, rowIndex) => {
     return [row.main, ...(row.aliases ?? [])].map((template, index) => {
-      return compileTemplate(template, row, rowIndex, index > 0, options, lenients[rowIndex])
+      const lenient = lenients[rowIndex]
+
+      return compileTemplate(template, row, rowIndex, index > 0, options, lenient, hasAmpersandMark)
     })
   })
-  const hasAmpersandMark = lenients.some((lenient) => lenient?.ampersandEntity)
   const compiled = compiledRows.flat()
 
   for (const [rowIndex, row] of rows.entries()) {
@@ -842,7 +901,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   // The templates of the key's rows in the order written, each row's main URL before its aliases.
   const getRowTemplates = (key: string, select?: Select): Array<Array<CompiledTemplate>> => {
     const rowTemplates = compiledRows.filter((_templates, rowIndex) => {
-      return rows[rowIndex].key === key && (select?.(rows[rowIndex]) ?? true)
+      return rows[rowIndex].key === key && (select?.(copyRow(rows[rowIndex])) ?? true)
     })
 
     if (rowTemplates.length === 0) {
@@ -857,16 +916,34 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     for (const candidate of getRowTemplates(key, select).flat()) {
       const url = candidate.getUrl(params)
 
+      // A template without the passed query is another feed than the one the values name.
+      if (url === refusedQuery) {
+        return
+      }
+
       if (url) {
         return url
       }
     }
   }
 
-  // Every URL the values fill of the first row of the key that builds one.
+  // Every URL the values fill of the first row of the key that builds one, up to a template
+  // whose passed query cannot be written.
   const buildAll: UrlTable<Key, Row>['buildAll'] = (key, params, select) => {
     for (const templates of getRowTemplates(key, select)) {
-      const urls = templates.map((candidate) => candidate.getUrl(params)).filter(isString)
+      const urls: Array<string> = []
+
+      for (const candidate of templates) {
+        const url = candidate.getUrl(params)
+
+        if (url === refusedQuery) {
+          return urls
+        }
+
+        if (url) {
+          urls.push(url)
+        }
+      }
 
       if (urls.length > 0) {
         return urls
@@ -1082,7 +1159,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     return {
       key: row.key,
       params: found.params,
-      row,
+      row: copyRow(row),
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
     }
@@ -1101,26 +1178,10 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       .split('&')
       .filter((pair) => pair)
     const isNamed = (pair: string, names: Array<string>): boolean => {
-      return isAnyOf(decodePercent(pair.split('=')[0]), names)
+      return isAnyOf(getPairName(pair), names)
     }
     // A parameter no template names stays, and with a list only when the list names it.
     const isKept = (pair: string): boolean => !keptParams || isNamed(pair, keptParams)
-    // A name is read in any case, so two cases of one name are one name here too.
-    const getName = (pair: string): string => decodePercent(pair.split('=')[0]).toLowerCase()
-    // A main URL writes its query sorted by name, so one feed has one spelling whatever order the
-    // URL had. Pairs of one name keep their order.
-    const sortPairs = (unsortedPairs: Array<string>): Array<string> => {
-      return unsortedPairs.toSorted((left, right) => {
-        const leftName = getName(left)
-        const rightName = getName(right)
-
-        if (leftName === rightName) {
-          return 0
-        }
-
-        return leftName < rightName ? -1 : 1
-      })
-    }
 
     if (!template.isAlias) {
       const origin = url.port ? undefined : main.getHttpsOrigin(rawParams)
@@ -1265,5 +1326,5 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     }
   }
 
-  return { build, buildAll, read, getMainUrl, forUrl }
+  return { rows: rows.map(copyRow), build, buildAll, read, getMainUrl, forUrl }
 }

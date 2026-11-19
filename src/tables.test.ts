@@ -134,6 +134,20 @@ const formats = defineUrls(
   { keptParams: ['max-results'] },
 )
 
+const parserRemovedQueries = ['Mode=1&I\tD=9', 'Mode=1&I\nD=9', 'Mode=1&I\rD=9']
+
+const unsorted = defineUrls([
+  {
+    key: 'search',
+    main: 'https://example.com/feed?type=RSS&q={query}',
+    aliases: ['https://old.example.com/feed?type=RSS&q={query}'],
+  },
+  { key: 'tagged', main: 'https://example.com/tags.rss?tag=news&id={id}&tag=art' },
+  { key: 'cased', main: 'https://example.com/list.rss?b=2&B=1&a={id}' },
+  { key: 'filtered', main: 'https://example.com/filter.rss?view=rss&{query}' },
+  { key: 'site', main: '{root}/index.php?type=rss&format=feed' },
+])
+
 const routes = defineUrls([
   { key: 'posts', main: 'https://example.com/feed', aliases: ['https://example.com/rss'] },
   { key: 'comments', main: 'https://example.com/feed?type=comments' },
@@ -308,6 +322,32 @@ const ampersandItems = defineUrls(
   { checks: { id: (value) => digitsRegex.test(value) } },
 )
 
+const ampersandPassed = defineUrls(
+  [{ key: 'agenda', main: 'https://example.com/Feed.ashx?{query}' }],
+  { lenient: { ampersandEntity: true } },
+)
+const ampersandFallback = defineUrls(
+  [
+    { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD&{query}' },
+    { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD' },
+  ],
+  { lenient: { ampersandEntity: true } },
+)
+const ampersandSpellings = defineUrls(
+  [
+    {
+      key: 'agenda',
+      main: 'https://example.com/Feed.ashx?M=LD&{query}',
+      aliases: ['https://example.com/feed.aspx'],
+    },
+  ],
+  { lenient: { ampersandEntity: true } },
+)
+const ampersandMixed = defineUrls([
+  { key: 'list', main: 'https://example.com/feed?{query}' },
+  { key: 'item', main: 'https://example.com/feed?a={a}&b={b}', lenient: { ampersandEntity: true } },
+])
+
 const movedBoards = defineUrls([
   {
     key: 'plain',
@@ -348,6 +388,207 @@ const ampersandAlias = defineUrls([
 ])
 
 describe('defineUrls', () => {
+  describe('rows', () => {
+    it('should return the rows it was given', () => {
+      expect(players.rows).toEqual(playerRows)
+    })
+
+    it('should read a URL as the same row after the returned rows are reversed', () => {
+      const table = defineUrls([
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/comments/feed'
+      const expected = 'comments'
+
+      table.rows.reverse()
+
+      const match = table.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL as the same row after the key of a returned row is edited', () => {
+      const table = defineUrls([
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/feed'
+      const expected = 'posts'
+
+      table.rows[0].key = 'comments'
+
+      const match = table.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should build the URL of a key after the key of a returned row is edited', () => {
+      const table = defineUrls([
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const expected = 'https://example.com/feed'
+
+      table.rows[0].key = 'comments'
+
+      expect(table.build('posts')).toBe(expected)
+    })
+
+    it('should read a URL as the same row after the key of a row it was given is edited', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ]
+      const table = defineUrls(rows)
+      const value = 'https://example.com/feed'
+      const expected = 'posts'
+
+      rows[0].key = 'comments'
+
+      const match = table.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL as the same row after the key of a row it read is edited', () => {
+      const table = defineUrls([
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/feed'
+      const expected = 'posts'
+      const first = table.read(value)
+
+      if (first) {
+        first.row.key = 'comments'
+      }
+
+      const match = table.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should keep the listed parameters after the list of a returned row is edited', () => {
+      const table = defineUrls([
+        {
+          key: 'posts',
+          main: 'https://example.com/feed',
+          aliases: ['https://example.com/rss'],
+          keptParams: ['page'],
+        },
+      ])
+      const value = 'https://example.com/rss?page=2&ref=home'
+      const expected = 'https://example.com/feed?page=2'
+
+      table.rows[0].keptParams?.push('ref')
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep the listed parameters after the list of a row it was given is edited', () => {
+      const rows: Array<UrlRow> = [
+        {
+          key: 'posts',
+          main: 'https://example.com/feed',
+          aliases: ['https://example.com/rss'],
+          keptParams: ['page'],
+        },
+      ]
+      const table = defineUrls(rows)
+      const value = 'https://example.com/rss?page=2&ref=home'
+      const expected = 'https://example.com/feed?page=2'
+
+      rows[0].keptParams?.push('ref')
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep the listed parameters after the list of a row it read is edited', () => {
+      const table = defineUrls([
+        {
+          key: 'posts',
+          main: 'https://example.com/feed',
+          aliases: ['https://example.com/rss'],
+          keptParams: ['page'],
+        },
+      ])
+      const value = 'https://example.com/rss?page=2&ref=home'
+      const expected = 'https://example.com/feed?page=2'
+      const match = table.read(value)
+
+      match?.row.keptParams?.push('ref')
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should lowercase a value after the case list of a returned row is emptied', () => {
+      const table = defineUrls([
+        {
+          key: 'posts',
+          main: 'https://example.com/{user}/feed',
+          lenient: { case: ['user'] },
+        },
+      ])
+      const value = 'https://example.com/Alice/feed'
+      const expected = 'https://example.com/alice/feed'
+
+      table.rows[0].lenient?.case?.pop()
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a value as written after the case list of a row it was given is edited', () => {
+      const rows: Array<UrlRow> = [
+        {
+          key: 'posts',
+          main: 'https://example.com/{user}/feed',
+          aliases: ['https://example.com/{user}/rss'],
+          lenient: { case: ['none'] },
+        },
+      ]
+      const table = defineUrls(rows)
+      const value = 'https://example.com/Alice/feed'
+
+      rows[0].lenient?.case?.push('user')
+
+      expect(table.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should lowercase a value after the case list of the table options is emptied', () => {
+      const lenient = { case: ['user'] }
+      const table = defineUrls([{ key: 'posts', main: 'https://example.com/{user}/feed' }], {
+        lenient,
+      })
+      const value = 'https://example.com/Alice/feed'
+      const expected = 'https://example.com/alice/feed'
+
+      lenient.case.pop()
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a URL as the same row after a selector edits the key of its row', () => {
+      const table = defineUrls([
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/feed'
+      const expected = 'posts'
+      const select = (row: UrlRow) => {
+        row.key = 'comments'
+
+        return true
+      }
+
+      table.build('posts', {}, select)
+
+      const match = table.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+  })
+
   describe('read', () => {
     it('should return the key, the values and the row of a main URL', () => {
       const value = 'https://www.example.com/embed/x8abc'
@@ -473,11 +714,145 @@ describe('defineUrls', () => {
       expect(throwing).toThrow('No feed template for video')
     })
 
+    it('should throw for a selector that tells a row by identity', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'item', main: 'https://example.com/items/{id}.rss' },
+        { key: 'item', main: 'https://example.com/items/{id}.atom' },
+      ]
+      const table = defineUrls(rows)
+      const value = { id: '7' }
+      const select = (row: UrlRow) => row === rows[1]
+      const throwing = () => table.build('item', value, select)
+
+      expect(throwing).toThrow('No feed template for item')
+    })
+
     it('should write back the URL it read', () => {
       const value = 'https://www.example.com/embed/caf%C3%A9'
       const match = players.read(value)
 
       expect(players.build('video', match?.params)).toBe(value)
+    })
+
+    it('should sort the query by name, the parameters the row sets included', () => {
+      const value = { query: 'feeds' }
+      const expected = 'https://example.com/feed?q=feeds&type=RSS'
+
+      expect(unsorted.build('search', value)).toBe(expected)
+    })
+
+    it('should keep the order of parameters under one name', () => {
+      const value = { id: '7' }
+      const expected = 'https://example.com/tags.rss?id=7&tag=news&tag=art'
+
+      expect(unsorted.build('tagged', value)).toBe(expected)
+    })
+
+    it('should keep the order of one name in two cases', () => {
+      const value = { id: '7' }
+      const expected = 'https://example.com/list.rss?a=7&b=2&B=1'
+
+      expect(unsorted.build('cased', value)).toBe(expected)
+    })
+
+    it('should sort a passed query together with the parameters of the row', () => {
+      const value = { query: 'year=2024&author=alice' }
+      const expected = 'https://example.com/filter.rss?author=alice&view=rss&year=2024'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should sort a percent-encoded name of a passed query as the name it decodes to', () => {
+      const value = { query: '%7Aone=1&b=2' }
+      const expected = 'https://example.com/filter.rss?b=2&view=rss&%7Aone=1'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should end a passed query at its fragment', () => {
+      const value = { query: 'author=alice#top' }
+      const expected = 'https://example.com/filter.rss?author=alice&view=rss'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should end a passed query at the first of two fragment marks', () => {
+      const value = { query: 'author=alice#top&year=2024#end' }
+      const expected = 'https://example.com/filter.rss?author=alice&view=rss'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should keep the order of one name written with + and with %20', () => {
+      const value = { query: 'q+x=first&q%20x=second' }
+      const expected = 'https://example.com/filter.rss?q+x=first&q%20x=second&view=rss'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should sort a name with two + as the name with two %20', () => {
+      const value = { query: 'q+x+y=first&q%20x%20y=second' }
+      const expected = 'https://example.com/filter.rss?q+x+y=first&q%20x%20y=second&view=rss'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should sort a digit in a name before an underscore', () => {
+      const value = { query: 'a_=2&a1=1' }
+      const expected = 'https://example.com/filter.rss?a1=1&a_=2&view=rss'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it.each(parserRemovedQueries)('should build nothing from the passed query %j', (query) => {
+      const table = defineUrls([
+        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
+      ])
+      const value = {
+        id: '7',
+        query,
+      }
+
+      expect(table.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should drop a passed parameter the row sets, its name written with +', () => {
+      const table = defineUrls([
+        { key: 'filtered', main: 'https://example.com/filter.rss?{query}&sort%20by=date' },
+      ])
+      const value = { query: 'sort+by=title&year=2024' }
+      const expected = 'https://example.com/filter.rss?sort%20by=date&year=2024'
+
+      expect(table.build('filtered', value)).toBe(expected)
+    })
+
+    it('should write &amp; in a passed query as given on a row without the ampersand mark', () => {
+      const value = { query: 'year=2024&amp;author=alice' }
+      const expected = 'https://example.com/filter.rss?amp;author=alice&view=rss&year=2024'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should build a passed pair that starts with amp; on a row without the ampersand mark', () => {
+      const value = { query: 'amp;author=alice&year=2024' }
+      const expected = 'https://example.com/filter.rss?amp;author=alice&view=rss&year=2024'
+
+      expect(unsorted.build('filtered', value)).toBe(expected)
+    })
+
+    it('should write a URL the main URL of its row leaves alone', () => {
+      const value = unsorted.build('search', { query: 'feeds' }) ?? ''
+
+      expect(unsorted.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should sort 200 kB of a passed query within a second', () => {
+      const value = { query: 'b=1&a=1&'.repeat(25000) }
+      const startedAt = performance.now()
+
+      unsorted.build('filtered', value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 
@@ -493,11 +868,39 @@ describe('defineUrls', () => {
       expect(players.buildAll('video', value)).toEqual(expected)
     })
 
+    it('should sort the query of every URL by name', () => {
+      const value = { query: 'feeds' }
+      const expected = [
+        'https://example.com/feed?q=feeds&type=RSS',
+        'https://old.example.com/feed?q=feeds&type=RSS',
+      ]
+
+      expect(unsorted.buildAll('search', value)).toEqual(expected)
+    })
+
     it('should return no URL when the values fill no row of the key', () => {
       const value = {}
       const expected: Array<string> = []
 
       expect(players.buildAll('video', value)).toEqual(expected)
+    })
+  })
+
+  describe('forUrl', () => {
+    it('should sort the query of a URL built for a page', () => {
+      const value = 'https://example.com/about'
+      const expected = 'https://example.com/index.php?format=feed&type=rss'
+      const page = unsorted.forUrl(value)
+
+      expect(page?.build('site')).toBe(expected)
+    })
+
+    it('should sort the query of every URL built for a page', () => {
+      const value = 'https://example.com/about'
+      const expected = ['https://example.com/index.php?format=feed&type=rss']
+      const page = unsorted.forUrl(value)
+
+      expect(page?.buildAll('site')).toEqual(expected)
     })
   })
 
@@ -683,6 +1086,34 @@ describe('defineUrls', () => {
       spellings.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should write an alias as the URL its row builds', () => {
+      const value = 'https://old.example.com/feed?type=RSS&q=feeds'
+      const params = { query: 'feeds' }
+      const expected = 'https://example.com/feed?q=feeds&type=RSS'
+
+      expect(unsorted.getMainUrl(value)).toBe(expected)
+      expect(unsorted.build('search', params)).toBe(expected)
+    })
+
+    it('should return undefined for an alias with an own parameter given again with +', () => {
+      const value = 'https://example.com/tags.rss?tag=news&tag+=art'
+
+      expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for an alias with an own parameter given again with %20', () => {
+      const value = 'https://example.com/tags.rss?tag=news&tag%20=art'
+
+      expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should not mark a URL with an own parameter given again with + as exact', () => {
+      const value = 'https://example.com/items?id=7&id+=8'
+      const match = moved.read(value)
+
+      expect(match?.isExact).toBe(false)
     })
 
     it('should keep the order of parameters under one name', () => {
@@ -1532,6 +1963,174 @@ describe('defineUrls', () => {
       expect(unmarkedAmpersands.read(value)).toBeUndefined()
     })
 
+    it('should build a passed query with &amp; between its pairs as one with &', () => {
+      const value = { query: 'M=LD&amp;ID=7' }
+      const expected = 'https://example.com/Feed.ashx?ID=7&M=LD'
+
+      expect(ampersandPassed.build('agenda', value)).toBe(expected)
+    })
+
+    it('should build nothing from a passed query with a pair that starts with amp;', () => {
+      const value = { query: 'amp;ID=7&M=LD' }
+
+      expect(ampersandPassed.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a passed query with a doubled &amp; behind another pair', () => {
+      const value = { query: 'M=LD&amp;amp;ID=7' }
+
+      expect(ampersandPassed.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should end a passed query at its fragment', () => {
+      const value = { query: 'ID=7#top' }
+      const expected = 'https://example.com/Feed.ashx?ID=7'
+
+      expect(ampersandPassed.build('agenda', value)).toBe(expected)
+    })
+
+    it('should build nothing from a refused passed query beside a row without one', () => {
+      const value = { query: 'cat=5&amp;amp;paged=2' }
+
+      expect(ampersandFallback.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a refused passed query beside an alias without one', () => {
+      const value = { query: 'cat=5&amp;amp;paged=2' }
+
+      expect(ampersandSpellings.build('agenda', value)).toBeUndefined()
+    })
+
+    it('should list no URL for a refused passed query beside a row without one', () => {
+      const value = { query: 'cat=5&amp;amp;paged=2' }
+
+      expect(ampersandFallback.buildAll('agenda', value)).toEqual([])
+    })
+
+    it('should list no URL for a refused passed query beside an alias without one', () => {
+      const value = { query: 'cat=5&amp;amp;paged=2' }
+
+      expect(ampersandSpellings.buildAll('agenda', value)).toEqual([])
+    })
+
+    it('should build nothing from a passed pair that starts with amp; beside a marked row', () => {
+      const value = { query: 'amp;b=2&a=1' }
+
+      expect(ampersandMixed.build('list', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a passed pair with a tab inside amp; beside a marked row', () => {
+      const value = { query: 'a\tmp;b=2&a=1' }
+
+      expect(ampersandMixed.build('list', value)).toBeUndefined()
+    })
+
+    it('should build a passed query that holds amp; behind other text', () => {
+      const value = { query: 'a=amp;x&stamp;y=1' }
+      const expected = 'https://example.com/Feed.ashx?a=amp;x&stamp;y=1'
+
+      expect(ampersandPassed.build('agenda', value)).toBe(expected)
+    })
+
+    it('should list the main URL alone for a refused passed query on an alias', () => {
+      const table = defineUrls(
+        [
+          {
+            key: 'agenda',
+            main: 'https://example.com/Feed.ashx?M=LD',
+            aliases: ['https://example.com/feed.aspx?{query}'],
+          },
+        ],
+        { lenient: { ampersandEntity: true } },
+      )
+      const value = { query: 'cat=5&amp;amp;paged=2' }
+      const expected = ['https://example.com/Feed.ashx?M=LD']
+
+      expect(table.buildAll('agenda', value)).toEqual(expected)
+    })
+
+    it('should build nothing from a passed query with &amp; beside a marked row', () => {
+      const value = { query: 'b=2&amp;a=1' }
+
+      expect(ampersandMixed.build('list', value)).toBeUndefined()
+    })
+
+    it('should throw for a name that starts with amp; behind another parameter', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'list', main: 'https://example.com/list.rss?a=1&amp;x=1' }], {
+          lenient: { ampersandEntity: true },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The list row sets amp;x, which the ampersand mark reads as another parameter',
+      )
+    })
+
+    it('should throw for such a name on a row without the mark beside a row under it', () => {
+      const throwing = () => {
+        return defineUrls([
+          { key: 'list', main: 'https://example.com/feed?amp;x=1&a=1' },
+          {
+            key: 'item',
+            main: 'https://example.com/feed?a=1&x=1',
+            lenient: { ampersandEntity: true },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The list row sets amp;x, which the ampersand mark reads as another parameter',
+      )
+    })
+
+    it('should build a parameter name that holds amp; behind other letters', () => {
+      const table = defineUrls(
+        [{ key: 'list', main: 'https://example.com/list.rss?stamp;x=1&a=1' }],
+        {
+          lenient: { ampersandEntity: true },
+        },
+      )
+      const expected = 'https://example.com/list.rss?a=1&stamp;x=1'
+
+      expect(table.build('list')).toBe(expected)
+    })
+
+    it('should throw for a row whose own parameter name starts with amp;', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'list', main: 'https://example.com/list.rss?amp;x=1&a=1' }], {
+          lenient: { ampersandEntity: true },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The list row sets amp;x, which the ampersand mark reads as another parameter',
+      )
+    })
+
+    it('should throw for such a name beside a passed query with the mark on the row', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'list',
+            main: 'https://example.com/list.rss?amp;x=1&{query}',
+            lenient: { ampersandEntity: true },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The list row sets amp;x, which the ampersand mark reads as another parameter',
+      )
+    })
+
+    it('should build a parameter name that starts with amp; on a row without the mark', () => {
+      const table = defineUrls([{ key: 'list', main: 'https://example.com/list.rss?amp;x=1&a=1' }])
+      const expected = 'https://example.com/list.rss?a=1&amp;x=1'
+
+      expect(table.build('list')).toBe(expected)
+    })
+
     it('should write &amp; as & in a query that is sorted already', () => {
       const value = 'https://example.com/Feed.ashx?GUID=a1b2&amp;ID=7&amp;M=LD'
       const expected = 'https://example.com/Feed.ashx?GUID=a1b2&ID=7&M=LD'
@@ -1708,6 +2307,33 @@ describe('defineUrls', () => {
       const expected = 'https://feeds.example.com/posts.xml?max-results=5&start-index=10'
 
       expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a listed parameter whose name is written with +', () => {
+      const table = defineUrls([
+        {
+          key: 'posts',
+          main: 'https://example.com/posts.xml?id={id}',
+          keptParams: ['max results'],
+        },
+      ])
+      const value = 'https://example.com/posts.xml?ref=home&max+results=5&id=7'
+      const expected = 'https://example.com/posts.xml?id=7&max+results=5'
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a main URL with an own parameter given again with +', () => {
+      const table = defineUrls([
+        {
+          key: 'posts',
+          main: 'https://example.com/posts.xml?id={id}',
+          keptParams: ['page'],
+        },
+      ])
+      const value = 'https://example.com/posts.xml?id=7&id+=8&ref=home'
+
+      expect(table.getMainUrl(value)).toBeUndefined()
     })
 
     it('should take the list of the row over the list of the table', () => {

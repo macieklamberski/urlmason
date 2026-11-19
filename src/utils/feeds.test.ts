@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { includesAnyOf, isLocale } from 'trousse'
-import type { FeedEntry, FeedHint, Platform } from '../types.js'
+import type { FeedEntry, FeedHint, FeedUrlRow, Platform } from '../types.js'
 import { defineFeedUrls, getMainFeedUrl } from './feeds.js'
 
 const feeds = defineFeedUrls(
@@ -199,6 +199,56 @@ describe('defineFeedUrls', () => {
     expect(throwing).toThrow('No hosts for the blog feed')
   })
 
+  describe('rows', () => {
+    it('should return the rows it was given', () => {
+      const expected: Array<FeedUrlRow<'page'>> = [
+        { key: 'page', main: 'https://www.example.com/feed/{directory*}/' },
+        { key: 'page', main: 'https://www.example.com/feed/{path*}' },
+      ]
+
+      expect(directoryFeeds.rows).toEqual(expected)
+    })
+
+    it('should name a URL as the same feed after the returned rows are reversed', () => {
+      const feeds = defineFeedUrls('example', [
+        { key: 'posts', main: 'https://example.com/feed' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/comments/feed'
+      const expected: FeedHint = { key: 'example:comments' }
+
+      feeds.rows.reverse()
+
+      expect(feeds.getFeedHint(value)).toEqual(expected)
+    })
+
+    it('should name a URL as the same feed after the key of a returned row is edited', () => {
+      const feeds = defineFeedUrls('example', [
+        { key: 'posts', main: 'https://example.com/feed', format: 'rss' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/feed'
+      const expected: FeedHint = { key: 'example:posts', format: 'rss' }
+
+      feeds.rows[0].key = 'comments'
+
+      expect(feeds.getFeedHint(value)).toEqual(expected)
+    })
+
+    it('should name the format of a feed after the format of a returned row is edited', () => {
+      const feeds = defineFeedUrls('example', [
+        { key: 'posts', main: 'https://example.com/feed', format: 'rss' },
+        { key: 'comments', main: 'https://example.com/comments/feed' },
+      ])
+      const value = 'https://example.com/feed'
+      const expected: FeedHint = { key: 'example:posts', format: 'rss' }
+
+      feeds.rows[0].format = 'json'
+
+      expect(feeds.getFeedHint(value)).toEqual(expected)
+    })
+  })
+
   describe('getFeedUrl', () => {
     it('should write a path value into the template', () => {
       const value = feeds.getFeedUrl('posts', { username: 'alice' })
@@ -244,7 +294,7 @@ describe('defineFeedUrls', () => {
 
     it('should write a query value through composeQuery', () => {
       const value = feeds.getFeedUrl('search', { username: 'alice' })
-      const expected = 'https://feeds.example.com/rss.xml?type=item&q=by:alice%20sort:time'
+      const expected = 'https://feeds.example.com/rss.xml?q=by:alice%20sort:time&type=item'
 
       expect(value).toBe(expected)
     })
@@ -265,7 +315,7 @@ describe('defineFeedUrls', () => {
 
     it('should write a query flag beside a query value', () => {
       const value = feeds.getFeedUrl('page', { username: 'alice', page: '2' })
-      const expected = 'https://www.example.com/pages/alice?rss&page=2'
+      const expected = 'https://www.example.com/pages/alice?page=2&rss'
 
       expect(value).toBe(expected)
     })
@@ -1478,23 +1528,23 @@ describe('defineFeedUrls', () => {
 
   describe('with a passed query', () => {
     describe('getFeedUrl', () => {
-      it('should write the passed query in place of the placeholder', () => {
+      it('should sort the passed query together with the parameters of the row', () => {
         const value = {
           root: 'https://example.com',
           query: 'option=com_content&view=category&id=12',
         }
         const expected =
-          'https://example.com/index.php?option=com_content&view=category&id=12&format=feed&type=rss'
+          'https://example.com/index.php?format=feed&id=12&option=com_content&type=rss&view=category'
 
         expect(passedQueryFeeds.getFeedUrl('view', value)).toBe(expected)
       })
 
-      it('should write the passed query after the parameters before it', () => {
+      it('should write a passed parameter before a parameter of the row that sorts after it', () => {
         const value = {
           root: 'https://example.com',
           query: 'keywords=nurse',
         }
-        const expected = 'https://example.com/jobs/feed?sort=date&keywords=nurse'
+        const expected = 'https://example.com/jobs/feed?keywords=nurse&sort=date'
 
         expect(passedQueryFeeds.getFeedUrl('search', value)).toBe(expected)
       })
@@ -1514,7 +1564,7 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           query: 'option=com_content&format=html',
         }
-        const expected = 'https://example.com/index.php?option=com_content&format=feed&type=rss'
+        const expected = 'https://example.com/index.php?format=feed&option=com_content&type=rss'
 
         expect(passedQueryFeeds.getFeedUrl('view', value)).toBe(expected)
       })
@@ -1524,7 +1574,7 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           query: 'option=com_content&Format=html',
         }
-        const expected = 'https://example.com/index.php?option=com_content&format=feed&type=rss'
+        const expected = 'https://example.com/index.php?format=feed&option=com_content&type=rss'
 
         expect(passedQueryFeeds.getFeedUrl('view', value)).toBe(expected)
       })
@@ -1539,13 +1589,13 @@ describe('defineFeedUrls', () => {
         expect(passedQueryFeeds.getFeedUrl('posts', value)).toBe(expected)
       })
 
-      it('should write the passed query as given', () => {
+      it('should write a value of the passed query as given', () => {
         const value = {
           root: 'https://example.com',
           query: 'keywords=caf%C3%A9+nurse&where=a:b',
         }
         const expected =
-          'https://example.com/jobs/feed?sort=date&keywords=caf%C3%A9+nurse&where=a:b'
+          'https://example.com/jobs/feed?keywords=caf%C3%A9+nurse&sort=date&where=a:b'
 
         expect(passedQueryFeeds.getFeedUrl('search', value)).toBe(expected)
       })
@@ -1555,7 +1605,7 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           query: 'keywords=技術',
         }
-        const expected = 'https://example.com/jobs/feed?sort=date&keywords=%E6%8A%80%E8%A1%93'
+        const expected = 'https://example.com/jobs/feed?keywords=%E6%8A%80%E8%A1%93&sort=date'
 
         expect(passedQueryFeeds.getFeedUrl('search', value)).toBe(expected)
       })
@@ -1574,6 +1624,46 @@ describe('defineFeedUrls', () => {
         const value = { root: 'https://example.com' }
 
         expect(passedQueryFeeds.getFeedUrl('view', value)).toBeUndefined()
+      })
+    })
+
+    describe('getFeedEntry', () => {
+      it('should sort the query of the feed by name', () => {
+        const value = {
+          root: 'https://example.com',
+          query: 'keywords=nurse',
+        }
+        const expected: FeedEntry = {
+          uri: 'https://example.com/jobs/feed?keywords=nurse&sort=date',
+          hint: { key: 'example:search' },
+        }
+
+        expect(passedQueryFeeds.getFeedEntry('search', value)).toEqual(expected)
+      })
+    })
+
+    describe('getFeedSpellings', () => {
+      it('should sort the query of every spelling by name', () => {
+        const value = {
+          root: 'https://example.com',
+          query: 'keywords=nurse',
+        }
+        const expected: FeedEntry = {
+          uri: 'https://example.com/jobs/feed?keywords=nurse&sort=date',
+          hint: { key: 'example:search' },
+        }
+
+        expect(passedQueryFeeds.getFeedSpellings('search', value)).toEqual(expected)
+      })
+    })
+
+    describe('forUrl', () => {
+      it('should sort the query of a feed built for a page', () => {
+        const value = 'https://example.com/jobs'
+        const expected = 'https://example.com/jobs/feed?keywords=nurse&sort=date'
+        const pageFeeds = passedQueryFeeds.forUrl(value)
+
+        expect(pageFeeds?.getFeedUrl('search', { query: 'keywords=nurse' })).toBe(expected)
       })
     })
 
@@ -1619,7 +1709,7 @@ describe('defineFeedUrls', () => {
           space: 'DOC',
         }
         const expected =
-          'https://example.com/createrssfeed.action?types=page&types=blogpost&types=comment&spaces=DOC'
+          'https://example.com/createrssfeed.action?spaces=DOC&types=page&types=blogpost&types=comment'
 
         expect(repeatedQueryFeeds.getFeedUrl('space', value)).toBe(expected)
       })
@@ -1677,7 +1767,7 @@ describe('defineFeedUrls', () => {
           title: 'Talk:Main Page',
         }
         const expected =
-          'https://example.com/index.php?title=Talk%3AMain+Page&action=history&feed=atom'
+          'https://example.com/index.php?action=history&feed=atom&title=Talk%3AMain+Page'
 
         expect(formQueryFeeds.getFeedUrl('history', value)).toBe(expected)
       })
@@ -1687,7 +1777,7 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           query: '',
         }
-        const expected = 'https://example.com/index.php?title=Special%3ARecentChanges&feed=atom'
+        const expected = 'https://example.com/index.php?feed=atom&title=Special%3ARecentChanges'
 
         expect(formQueryFeeds.getFeedUrl('recent-changes', value)).toBe(expected)
       })
@@ -1698,7 +1788,7 @@ describe('defineFeedUrls', () => {
           title: '技術',
         }
         const expected =
-          'https://example.com/index.php?title=%E6%8A%80%E8%A1%93&action=history&feed=atom'
+          'https://example.com/index.php?action=history&feed=atom&title=%E6%8A%80%E8%A1%93'
 
         expect(formQueryFeeds.getFeedUrl('history', value)).toBe(expected)
       })
@@ -1717,18 +1807,18 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           title: 'User:Alice',
         }
-        const expected = 'https://example.com/index.php?title=User%3AAlice&rss'
+        const expected = 'https://example.com/index.php?rss&title=User%3AAlice'
 
         expect(formQueryFeeds.getFeedUrl('profile', value)).toBe(expected)
       })
 
-      it('should write a passed query as given', () => {
+      it('should write a value of a passed query as given', () => {
         const value = {
           root: 'https://example.com',
           query: 'days=7&namespace=0:1',
         }
         const expected =
-          'https://example.com/index.php?title=Special%3ARecentChanges&feed=atom&days=7&namespace=0:1'
+          'https://example.com/index.php?days=7&feed=atom&namespace=0:1&title=Special%3ARecentChanges'
 
         expect(formQueryFeeds.getFeedUrl('recent-changes', value)).toBe(expected)
       })
@@ -1738,7 +1828,7 @@ describe('defineFeedUrls', () => {
           root: 'https://example.com',
           terms: 'by:alice sort:time',
         }
-        const expected = 'https://example.com/search?q=by:alice%20sort:time&feed=atom'
+        const expected = 'https://example.com/search?feed=atom&q=by:alice%20sort:time'
 
         expect(formQueryFeeds.getFeedUrl('search', value)).toBe(expected)
       })
