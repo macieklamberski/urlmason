@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isLocale } from 'trousse'
+import { isAnyOf, isLocale } from 'trousse'
 import type { UrlMatch, UrlRow } from '../types.js'
 import { defineUrls } from './tables.js'
 
@@ -451,6 +451,58 @@ const escapedPercentName = defineUrls([
 const keptEscape = defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
   keptParams: ['%FF'],
 })
+
+const versions = defineUrls(
+  [
+    {
+      key: 'atom',
+      main: 'https://example.com/feed?format=atom_10',
+      aliases: ['https://example.com/feed?format={atomFormat}'],
+    },
+    {
+      key: 'rss',
+      main: 'https://example.com/feed?format=rss_200',
+      aliases: ['https://example.com/feed?format={rssFormat}'],
+    },
+    { key: 'page', main: 'https://example.com/feed' },
+  ],
+  {
+    checks: {
+      atomFormat: (value) => isAnyOf(value, ['atom', 'atom_03']),
+      rssFormat: (value) => isAnyOf(value, ['rss', 'rss2']),
+    },
+  },
+)
+
+const checkedPaths = defineUrls(
+  [
+    { key: 'user', main: 'https://example.com/{user}/feed' },
+    { key: 'tag', main: 'https://example.com/{tag}/feed' },
+    { key: 'page', main: 'https://example.com/{path*}' },
+  ],
+  {
+    checks: {
+      user: (value) => digitsRegex.test(value),
+      tag: (value) => isAnyOf(value, ['news', 'tech']),
+    },
+  },
+)
+
+const checkedNameCase = defineUrls(
+  [
+    { key: 'atom', main: 'https://example.com/feed?Format={atomFormat}' },
+    { key: 'rss', main: 'https://example.com/feed?format=rss_200' },
+  ],
+  { checks: { atomFormat: (value) => isAnyOf(value, 'atom') } },
+)
+
+const checkedRepeat = defineUrls(
+  [
+    { key: 'repeated', main: 'https://example.com/search?types=a&types={count}' },
+    { key: 'other', main: 'https://example.com/search?types={type}&other=b' },
+  ],
+  { checks: { count: (value) => digitsRegex.test(value) } },
+)
 
 const movedFormat = defineUrls([
   {
@@ -3003,6 +3055,55 @@ describe('defineUrls', () => {
       sharedPages.read(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with rows that differ by a checked value', () => {
+    it('should read the main URL of a row behind another row with a checked value', () => {
+      const value = 'https://example.com/feed?format=rss_200'
+      const match = versions.read(value)
+
+      expect(match?.key).toBe('rss')
+    })
+
+    it('should read a value the check of a later row takes', () => {
+      const value = 'https://example.com/feed?format=rss2'
+      const match = versions.read(value)
+
+      expect(match?.key).toBe('rss')
+    })
+
+    it('should write a value the check of a later row takes as that row writes it', () => {
+      const value = 'https://example.com/feed?format=rss2'
+      const expected = 'https://example.com/feed?format=rss_200'
+
+      expect(versions.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a path value the check of a later row takes', () => {
+      const value = 'https://example.com/news/feed'
+      const match = checkedPaths.read(value)
+
+      expect(match?.key).toBe('tag')
+    })
+
+    it('should return undefined for a path value no check takes beside an open path', () => {
+      const value = 'https://example.com/other/feed'
+
+      expect(checkedPaths.read(value)).toBeUndefined()
+    })
+
+    it('should read a row whose parameter name is in another letter case', () => {
+      const value = 'https://example.com/feed?format=rss_200'
+      const match = checkedNameCase.read(value)
+
+      expect(match?.key).toBe('rss')
+    })
+
+    it('should return undefined beside a row with another parameter', () => {
+      const value = 'https://example.com/search?types=a&types=bad&other=b'
+
+      expect(checkedRepeat.read(value)).toBeUndefined()
     })
   })
 

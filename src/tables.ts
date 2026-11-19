@@ -74,6 +74,9 @@ type CompiledTemplate = {
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, string>) => boolean
+  // The host, the path and the own parameter names with every value left out. Two templates of
+  // one shape differ only in their values, as two rows for two values of `format`.
+  shape: string
   getUrl: (params?: UrlParams) => string | typeof refusedQuery | undefined
 }
 
@@ -168,6 +171,11 @@ const refusedQuery = Symbol('refusedQuery')
 // written, which is how some servers read it.
 const isNamed = (pair: QueryPair, names: string | Array<string>): boolean => {
   return isAnyOf(pair.name, names) || isAnyOf(pair.sortName, names)
+}
+
+// A placeholder in a template's shape: its name left out, its reach over several segments kept.
+const toShapePlaceholder = (_: string, name: string): string => {
+  return name.endsWith('*') ? '{*}' : '{}'
 }
 
 const isMultiSegment = (placeholder: string): boolean => {
@@ -561,6 +569,12 @@ const compileTemplate = (
   const isSlashFree = Boolean(path) && lenient?.trailingSlash === true
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const repeatedNames = ownNames.filter((name, index) => ownNames.indexOf(name) !== index)
+  const shapeNames = ownNames
+    .map((name) => name.toLowerCase())
+    .sort((left, right) => left.localeCompare(right))
+  const shapeQuery = [...shapeNames, ...passedQueryNames.map(() => '{}')].join('&')
+  const shapeHostPath = `${host}${path}`.replace(placeholderRegex, toShapePlaceholder)
+  const shape = `${shapeHostPath}?${shapeQuery}`
 
   // A `{root}` table without hosts serves any site, so nothing in its URL names the platform.
   const claimsUrls = !isRootTemplate || hasHosts
@@ -927,6 +941,7 @@ const compileTemplate = (
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
+    shape,
     getUrl,
   }
 }
@@ -1118,22 +1133,37 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   }
   type FoundTemplate = Required<TakenTemplate>
 
-  // The first template that takes the URL decides: a value its check refuses refuses the URL, so
-  // a looser row such as one without the query does not take it in its place. So does a selector
-  // under a value no row lists.
+  // The first template that takes the URL decides. A value its check refuses passes the URL on
+  // only to a template of the same shape, as a row for another value of `format`, so a looser
+  // row, as one without the query or with an open path, does not take it.
   const findTemplate = (tableUrl: TableUrl, isWwwOptional: boolean): TakenTemplate | undefined => {
+    let refused: TakenTemplate | undefined
+
     for (const template of bySpecificity) {
+      if (refused && refused.template.shape !== template.shape) {
+        continue
+      }
+
       const params = template.readParams(tableUrl, isWwwOptional)
 
       if (!params) {
         continue
       }
 
-      const isRefused =
-        !template.passesChecks(params) || hasUnlistedSelector(template, tableUrl, isWwwOptional)
+      if (!template.passesChecks(params)) {
+        if (!refused) {
+          refused = { template, tableUrl, isWwwOptional }
+        }
+
+        continue
+      }
+
+      const isRefused = hasUnlistedSelector(template, tableUrl, isWwwOptional)
 
       return { template, params: isRefused ? undefined : params, tableUrl, isWwwOptional }
     }
+
+    return refused
   }
 
   // A trailing slash another row writes, as `/{user}/` beside `/{user}`, is what picks that row,
