@@ -107,6 +107,8 @@ export type UrlTable<Key extends string, Row> = {
 }
 
 export type FeedUrlTable<Key extends string = string> = {
+  // The platform's name, the part of a hint key before the colon.
+  platform: string
   rows: Array<FeedUrlRow<Key>>
   getFeedUrl: (key: Key, params?: UrlParams, format?: FeedFormat) => string | undefined
   getFeedEntry: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined

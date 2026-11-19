@@ -67,6 +67,7 @@ export const defineFeedUrls = <const Key extends string>(
   }
 
   return {
+    platform,
     rows: urls.rows,
     ...onPage(urls),
     getFeedHint: (url) => {

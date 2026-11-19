@@ -199,6 +199,14 @@ describe('defineFeedUrls', () => {
     expect(throwing).toThrow('No hosts for the blog feed')
   })
 
+  describe('platform', () => {
+    it('should return the name the table was defined under', () => {
+      const expected = 'example'
+
+      expect(feeds.platform).toBe(expected)
+    })
+  })
+
   describe('rows', () => {
     it('should return the rows it was given', () => {
       const expected: Array<FeedUrlRow<'page'>> = [
