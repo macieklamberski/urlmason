@@ -5,6 +5,9 @@ import { defineUrls } from './tables.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 
+const regionLocaleRegex = /^[a-z]{2}-[A-Z]{2}$/
+const digitsRegex = /^\d+$/
+
 const playerRows: Array<PlayerRow> = [
   {
     key: 'video',
@@ -171,6 +174,178 @@ const bare = defineUrls(
   ],
   { keptParams: [] },
 )
+
+const flaggedMain = defineUrls([
+  {
+    key: 'list',
+    main: 'https://feeds.example.com/list.php?xml',
+    aliases: ['https://example.com/list.rss'],
+  },
+])
+
+const moved = defineUrls([
+  {
+    key: 'item',
+    main: 'https://example.com/items?id={id}',
+    aliases: ['https://example.com/item/{id}'],
+  },
+])
+
+const marked = defineUrls(
+  [
+    {
+      key: 'posts',
+      main: 'https://feeds.example.com/{name}',
+      aliases: ['https://example.com/{name}/feed/', 'https://example.com/feed.php?name={name}'],
+    },
+    { key: 'search', main: 'https://feeds.example.com/search.rss?q={query}' },
+    { key: 'tag', main: 'https://feeds.example.com/tags.rss?tag={query}', lenient: { case: [] } },
+    {
+      key: 'archive',
+      main: 'https://feeds.example.com/archive/{name}/feed',
+      lenient: { trailingSlash: false },
+    },
+  ],
+  { lenient: { case: ['name', 'query'], trailingSlash: true } },
+)
+
+const localized = defineUrls(
+  [
+    {
+      key: 'posts',
+      main: 'https://example.com/{locale}/feed',
+      aliases: ['https://example.com/feed.php?l={locale}'],
+    },
+    { key: 'tag', main: 'https://example.com/tags/{tag}/feed' },
+  ],
+  {
+    lenient: { case: ['locale', 'tag'] },
+    checks: {
+      locale: (value) => regionLocaleRegex.test(value),
+      tag: (value) => !value.includes('%'),
+    },
+  },
+)
+
+const slashed = defineUrls([
+  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
+  { key: 'page', main: 'https://example.com/{user}/' },
+  { key: 'blog', main: 'https://example.com/blog/{user}/', lenient: { trailingSlash: true } },
+  { key: 'posts', main: 'https://example.com/blog/{user}' },
+])
+
+const profiles = defineUrls([
+  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
+  { key: 'page', main: 'https://example.com/@{user}/' },
+  { key: 'about', main: 'https://example.com/about/' },
+])
+
+const listed = defineUrls([
+  {
+    key: 'list',
+    main: 'https://example.com/lists/{user}/{list}',
+    lenient: { case: ['user'] },
+  },
+])
+
+const ampersands = defineUrls([
+  {
+    key: 'agenda',
+    main: 'https://example.com/Feed.ashx?M=LD&ID={id}&GUID={guid}',
+    lenient: { ampersandEntity: true },
+  },
+  {
+    key: 'calendar',
+    main: 'https://example.com/Calendar.ashx?M=CL&ID={id}&GUID={guid}',
+    lenient: { ampersandEntity: false },
+  },
+])
+
+const unmarkedAmpersands = defineUrls([
+  { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD&ID={id}&GUID={guid}' },
+])
+
+const ampersandRoutes = defineUrls(
+  [
+    { key: 'posts', main: 'https://example.com/feed' },
+    { key: 'comments', main: 'https://example.com/feed?type=comments' },
+  ],
+  { lenient: { ampersandEntity: true }, keptParams: ['page'] },
+)
+
+const ampersandPairs = defineUrls(
+  [
+    { key: 'one', main: 'https://example.com/feed?a={a}' },
+    { key: 'two', main: 'https://example.com/feed?a={a}&b={b}' },
+  ],
+  { lenient: { ampersandEntity: true } },
+)
+
+const ampersandPair = defineUrls([
+  { key: 'one', main: 'https://example.com/feed?a={a}' },
+  { key: 'two', main: 'https://example.com/feed?a={a}&b={b}', lenient: { ampersandEntity: true } },
+])
+
+const ampersandFixed = defineUrls([
+  { key: 'one', main: 'https://example.com/feed?a={a}' },
+  { key: 'two', main: 'https://example.com/feed?a={a}&b=2', lenient: { ampersandEntity: true } },
+])
+
+const ampersandTags = defineUrls(
+  [
+    { key: 'posts', main: 'https://example.com/feed' },
+    { key: 'comments', main: 'https://example.com/feed?type=comments' },
+    { key: 'tag', main: 'https://example.com/feed?tag={tag}&type=posts' },
+  ],
+  { lenient: { ampersandEntity: true } },
+)
+
+const ampersandItems = defineUrls(
+  [
+    { key: 'list', main: 'https://example.com/list' },
+    { key: 'item', main: 'https://example.com/list?id={id}', lenient: { ampersandEntity: true } },
+  ],
+  { checks: { id: (value) => digitsRegex.test(value) } },
+)
+
+const movedBoards = defineUrls([
+  {
+    key: 'plain',
+    main: 'https://example.com/plain/{board}_by_{user}',
+    aliases: ['https://example.com/plain/{board}/{user}'],
+  },
+])
+
+const tenantBlogs = defineUrls([
+  {
+    key: 'blog',
+    main: 'https://{user}.example.com/feed',
+    aliases: ['https://example.com/blogs/{user}/feed'],
+  },
+])
+
+const builtSlash = defineUrls([
+  { key: 'user', main: 'https://example.com/u/{user}', lenient: { trailingSlash: true } },
+  { key: 'page', main: 'https://example.com/u/{user}/', isBuildOnly: true },
+])
+
+const aliasSlash = defineUrls([
+  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
+  {
+    key: 'page',
+    main: 'https://example.com/p/{page}',
+    aliases: ['https://example.com/{page}/'],
+  },
+])
+
+const ampersandAlias = defineUrls([
+  {
+    key: 'feed',
+    main: 'https://example.com/feed.rss?a={a}',
+    aliases: ['https://example.com/old.rss?a={a}'],
+    lenient: { ampersandEntity: true },
+  },
+])
 
 describe('defineUrls', () => {
   describe('read', () => {
@@ -580,8 +755,15 @@ describe('defineUrls', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for a flag parameter given a value', () => {
+    it('should write an alias with a flag parameter written with an equals sign', () => {
       const value = 'https://example.com/list.php?xml='
+      const expected = 'https://feeds.example.com/list.rss'
+
+      expect(spellings.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a flag parameter given a space as its value', () => {
+      const value = 'https://example.com/list.php?xml=%20'
 
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
@@ -676,6 +858,13 @@ describe('defineUrls', () => {
       expect(rooted.getMainUrl(value)).toBe(expected)
     })
 
+    it('should write a main URL on a root under http as https', () => {
+      const value = 'http://alice.example.net/feed.xml'
+      const expected = 'https://alice.example.net/feed.xml'
+
+      expect(rooted.getMainUrl(value)).toBe(expected)
+    })
+
     it('should drop an empty pair between kept parameters', () => {
       const value = 'https://example.com/alice/rss20.xml?a=1&&b=2'
       const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&b=2'
@@ -694,6 +883,19 @@ describe('defineUrls', () => {
       const value = 'https://example.com/pair.xml?id=7'
 
       expect(repeated.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for an alias value that holds the fixed text of the main URL', () => {
+      const value = 'https://example.com/plain/Art/Alice_by_Bob'
+
+      expect(movedBoards.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should write a value an alias moves into the host of the main URL as written', () => {
+      const value = 'https://example.com/blogs/Alice/feed'
+      const expected = 'https://Alice.example.com/feed'
+
+      expect(tenantBlogs.getMainUrl(value)).toBe(expected)
     })
 
     it('should return undefined for an alias without a value the main URL needs', () => {
@@ -863,6 +1065,613 @@ describe('defineUrls', () => {
       const value = 'http://example.com/feed?alt=rss2'
 
       expect(formats.getMainUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a flag parameter written with an equals sign', () => {
+    it('should mark the URL as exact', () => {
+      const value = 'https://feeds.example.com/list.php?xml='
+      const match = flaggedMain.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should write the flag without the equals sign', () => {
+      const value = 'https://feeds.example.com/list.php?xml='
+      const expected = 'https://feeds.example.com/list.php?xml'
+
+      expect(flaggedMain.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a question mark that opens the name of the first parameter', () => {
+      const value = 'https://feeds.example.com/list.php??page=2&xml='
+      const expected = 'https://feeds.example.com/list.php??page=2&xml'
+
+      expect(flaggedMain.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias that gives the flag of the main URL', () => {
+      const value = 'https://example.com/list.rss?xml='
+      const expected = 'https://feeds.example.com/list.php?xml'
+
+      expect(flaggedMain.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should not mark a flag given twice as exact', () => {
+      const value = 'https://feeds.example.com/list.php?xml=&xml='
+      const match = flaggedMain.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should return undefined for an alias that gives a value of the main URL with an equals sign after it', () => {
+      const value = 'https://example.com/item/5?id=5='
+
+      expect(moved.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for an alias that gives a parameter of the main URL an empty value', () => {
+      const value = 'https://example.com/item/5?id='
+
+      expect(moved.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should write 200 kB of an alias that repeats a value of the main URL within a second', () => {
+      const value = `https://example.com/item/5?${'a&'.repeat(50000)}${'id=5&'.repeat(20000)}`
+      const startedAt = performance.now()
+
+      moved.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with the case mark', () => {
+    it('should write a value of a main URL in lowercase', () => {
+      const value = 'https://feeds.example.com/Alice'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value of an alias in lowercase', () => {
+      const value = 'https://example.com/Alice/feed/'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a query value in lowercase', () => {
+      const value = 'https://feeds.example.com/search.rss?q=News'
+      const expected = 'https://feeds.example.com/search.rss?q=news'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a question mark that opens the name of the first parameter', () => {
+      const value = 'https://feeds.example.com/search.rss??page=2&q=News'
+      const expected = 'https://feeds.example.com/search.rss??page=2&q=news'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep the escapes of a value it writes in lowercase', () => {
+      const value = 'https://feeds.example.com/Caf%C3%A9'
+      const expected = 'https://feeds.example.com/caf%C3%A9'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for an alias with its fixed text in another case', () => {
+      const value = 'https://example.com/alice/FEED/'
+
+      expect(marked.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should keep the case of a value the list does not name', () => {
+      const value = 'https://example.com/lists/Alice/News'
+      const expected = 'https://example.com/lists/alice/News'
+
+      expect(listed.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a value as written on a row that turns the mark off', () => {
+      const value = 'https://feeds.example.com/tags.rss?tag=News'
+
+      expect(marked.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should write a query value of an alias in lowercase', () => {
+      const value = 'https://example.com/feed.php?name=Alice'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a value as written when its check refuses the lowercase', () => {
+      const value = 'http://example.com/en-US/feed'
+      const expected = 'https://example.com/en-US/feed'
+
+      expect(localized.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value of an alias as written when its check refuses the lowercase', () => {
+      const value = 'https://example.com/feed.php?l=en-US'
+      const expected = 'https://example.com/en-US/feed'
+
+      expect(localized.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should run the check of a value on its decoded lowercase', () => {
+      const value = 'https://example.com/tags/Caf%C3%A9/feed'
+      const expected = 'https://example.com/tags/caf%C3%A9/feed'
+
+      expect(localized.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should not read true as the case mark', () => {
+      const table = defineUrls([
+        {
+          key: 'user',
+          main: 'https://example.com/users/{user}',
+          // @ts-expect-error: The case mark takes a list of placeholder names.
+          lenient: { case: true },
+        },
+      ])
+      const value = 'https://example.com/users/Alice'
+
+      expect(table.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should throw for a marked value that shares a path segment with another value', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'board',
+            main: 'https://example.com/{board}_by_{user}',
+            lenient: { case: ['user'] },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The board row marks the case of user, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should throw for a marked value that shares a host label with another value', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'blog',
+            main: 'https://{blog}-{user}.example.com/feed',
+            lenient: { case: ['blog'] },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The blog row marks the case of blog, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should throw for a marked value that shares a query value with another value', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'range',
+            main: 'https://example.com/range.rss?r={from}-{to}',
+            lenient: { case: ['to'] },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The range row marks the case of to, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should throw for a marked value that shares a path segment of an alias', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'board',
+            main: 'https://example.com/boards/{board}/{user}',
+            aliases: ['https://example.com/{board}_by_{user}'],
+            lenient: { case: ['user'] },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The board row marks the case of user, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should throw for a value the mark of the table names', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'board', main: 'https://example.com/{board}_by_{user}' }], {
+          lenient: { case: ['user'] },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The board row marks the case of user, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should throw for a marked value in a template with two values of several segments', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'thread',
+            main: 'https://example.com/{board*}/feed/{thread*}',
+            lenient: { case: ['thread'] },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The thread row marks the case of thread, which shares a part of its URL with another value',
+      )
+    })
+
+    it('should not throw for a row that turns the mark of the table off', () => {
+      const defining = () => {
+        return defineUrls(
+          [
+            {
+              key: 'board',
+              main: 'https://example.com/{board}_by_{user}',
+              lenient: { case: [] },
+            },
+          ],
+          { lenient: { case: ['user'] } },
+        )
+      }
+
+      expect(defining).not.toThrow()
+    })
+
+    it('should write 200 kB of a value in lowercase within a second', () => {
+      const value = `https://feeds.example.com/${'A'.repeat(200000)}`
+      const startedAt = performance.now()
+
+      marked.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should not write a value in lowercase on a row that sets the mark to undefined', () => {
+      const table = defineUrls(
+        [
+          {
+            key: 'user',
+            main: 'https://example.com/users/{user}',
+            aliases: ['https://example.com/u/{user}'],
+            lenient: { case: undefined },
+          },
+        ],
+        { lenient: { case: ['user'] } },
+      )
+      const value = 'https://example.com/u/Alice'
+      const expected = 'https://example.com/users/Alice'
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with the trailing slash mark', () => {
+    it('should mark a URL with a trailing slash the row does not write as exact', () => {
+      const value = 'https://feeds.example.com/alice/'
+      const match = marked.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should drop a trailing slash the main URL does not write', () => {
+      const value = 'https://feeds.example.com/alice/'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write an alias without the trailing slash it writes as the main URL', () => {
+      const value = 'https://example.com/alice/feed'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(marked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a trailing slash another row writes', () => {
+      const value = 'https://example.com/alice/'
+
+      expect(slashed.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a trailing slash the alias of another row writes', () => {
+      const value = 'https://example.com/alice/'
+
+      expect(aliasSlash.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a trailing slash another row writes on the www host', () => {
+      const value = 'https://www.example.com/alice/'
+
+      expect(slashed.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a missing trailing slash another row writes without', () => {
+      const value = 'https://example.com/blog/alice'
+
+      expect(slashed.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a trailing slash another row writes after fixed text given as an escape', () => {
+      const value = 'https://example.com/%40alice/'
+
+      expect(profiles.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a trailing slash another row writes after fixed text in another case', () => {
+      const value = 'https://example.com/About/'
+
+      expect(profiles.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should not mark a trailing slash another row writes after an escape as exact', () => {
+      const value = 'https://example.com/%61bout/'
+      const match = profiles.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not mark a trailing slash as exact on a row that turns the mark off', () => {
+      const value = 'https://feeds.example.com/archive/alice/feed/'
+      const match = marked.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not mark a trailing slash as exact on a row that sets the mark to undefined', () => {
+      const table = defineUrls(
+        [
+          {
+            key: 'user',
+            main: 'https://example.com/users/{user}',
+            lenient: { trailingSlash: undefined },
+          },
+        ],
+        { lenient: { trailingSlash: true } },
+      )
+      const value = 'https://example.com/users/alice/'
+      const match = table.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not read a list as the trailing slash mark', () => {
+      const table = defineUrls([
+        {
+          key: 'user',
+          main: 'https://example.com/{user}',
+          // @ts-expect-error: The trailing slash mark is a boolean.
+          lenient: { trailingSlash: ['user'] },
+        },
+      ])
+      const value = 'https://example.com/alice/'
+      const match = table.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not read a misspelled key as the trailing slash mark', () => {
+      const table = defineUrls([
+        {
+          key: 'user',
+          main: 'https://example.com/{user}',
+          // @ts-expect-error: A key that is no mark fails the typecheck.
+          lenient: { trailingslash: true },
+        },
+      ])
+      const value = 'https://example.com/alice/'
+      const match = table.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should not mark a trailing slash another row writes as exact', () => {
+      const value = 'https://example.com/alice/'
+      const match = slashed.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should return undefined for a trailing slash a row that is only built writes', () => {
+      const value = 'https://example.com/u/alice/'
+
+      expect(builtSlash.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should mark a trailing slash as exact on a row that turns another mark off', () => {
+      const value = 'https://feeds.example.com/tags.rss/?tag=news'
+      const match = marked.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+  })
+
+  describe('with the ampersand entity mark', () => {
+    it('should read &amp; between query pairs as &', () => {
+      const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
+      const expected: Record<string, string> = {
+        id: '7',
+        guid: 'a1b2',
+      }
+      const match = ampersands.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should write &amp; between query pairs as &', () => {
+      const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
+      const expected = 'https://example.com/Feed.ashx?GUID=a1b2&ID=7&M=LD'
+
+      expect(ampersands.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for &amp; on a row that turns the mark off', () => {
+      const value = 'https://example.com/Calendar.ashx?M=CL&amp;ID=7&amp;GUID=a1b2'
+
+      expect(ampersands.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for &amp; on a row without the mark', () => {
+      const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
+
+      expect(unmarkedAmpersands.read(value)).toBeUndefined()
+    })
+
+    it('should write &amp; as & in a query that is sorted already', () => {
+      const value = 'https://example.com/Feed.ashx?GUID=a1b2&amp;ID=7&amp;M=LD'
+      const expected = 'https://example.com/Feed.ashx?GUID=a1b2&ID=7&M=LD'
+
+      expect(ampersands.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a selector after &amp; under a value no row lists', () => {
+      const value = 'https://example.com/feed?page=2&amp;type=other'
+
+      expect(ampersandRoutes.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a URL the row takes only with &amp; left unread', () => {
+      const value = 'https://example.com/Feed.ashx?page=2&amp;M=CL&M=LD&ID=7&GUID=a1b2'
+
+      expect(ampersands.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value after &amp; that the check of a marked row refuses', () => {
+      const value = 'https://example.com/list?page=2&amp;id=news'
+
+      expect(ampersandItems.read(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for a doubled &amp;', () => {
+      const value = 'https://example.com/feed?a=1&amp;amp;b=2'
+
+      expect(ampersandPairs.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for a doubled &amp; before another pair', () => {
+      const value = 'https://example.com/feed?zz=1&amp;amp;b=2&a=1'
+
+      expect(ampersandPairs.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for a first pair that starts with amp;', () => {
+      const value = 'https://example.com/feed?amp;b=2&a=1'
+
+      expect(ampersandPairs.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should not mark a doubled &amp; as exact', () => {
+      const value = 'https://example.com/feed?a=1&amp;amp;b=2'
+      const match = ampersandPairs.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should return no main URL where the sorted query reads as a row under the mark', () => {
+      const value = 'https://example.com/feed?amp;b=2&a=1'
+
+      expect(ampersandPair.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return no main URL where the sorted query reads as a row with a fixed pair', () => {
+      const value = 'https://example.com/feed?amp;b=2&a=1'
+
+      expect(ampersandFixed.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for &amp; on a row without the mark beside a row under it', () => {
+      const value = 'https://example.com/feed?a=1&amp;x=2'
+
+      expect(ampersandPair.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should mark a URL with &amp; on a row without the mark as exact', () => {
+      const value = 'https://example.com/Feed.ashx?M=LD&ID=7&GUID=a1b2&amp;x=3'
+      const match = unmarkedAmpersands.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should return no main URL for an alias whose first pair starts with amp;', () => {
+      const value = 'https://example.com/old.rss?amp;x=2&a=1'
+
+      expect(ampersandAlias.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should not mark an alias whose first pair starts with amp; as exact', () => {
+      const value = 'https://example.com/old.rss?amp;x=2&a=1'
+      const match = ampersandAlias.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should read an encoded &amp; inside a value as part of the value', () => {
+      const value = 'https://example.com/feed?tag=A%26amp;B&amp;type=posts'
+      const expected: Record<string, string> = { tag: 'A&amp;B' }
+      const match = ampersandTags.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should write an encoded &amp; inside a value as written', () => {
+      const value = 'https://example.com/feed?tag=A%26amp;B&amp;type=posts'
+      const expected = 'https://example.com/feed?tag=A%26amp;B&type=posts'
+
+      expect(ampersandTags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a URL with &amp; as a row without the mark beside a row under it', () => {
+      const value = 'https://example.com/feed?amp;b=2&a=1&amp;z=1'
+      const expected = 'one'
+      const match = ampersandFixed.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should not read an entity in capitals as &', () => {
+      const value = 'https://example.com/feed?tag=a&AMP;type=posts&amp;z=1'
+      const expected = 'posts'
+      const match = ampersandTags.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should not read a string as the ampersand entity mark', () => {
+      const table = defineUrls([
+        {
+          key: 'feed',
+          main: 'https://example.com/feed?a={a}&b={b}',
+          // @ts-expect-error: The ampersand entity mark is a boolean.
+          lenient: { ampersandEntity: 'yes' },
+        },
+      ])
+      const value = 'https://example.com/feed?a=1&amp;b=2'
+
+      expect(table.read(value)).toBeUndefined()
+    })
+
+    it('should read 200 kB of &amp; within a second', () => {
+      const value = `https://example.com/Feed.ashx?M=LD${'&amp;ID=7'.repeat(22000)}`
+      const startedAt = performance.now()
+
+      ampersands.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 

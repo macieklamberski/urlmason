@@ -10,6 +10,18 @@ export type FeedEntry = {
   hint: FeedHint
 }
 
+// The other spellings a platform reads as the same URL, each mark resting on a fetch.
+export type UrlLenient = {
+  // The placeholders whose value is read in any letter case. The main URL writes it in lowercase.
+  // A table throws for one that shares a host label, path segment or query value with another.
+  case?: Array<string>
+  // A URL with or without a trailing slash. A slash another row writes on the same path is not
+  // covered: such a URL is not exact and not rewritten.
+  trailingSlash?: boolean
+  // `&amp;` between query pairs read as `&`.
+  ampersandEntity?: boolean
+}
+
 export type UrlRow<Key extends string = string> = {
   key: Key
   // The row's URL, with `{name}` placeholders, each one host label, path segment or query value.
@@ -29,6 +41,9 @@ export type UrlRow<Key extends string = string> = {
   // the platform writes them, never placeholder names. With a list, a rewrite to the main URL
   // drops every other parameter. Without one it keeps them all.
   keptParams?: Array<string>
+  // The row's marks over the table's, key by key, so `{ case: [] }` or `{ trailingSlash: false }`
+  // turns the table's mark off.
+  lenient?: UrlLenient
 }
 
 export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
@@ -63,6 +78,8 @@ export type UrlTableOptions = {
   checks?: Record<string, UrlCheck>
   // The `keptParams` of every row that names none of its own.
   keptParams?: Array<string>
+  // The marks of every row, which a row's own `lenient` overrides key by key.
+  lenient?: UrlLenient
 }
 
 export type UrlMatch<Key extends string, Row> = {
@@ -70,8 +87,9 @@ export type UrlMatch<Key extends string, Row> = {
   params: Record<string, string>
   row: Row
   isAlias: boolean
-  // Whether the URL is written as the row writes it: the same case, the same trailing slash and
-  // each own parameter once. A platform can answer any other spelling with another feed.
+  // Whether the URL is written as the row writes it, or in a spelling its marks cover: the same
+  // case, the same trailing slash and each own parameter once. A platform can answer any other
+  // spelling with another feed.
   isExact: boolean
 }
 

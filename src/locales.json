@@ -3,6 +3,7 @@
     "invalidFeedTemplate": "Not a feed URL template: {{template}}",
     "missingFeedTemplate": "No feed template for {{key}}",
     "missingFeedHosts": "No hosts for the {{key}} feed",
-    "keptParamInTemplate": "The {{key}} row keeps {{name}}, which its URL already sets"
+    "keptParamInTemplate": "The {{key}} row keeps {{name}}, which its URL already sets",
+    "sharedCaseMark": "The {{key}} row marks the case of {{name}}, which shares a part of its URL with another value"
   }
 }
