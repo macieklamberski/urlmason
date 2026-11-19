@@ -81,6 +81,12 @@ type UrlPart = 'host' | 'path' | 'query'
 
 type MapText = (text: string) => string
 
+// The pattern of a value, and of one character of it where a value can sit behind fixed text.
+type Capture = {
+  source: string
+  unit?: string
+}
+
 // A placeholder a pattern captures, with the part of the URL it sits in.
 type Captured = {
   name: string
@@ -153,6 +159,8 @@ const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const ownGroupRegex = /^p\d+$/
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
+const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
+const queryCapture: Capture = { source: '.+', unit: '.' }
 // What a template builds from values that fill it and a passed query it cannot write.
 const refusedQuery = Symbol('refusedQuery')
 
@@ -294,20 +302,43 @@ const mapTemplate = (
     .join('')
 }
 
+// A value behind another value and fixed text never holds that text with more of the value after
+// it: the value in front takes all it can. A pattern that says so reads a long run of the fixed
+// text once, where one that does not tries every split of it.
+const toLaterSource = ({ unit }: Capture, separator: string): string | undefined => {
+  // The value in front can only take fixed text it can hold, as text without a slash in a path.
+  if (!unit || !new RegExp(`^(?:${unit})+$`).test(separator)) {
+    return
+  }
+
+  // Text free of the fixed text, then an end no longer than it, which can be the fixed text.
+  return `(?:(?!${escapeRegex(separator)})${unit})*${unit}{1,${separator.length}}`
+}
+
 // A placeholder becomes the capture, the text around it a literal, decoded for a path so an
 // encoded brace in it stays a literal, and encoded for a raw query value as the row writes it.
 const toRegexSource = (
   text: string,
   wrapCapture: (name: string, source: string) => string,
-  capture: string,
+  capture: Capture,
   captures: Record<string, string> = {},
   mapLiteral: MapText = (literal) => literal,
 ): string => {
-  return mapTemplate(
-    text,
-    (name) => wrapCapture(name, captures[name] ?? capture),
-    (literal) => escapeRegex(mapLiteral(literal)),
-  )
+  const pieces = text
+    .split(placeholderRegex)
+    .map((piece, index) => (index % 2 === 1 ? piece : mapLiteral(piece)))
+
+  return pieces
+    .map((piece, index) => {
+      if (index % 2 === 0) {
+        return escapeRegex(piece)
+      }
+
+      const laterSource = index > 1 ? toLaterSource(capture, pieces[index - 1]) : undefined
+
+      return wrapCapture(piece, captures[piece] ?? laterSource ?? capture.source)
+    })
+    .join('')
 }
 
 // A template as two functions: the values of a URL it takes, and its URL for a page's values.
@@ -367,8 +398,14 @@ const compileTemplate = (
     // A flag is written by `composeQuery` under either encoding.
     const writtenName = encodeText(name, isFlag ? 'minimal' : queryEncoding)
     const writtenValue = isFilled ? '' : encodeQueryText(value)
-    const source = toRegexSource(value, wrapCaptureIn('query'), '.+')
-    const rawSource = toRegexSource(value, wrapCaptureIn('query'), '.+', {}, encodeQueryText)
+    const source = toRegexSource(value, wrapCaptureIn('query'), queryCapture)
+    const rawSource = toRegexSource(
+      value,
+      wrapCaptureIn('query'),
+      queryCapture,
+      {},
+      encodeQueryText,
+    )
     const own: OwnParam = {
       name,
       value,
@@ -474,14 +511,14 @@ const compileTemplate = (
   const pathSource = toRegexSource(
     path.replace(trailingSlashRegex, ''),
     wrapCaptureIn('path'),
-    '[^/]+',
+    pathCapture,
     multiSegmentCaptures,
     decodePath,
   )
   // The path as the template writes it, for a URL read in its own spelling.
   // A template with no path is a site, which a URL names with or without the slash of its root.
   const rawPathSource = path
-    ? toRegexSource(path, wrapCaptureIn('path'), '[^/]+', multiSegmentCaptures)
+    ? toRegexSource(path, wrapCaptureIn('path'), pathCapture, multiSegmentCaptures)
     : '/?'
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.
@@ -506,7 +543,7 @@ const compileTemplate = (
     const hostSource = toRegexSource(
       normalize(host),
       wrapCaptureIn('host'),
-      tenantSource,
+      { source: tenantSource },
       hostCaptures,
     )
     const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`

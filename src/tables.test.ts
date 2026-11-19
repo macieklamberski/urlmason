@@ -530,6 +530,11 @@ const passedTwice = defineUrls([
   { key: 'page', main: 'https://example.com/page?{query}&x={query}' },
 ])
 
+const sharedPages = defineUrls([
+  { key: 'page', main: 'https://example.com/pages/{board}-{user}-{page}.xml' },
+  { key: 'search', main: 'https://example.com/search?q={board}-{user}-{page}.xml' },
+])
+
 describe('defineUrls', () => {
   describe('rows', () => {
     it('should return the rows it was given', () => {
@@ -2936,6 +2941,68 @@ describe('defineUrls', () => {
       const expected = 'https://example.com/feed.rss??page=2&a=1'
 
       expect(ampersandAlias.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with several values in one segment', () => {
+    it('should give the first value all the fixed text it can hold', () => {
+      const value = 'https://example.com/pages/art-deco-alice-2.xml'
+      const expected = {
+        board: 'art-deco',
+        user: 'alice',
+        page: '2',
+      }
+      const match = sharedPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a later value that ends in the fixed text', () => {
+      const value = 'https://example.com/pages/art-alice--2.xml'
+      const expected = {
+        board: 'art',
+        user: 'alice-',
+        page: '2',
+      }
+      const match = sharedPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a later value of a query value that ends in the fixed text', () => {
+      const value = 'https://example.com/search?q=art-alice--2.xml'
+      const expected = {
+        board: 'art',
+        user: 'alice-',
+        page: '2',
+      }
+      const match = sharedPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return undefined for a segment that leaves a value empty', () => {
+      const value = 'https://example.com/pages/art--2.xml'
+
+      expect(sharedPages.read(value)).toBeUndefined()
+    })
+
+    it('should read 200 kB of the fixed text in a segment within a second', () => {
+      const value = `https://example.com/pages/${'-'.repeat(200000)}.xm`
+      const startedAt = performance.now()
+
+      sharedPages.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read 200 kB of the fixed text in a query value within a second', () => {
+      const value = `https://example.com/search?q=${'-'.repeat(200000)}.xm`
+      const startedAt = performance.now()
+
+      sharedPages.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 
