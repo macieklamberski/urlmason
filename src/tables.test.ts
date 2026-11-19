@@ -101,6 +101,34 @@ const hosted = defineUrls(
   { hosts: { tenants: ['example.net'] } },
 )
 
+const paged = defineUrls(
+  [
+    {
+      key: 'posts',
+      main: 'https://feeds.example.com/posts.xml',
+      aliases: ['https://example.com/posts.xml'],
+    },
+    {
+      key: 'search',
+      main: 'https://feeds.example.com/search.xml?q={query}',
+      aliases: ['https://example.com/search.xml?q={query}'],
+      keptParams: ['sort'],
+    },
+  ],
+  { keptParams: ['max-results', 'start-index'] },
+)
+
+const bare = defineUrls(
+  [
+    {
+      key: 'feed',
+      main: '{scheme}://feeds.example.com/{name}',
+      aliases: ['{scheme}://old.example.com/{name}'],
+    },
+  ],
+  { keptParams: [] },
+)
+
 describe('defineUrls', () => {
   describe('read', () => {
     it('should return the key, the values and the row of a main URL', () => {
@@ -410,9 +438,38 @@ describe('defineUrls', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep the query and the fragment of a main URL as given', () => {
-      const value = 'http://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
-      const expected = 'https://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
+    it('should keep the values and the fragment of a main URL as given', () => {
+      const value = 'http://feeds.example.com/alice/rss20.xml?a=1&b=%5B2%5D#top'
+      const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&b=%5B2%5D#top'
+
+      expect(spellings.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should sort the query of a main URL by name', () => {
+      const value = 'https://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
+      const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&b=%5B2%5D#top'
+
+      expect(spellings.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a sorted main URL with one name in two cases', () => {
+      const value = 'https://feeds.example.com/alice/rss20.xml?tag=news&Tag=art'
+
+      expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should sort 200 kB of parameters within a second', () => {
+      const value = `https://feeds.example.com/alice/rss20.xml?${'b=1&a=1&'.repeat(25000)}`
+      const startedAt = performance.now()
+
+      spellings.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should keep the order of parameters under one name', () => {
+      const value = 'https://feeds.example.com/alice/rss20.xml?tag=news&a=1&tag=art'
+      const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&tag=news&tag=art'
 
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
@@ -510,10 +567,11 @@ describe('defineUrls', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for a main URL whose host is a placeholder', () => {
+    it('should write a main URL with a tenant in its host under http as https', () => {
       const value = 'http://alice.example.org/feeds/posts/default'
+      const expected = 'https://alice.example.org/feeds/posts/default'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
     it('should return undefined for a main URL with an empty query', () => {
@@ -611,6 +669,73 @@ describe('defineUrls', () => {
       const value = 'https://example.com/alice/about'
 
       expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with kept parameters', () => {
+    it('should keep a listed parameter and drop any other on an alias', () => {
+      const value = 'https://example.com/posts.xml?v=2&max-results=5&utm_source=feed'
+      const expected = 'https://feeds.example.com/posts.xml?max-results=5'
+
+      expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should drop a parameter that is not listed from a main URL', () => {
+      const value = 'https://feeds.example.com/posts.xml?max-results=5&v=2'
+      const expected = 'https://feeds.example.com/posts.xml?max-results=5'
+
+      expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a sorted main URL whose parameters are all listed', () => {
+      const value = 'https://feeds.example.com/posts.xml?max-results=5&start-index=10'
+
+      expect(paged.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should keep the fragment of an alias', () => {
+      const value = 'https://example.com/posts.xml?max-results=5#latest'
+      const expected = 'https://feeds.example.com/posts.xml?max-results=5#latest'
+
+      expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should sort the listed parameters of an alias by name', () => {
+      const value = 'https://example.com/posts.xml?start-index=10&max-results=5'
+      const expected = 'https://feeds.example.com/posts.xml?max-results=5&start-index=10'
+
+      expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should take the list of the row over the list of the table', () => {
+      const value = 'https://example.com/search.xml?q=feeds&sort=new&max-results=5'
+      const expected = 'https://feeds.example.com/search.xml?q=feeds&sort=new'
+
+      expect(paged.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should drop every parameter for an empty list', () => {
+      const value = 'https://feeds.example.com/alice?format=xml&utm_source=feed'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(bare.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep the scheme of a main URL it only drops parameters from', () => {
+      const value = 'http://feeds.example.com/alice?format=xml'
+      const expected = 'http://feeds.example.com/alice'
+
+      expect(bare.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should throw for a kept parameter the URL of the row already sets', () => {
+      const throwing = () => {
+        return defineUrls([
+          { key: 'search', main: 'https://example.com/search.xml?q={query}', keptParams: ['q'] },
+        ])
+      }
+
+      expect(throwing).toThrow('The search row keeps q, which its URL already sets')
     })
   })
 })

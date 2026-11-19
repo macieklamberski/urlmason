@@ -2,6 +2,7 @@
   "errors": {
     "invalidFeedTemplate": "Not a feed URL template: {{template}}",
     "missingFeedTemplate": "No feed template for {{key}}",
-    "missingFeedHosts": "No hosts for the {{key}} feed"
+    "missingFeedHosts": "No hosts for the {{key}} feed",
+    "keptParamInTemplate": "The {{key}} row keeps {{name}}, which its URL already sets"
   }
 }

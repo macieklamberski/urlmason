@@ -35,8 +35,8 @@ type CompiledTemplate = {
   readRawParams: (url: URL, isWwwOptional: boolean) => RawParams | undefined
   // The template's URL with values written as they were read, and the query no row names kept.
   getRawUrl: (rawParams: RawParams, keptQuery: string) => string | undefined
-  // The scheme and host of a template that writes `https` and its host itself.
-  fixedOrigin?: string
+  // The origin of a template that writes `https` itself, with the host values as the URL has them.
+  getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, string>) => boolean
   getUrl: (params?: UrlParams) => string | undefined
 }
@@ -300,13 +300,10 @@ const compileTemplate = (
     wrapCaptureIn('path'),
   )
   // The path as the template writes it, for a URL read in its own spelling.
-  const rawPathSource = toRegexSource(
-    path,
-    '[^/]+',
-    multiSegmentCaptures,
-    false,
-    wrapCaptureIn('path'),
-  )
+  // A template with no path is a site, which a URL names with or without the slash of its root.
+  const rawPathSource = path
+    ? toRegexSource(path, '[^/]+', multiSegmentCaptures, false, wrapCaptureIn('path'))
+    : '/?'
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.
   const toHostPathRegex = (isWwwOptional: boolean, isRaw = false): RegExp => {
@@ -539,6 +536,31 @@ const compileTemplate = (
     return `${origin}${filledPath}${joinedQuery ? `?${joinedQuery}` : ''}`
   }
 
+  const getHttpsOrigin = (rawParams: RawParams): string | undefined => {
+    if (!isAnyOf(scheme, 'https')) {
+      return
+    }
+
+    let isFilled = true
+    const filledHost = host.replace(placeholderRegex, (_placeholder, name: string) => {
+      const rawParam = rawParams[toBareName(name)]
+
+      if (!rawParam) {
+        isFilled = false
+
+        return ''
+      }
+
+      return rawParam.value
+    })
+
+    if (!isFilled) {
+      return
+    }
+
+    return `https://${filledHost}`
+  }
+
   // A template whose placeholders the values do not all fill builds no URL.
   const getUrl = (params: UrlParams = {}): string | undefined => {
     const values: Record<string, string> = {}
@@ -603,7 +625,7 @@ const compileTemplate = (
     readParams,
     readRawParams,
     getRawUrl,
-    fixedOrigin: isAnyOf(scheme, 'https') && !host.includes('{') ? `https://${host}` : undefined,
+    getHttpsOrigin,
     passesChecks,
     getUrl,
   }
@@ -625,6 +647,15 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     })
   })
   const compiled = compiledRows.flat()
+
+  for (const [rowIndex, row] of rows.entries()) {
+    const ownNames = compiledRows[rowIndex].flatMap((template) => template.ownNames)
+    const name = row.keptParams?.find((keptParam) => isAnyOf(keptParam, ownNames))
+
+    if (name !== undefined) {
+      throw new Error(t(locales.errors.keptParamInTemplate, { key: row.key, name }))
+    }
+  }
   // A template with more query parameters is the more specific one, so it is read first. At the
   // same count the earlier row wins, so a `{name*}` row goes after the rows its paths overlap.
   const claimed = compiled.filter((candidate) => !rows[candidate.rowIndex].isBuildOnly)
@@ -762,12 +793,52 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       return
     }
 
+    const row = rows[found.template.rowIndex]
+    const keptParams = row.keptParams ?? options.keptParams
+    const pairs = found.url.search
+      .replace(leadingQuestionMarkRegex, '')
+      .split('&')
+      .filter((pair) => pair)
+    const isNamed = (pair: string, names: Array<string>): boolean => {
+      return isAnyOf(decodePercent(pair.split('=')[0]), names)
+    }
+    // A parameter no template names stays, and with a list only when the list names it.
+    const isKept = (pair: string): boolean => !keptParams || isNamed(pair, keptParams)
+    // A name is read in any case, so two cases of one name are one name here too.
+    const getName = (pair: string): string => decodePercent(pair.split('=')[0]).toLowerCase()
+    // A main URL writes its query sorted by name, so one feed has one spelling whatever order the
+    // URL had. Pairs of one name keep their order.
+    const sortPairs = (unsortedPairs: Array<string>): Array<string> => {
+      return unsortedPairs.toSorted((left, right) => {
+        const leftName = getName(left)
+        const rightName = getName(right)
+
+        if (leftName === rightName) {
+          return 0
+        }
+
+        return leftName < rightName ? -1 : 1
+      })
+    }
+
     if (!found.template.isAlias) {
-      if (!main.fixedOrigin || found.url.port) {
+      const origin = found.url.port ? undefined : main.getHttpsOrigin(rawParams)
+      const stayingPairs = sortPairs(
+        pairs.filter((pair) => isNamed(pair, main.ownNames) || isKept(pair)),
+      )
+      const isQueryAsGiven = stayingPairs.join('&') === pairs.join('&')
+
+      if (!origin && isQueryAsGiven) {
         return
       }
 
-      const respelledUrl = `${main.fixedOrigin}${found.url.href.slice(found.url.origin.length)}`
+      const { pathname, hash } = found.url
+      const search = stayingPairs.length > 0 ? `?${stayingPairs.join('&')}` : ''
+      // A query that needs no change stays as written, an empty one and an empty pair included.
+      const rest = isQueryAsGiven
+        ? found.url.href.slice(found.url.origin.length)
+        : `${pathname}${search}${hash}`
+      const respelledUrl = `${origin ?? found.url.origin}${rest}`
 
       if (respelledUrl === found.url.href) {
         return
@@ -776,13 +847,12 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       return respelledUrl
     }
 
-    const pairs = found.url.search.replace(leadingQuestionMarkRegex, '').split('&')
-    const isNamed = (pair: string, names: Array<string>): boolean => {
-      return isAnyOf(decodePercent(pair.split('=')[0]), names)
-    }
     const ownNames = [...found.template.ownNames, ...main.ownNames]
-    const keptQuery = pairs.filter((pair) => pair && !isNamed(pair, ownNames)).join('&')
-    const mainUrl = main.getRawUrl(rawParams, keptQuery)
+    const keptQuery = pairs.filter((pair) => !isNamed(pair, ownNames) && isKept(pair)).join('&')
+    const unsortedMainUrl = main.getRawUrl(rawParams, keptQuery)
+    const [mainBase, ...mainQueryParts] = unsortedMainUrl?.split('?') ?? []
+    const sortedMainQuery = sortPairs(mainQueryParts.join('?').split('&')).join('&')
+    const mainUrl = sortedMainQuery ? `${mainBase}?${sortedMainQuery}` : unsortedMainUrl
 
     // A port the main URL cannot keep, as one on a host it writes itself, leaves the URL as it is.
     if (!mainUrl || (found.url.port && parseUrl(mainUrl)?.port !== found.url.port)) {
@@ -809,7 +879,8 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       return
     }
 
-    return mainUrl
+    // The fragment stays as given, as on a URL already on its main host.
+    return `${mainUrl}${found.url.hash}`
   }
 
   // The table for one page: `{scheme}`, `{host}` and `{root}` come from the page URL, `{domain}` is

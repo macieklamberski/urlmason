@@ -25,6 +25,10 @@ export type UrlRow<Key extends string = string> = {
   // change the URL's structure, and `form` encodes as `URLSearchParams` does, `:` as `%3A` and a
   // space as `+`.
   queryEncoding?: 'minimal' | 'form'
+  // The query parameters the row takes beside the ones its URLs set, as `max-results`: names as
+  // the platform writes them, never placeholder names. With a list, a rewrite to the main URL
+  // drops every other parameter. Without one it keeps them all.
+  keptParams?: Array<string>
 }
 
 export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
@@ -57,6 +61,8 @@ export type UrlTableOptions = {
   // A check per placeholder name, such as `{ locale: isLocale }`. A URL whose value fails its
   // check is neither built nor read.
   checks?: Record<string, UrlCheck>
+  // The `keptParams` of every row that names none of its own.
+  keptParams?: Array<string>
 }
 
 export type UrlMatch<Key extends string, Row> = {
@@ -98,4 +104,7 @@ export type Platform = {
   feeds: Omit<FeedUrlTable<never>, 'read'> & {
     read: (url: string) => UrlMatch<string, FeedUrlRow> | undefined
   }
+  // The sites of the platform, each row an origin with no path, for the host and scheme facts
+  // that hold on every page and not only on a feed.
+  sites?: Pick<UrlTable<string, UrlRow>, 'getMainUrl'>
 }

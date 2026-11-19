@@ -1,3 +1,4 @@
+import { parseUrl } from 'trousse'
 import type {
   FeedFormat,
   FeedHint,
@@ -96,11 +97,37 @@ export const defineFeedUrls = <const Key extends string>(
   }
 }
 
-// The main URL of a feed, from the first platform whose table claims the URL.
+const trailingSlashRegex = /\/$/
+
+// The main URL of a feed, from the first platform whose table reads the URL.
 export const getMainFeedUrl = (url: string, platforms: Array<Platform>): string | undefined => {
   for (const platform of platforms) {
-    if (platform.feeds.getFeedHint(url)) {
+    if (platform.feeds.read(url)) {
       return platform.feeds.getMainFeedUrl(url)
+    }
+  }
+}
+
+// A URL of any page on the main host and scheme of its site, from the first platform whose sites
+// take its origin. The path, the query and the hash stay as given.
+export const getMainSiteUrl = (url: string, platforms: Array<Platform>): string | undefined => {
+  const parsedUrl = parseUrl(url)
+
+  // A URL with credentials is left as it is, as the main URL of a feed is.
+  if (!parsedUrl || parsedUrl.username || parsedUrl.password) {
+    return
+  }
+
+  // An origin holds no credentials, and none are left here, so the rest of the URL starts where
+  // the origin ends, with an empty query or fragment as written.
+  const rest = parsedUrl.href.slice(parsedUrl.origin.length)
+
+  for (const platform of platforms) {
+    const mainOrigin = platform.sites?.getMainUrl(parsedUrl.origin)
+
+    // A rewritten origin can end in the slash of its root, which the path brings again.
+    if (mainOrigin) {
+      return `${mainOrigin.replace(trailingSlashRegex, '')}${rest}`
     }
   }
 }
