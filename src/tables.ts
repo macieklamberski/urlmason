@@ -251,6 +251,8 @@ const decodePath = (path: string): string => {
     .join('/')
 }
 
+const portRegex = /:\d+$/
+
 // Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
 // call, and one without both anchors takes a value that only holds a match.
 const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string, CheckFunction> => {
@@ -272,6 +274,13 @@ const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string,
     }
 
     functions[name] = (value) => check.test(value)
+  }
+
+  const hostCheck = functions.host
+
+  // A host is read with its port, which names no other host, so its check sees the host alone.
+  if (hostCheck) {
+    functions.host = (value) => hostCheck(value.replace(portRegex, ''))
   }
 
   return functions

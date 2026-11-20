@@ -2340,6 +2340,20 @@ describe('defineFeedUrls', () => {
 
         expect(checkedFeeds.getFeedHint(value)).toBeUndefined()
       })
+
+      it('should return undefined for a host its check refuses when the URL names a port', () => {
+        const value = 'https://example.org:8080/site.rss'
+
+        expect(checkedFeeds.getFeedHint(value)).toBeUndefined()
+      })
+
+      it('should return the key of a feed whose host passes its check on a port', () => {
+        const value = 'https://uk.example.org:8080/site.rss'
+        const expected = 'example:site'
+        const hint = checkedFeeds.getFeedHint(value)
+
+        expect(hint?.key).toBe(expected)
+      })
     })
   })
 })
