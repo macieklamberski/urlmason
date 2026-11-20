@@ -24,9 +24,9 @@ export type UrlLenient = {
 
 export type UrlRow<Key extends string = string> = {
   key: Key
-  // The row's URL, with `{name}` placeholders, each one host label, path segment or query value.
-  // `{scheme}` is the page's scheme, `{root}` its scheme, host and base path, `{name*}` one or
-  // more path segments, and a whole query parameter such as `?{query}` a query the page passes.
+  // The row's URL. `{name}` is one host label, path segment or query value, `{scheme}` the page's
+  // scheme, `{root}` its scheme, host and base path, `{name*}` one or more path segments, `/{*}`
+  // at the end of the path zero or more, and a parameter such as `?{query}` a passed query.
   main: string
   // Other URLs that serve the same thing, such as a legacy host, written as `main` is.
   aliases?: Array<string>
@@ -85,6 +85,8 @@ export type UrlTableOptions = {
 
 export type UrlMatch<Key extends string, Row> = {
   key: Key
+  // The values read, decoded. The segments a row's `/{*}` took are the value `tail`, which a URL
+  // with none lacks. A URL with a tail is not exact and has no main URL, and `build` writes none.
   params: Record<string, string>
   row: Row
   isAlias: boolean

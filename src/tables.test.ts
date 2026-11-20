@@ -611,6 +611,17 @@ const sharedPages = defineUrls([
   { key: 'search', main: 'https://example.com/search?q={board}-{user}-{page}.xml' },
 ])
 
+const openPages = defineUrls([
+  { key: 'user', main: 'https://example.com/{owner}/{*}' },
+  { key: 'repo', main: 'https://example.com/{owner}/{repo}/{*}' },
+  { key: 'releases', main: 'https://example.com/{owner}/{repo}/releases' },
+])
+
+const checkedOpenPages = defineUrls(
+  [{ key: 'issue', main: 'https://example.com/issues/{id}/{*}' }],
+  { checks: { id: digitsRegex } },
+)
+
 describe('defineUrls', () => {
   describe('rows', () => {
     it('should return the rows it was given', () => {
@@ -3292,6 +3303,315 @@ describe('defineUrls', () => {
       moved.read(value)
 
       expect(moved.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with an open tail', () => {
+    it('should read a URL with no segment behind the path without a tail', () => {
+      const value = 'https://example.com/acme/app'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a trailing slash behind the path without a tail', () => {
+      const value = 'https://example.com/acme/app/'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read one segment behind the path as the tail', () => {
+      const value = 'https://example.com/acme/app/issues'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a tail of one segment without its trailing slash', () => {
+      const value = 'https://example.com/acme/app/issues/'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read several segments behind the path as one tail', () => {
+      const value = 'https://example.com/acme/app/issues/12'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues/12',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a tail of several segments without its trailing slash', () => {
+      const value = 'https://example.com/acme/app/issues/12/'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues/12',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a URL with a query no row names', () => {
+      const value = 'https://example.com/acme/app/issues/12?page=2'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues/12',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read an encoded segment of the tail decoded', () => {
+      const value = 'https://example.com/acme/app/caf%C3%A9/menu'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'café/menu',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should keep an encoded slash in the tail apart from a slash', () => {
+      const value = 'https://example.com/acme/app/a%2Fb/c'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'a%2Fb/c',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should drop the empty segments of a tail', () => {
+      const value = 'https://example.com/acme/app//issues//12'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues/12',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read slashes alone behind the path without a tail', () => {
+      const value = 'https://example.com/acme/app///'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'app',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a longer last segment as the value and not as a tail', () => {
+      const value = 'https://example.com/acme/application'
+      const expected: Record<string, string> = {
+        owner: 'acme',
+        repo: 'application',
+      }
+      const match = openPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a URL a row without a tail takes as that row, written behind the open one', () => {
+      const value = 'https://example.com/acme/app/releases'
+      const expected = 'releases'
+      const match = openPages.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL two open rows take as the deeper one, written behind the other', () => {
+      const value = 'https://example.com/acme/app/issues'
+      const expected = 'repo'
+      const match = openPages.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a value its check takes in front of a tail', () => {
+      const value = 'https://example.com/issues/12/comments'
+      const expected: Record<string, string> = {
+        id: '12',
+        tail: 'comments',
+      }
+      const match = checkedOpenPages.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return undefined for a value its check refuses in front of a tail', () => {
+      const value = 'https://example.com/issues/alice/comments'
+
+      expect(checkedOpenPages.read(value)).toBeUndefined()
+    })
+
+    it('should build the URL without a tail', () => {
+      const value = {
+        owner: 'acme',
+        repo: 'app',
+      }
+      const expected = 'https://example.com/acme/app'
+
+      expect(openPages.build('repo', value)).toBe(expected)
+    })
+
+    it('should not write a tail given as a value', () => {
+      const value = {
+        owner: 'acme',
+        repo: 'app',
+        tail: 'issues/12',
+      }
+      const expected = 'https://example.com/acme/app'
+
+      expect(openPages.build('repo', value)).toBe(expected)
+    })
+
+    it('should write the main URL of a URL without a tail', () => {
+      const value = 'http://example.com/acme/app'
+      const expected = 'https://example.com/acme/app'
+
+      expect(openPages.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return no main URL for a URL with a tail', () => {
+      const value = 'http://example.com/acme/app/issues/12'
+
+      expect(openPages.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should mark a URL without a tail as exact', () => {
+      const value = 'https://example.com/acme/app'
+      const match = openPages.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should not mark a URL with a tail as exact', () => {
+      const value = 'https://example.com/acme/app/issues/12'
+      const match = openPages.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should throw for an open tail in front of another segment', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{*}/issues' }])
+      }
+
+      expect(throwing).toThrow(
+        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
+      )
+    })
+
+    it('should throw for an open tail with no slash in front of it', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{repo}{*}' }])
+      }
+
+      expect(throwing).toThrow(
+        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
+      )
+    })
+
+    it('should throw for an open tail in the host', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://{*}.example.com/{owner}' }])
+      }
+
+      expect(throwing).toThrow(
+        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
+      )
+    })
+
+    it('should throw for an open tail in the query', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}?tab={*}' }])
+      }
+
+      expect(throwing).toThrow(
+        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
+      )
+    })
+
+    it('should throw for two open tails in one path', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{*}/{*}' }])
+      }
+
+      expect(throwing).toThrow(
+        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
+      )
+    })
+
+    it('should throw for an open tail in a path with a value of several segments', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'docs', main: 'https://example.com/docs/{page*}/edit/{*}' }])
+      }
+
+      expect(throwing).toThrow(
+        'The docs row writes {*} in a path with page, which takes several segments, so the two are split by a guess',
+      )
+    })
+
+    it('should throw for a value named tail beside an open tail', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{tail}/{*}' }])
+      }
+
+      expect(throwing).toThrow('The repo row names a value tail, which {*} is read as')
+    })
+
+    it('should read a path of 20,000 segments within a second', () => {
+      const value = `https://example.com${'/segment'.repeat(20000)}`
+      const startedAt = performance.now()
+
+      openPages.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read 200 kB of slashes behind the path within a second', () => {
+      const value = `https://example.com/acme/app${'/'.repeat(200000)}`
+      const startedAt = performance.now()
+
+      openPages.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 })

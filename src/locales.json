@@ -7,6 +7,9 @@
     "sharedCaseMark": "The {{key}} row marks the case of {{name}}, which shares a part of its URL with another value",
     "ampersandEntityName": "The {{key}} row sets {{name}}, which the ampersand mark reads as another parameter",
     "statefulCheckRegex": "The check of {{name}} is a pattern with a g or y flag, which answers differently on a second call",
-    "unanchoredCheckRegex": "The check of {{name}} is a pattern without ^ at its start and $ at its end"
+    "unanchoredCheckRegex": "The check of {{name}} is a pattern without ^ at its start and $ at its end",
+    "misplacedOpenTail": "The {{key}} row writes {*} elsewhere than at the end of its path, behind a slash",
+    "openTailBesideMultiSegment": "The {{key}} row writes {*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
+    "openTailName": "The {{key}} row names a value tail, which {*} is read as"
   }
 }

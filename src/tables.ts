@@ -82,9 +82,12 @@ type CompiledTemplate = {
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, string>) => boolean
-  // The host, the path and the own parameter names with every value left out. Two templates of
-  // one shape differ only in their values, as two rows for two values of `format`.
+  // The host, the path and the own parameter names with every value left out, and whether the
+  // path has an open tail. Two templates of one shape differ only in their values, as two rows
+  // for two values of `format`.
   shape: string
+  // The path segments in front of an open tail, and infinity for a template without one.
+  openDepth: number
   getUrl: (params?: UrlParams) => string | typeof refusedQuery | undefined
 }
 
@@ -174,6 +177,10 @@ const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const ownGroupRegex = /^p\d+$/
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
+// The open tail: `{*}` behind the last slash of a path, read as the value `tail`.
+const openTailMark = '{*}'
+const openTailSuffix = `/${openTailMark}`
+const openTailName = 'tail'
 const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
 const queryCapture: Capture = { source: '.+', unit: '.' }
 // What a template builds from values that fill it and a passed query it cannot write.
@@ -417,7 +424,15 @@ const compileTemplate = (
     throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
   }
 
-  const [, scheme, host, path = '', search] = match
+  const [, scheme, host, givenPath = '', search] = match
+  const isOpen = givenPath.endsWith(openTailSuffix)
+  const path = isOpen ? givenPath.slice(0, -openTailSuffix.length) : givenPath
+
+  // Behind a value with no slash between, as `/{repo}{*}`, nothing says where the value ends.
+  if (`${host}${path}${search ?? ''}`.includes(openTailMark)) {
+    throw new Error(t(locales.errors.misplacedOpenTail, { key }))
+  }
+
   const captured: Array<Captured> = []
   // Every placeholder is captured as `p{index}`, so a URL is read back to its values.
   const wrapCaptureIn = (part: UrlPart) => {
@@ -529,6 +544,20 @@ const compileTemplate = (
     throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
   }
 
+  const pathNames = [...path.matchAll(placeholderRegex)].map(([, name]) => name)
+  const multiSegmentName = pathNames.find(isMultiSegment)
+
+  // A `{name*}` value takes every segment it can, so the tail behind it starts at a guess.
+  if (isOpen && multiSegmentName !== undefined) {
+    const name = toBareName(multiSegmentName)
+
+    throw new Error(t(locales.errors.openTailBesideMultiSegment, { key, name }))
+  }
+
+  if (isOpen && names.some((name) => toBareName(name) === openTailName)) {
+    throw new Error(t(locales.errors.openTailName, { key }))
+  }
+
   // Two values in one host label, path segment or query value are split by a guess, and a
   // lowercase can move the split to another place. So are two `{name*}` values in one template.
   const hasTwoMultiSegment = names.filter(isMultiSegment).length > 1
@@ -609,8 +638,12 @@ const compileTemplate = (
 
     return new RegExp(`^${prefixSource}${hostSource}${pathPattern}$`, flags)
   }
-  const asGivenRegex = toHostPathRegex(false, pathSource, 'i')
-  const optionalWwwRegex = toHostPathRegex(true, pathSource, 'i')
+  // An open tail is every segment behind the path, an empty one included, as pages link them.
+  const readPathSource = isOpen
+    ? `${pathSource}(?:/${wrapCaptureIn('path')(openTailName, '.*')})?`
+    : pathSource
+  const asGivenRegex = toHostPathRegex(false, readPathSource, 'i')
+  const optionalWwwRegex = toHostPathRegex(true, readPathSource, 'i')
   // Matched on the path as given, with the indices a case mark lowercases.
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
@@ -625,7 +658,8 @@ const compileTemplate = (
     .sort((left, right) => left.localeCompare(right))
   const shapeQuery = [...shapeNames, ...passedQueryNames.map(() => '{}')].join('&')
   const shapeHostPath = `${host}${path}`.replace(placeholderRegex, toShapePlaceholder)
-  const shape = `${shapeHostPath}?${shapeQuery}`
+  // A `#` is in no template, so an open template shares its shape with no template that is not.
+  const shape = `${shapeHostPath}${isOpen ? '#' : ''}?${shapeQuery}`
 
   // A `{root}` table without hosts serves any site, so nothing in its URL names the platform.
   const claimsUrls = !isRootTemplate || hasHosts
@@ -644,6 +678,18 @@ const compileTemplate = (
     const params: Record<string, string> = {}
 
     readGroups(params, match.groups)
+
+    // A tail is read as a `{name*}` value is written: without its empty segments, and one with no
+    // segment left, as after a doubled slash, is no value.
+    if (isOpen) {
+      const tail = getPlaceholderValue(params, `${openTailName}*`)
+
+      if (tail === undefined) {
+        delete params[openTailName]
+      } else {
+        params[openTailName] = tail
+      }
+    }
 
     for (const { name, isFlag, regex } of ownParams) {
       const { searchParams } = readQuery(tableUrl)
@@ -997,6 +1043,7 @@ const compileTemplate = (
     getHttpsOrigin,
     passesChecks,
     shape,
+    openDepth: isOpen ? path.split('/').length : Number.POSITIVE_INFINITY,
     getUrl,
   }
 }
@@ -1047,10 +1094,17 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       throw new Error(t(locales.errors.keptParamInTemplate, { key: row.key, name }))
     }
   }
-  // A template with more query parameters is the more specific one, so it is read first. At the
-  // same count the earlier row wins, so a `{name*}` row goes after the rows its paths overlap.
+  // A template without an open tail is read before one with it, and of two with one the deeper
+  // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes
+  // after the rows its paths overlap.
   const claimed = compiled.filter((candidate) => !rows[candidate.rowIndex].isBuildOnly)
-  const bySpecificity = [...claimed].sort((a, b) => b.ownNames.length - a.ownNames.length)
+  const bySpecificity = [...claimed].sort((a, b) => {
+    if (a.openDepth !== b.openDepth) {
+      return b.openDepth - a.openDepth
+    }
+
+    return b.ownNames.length - a.ownNames.length
+  })
   // A URL whose host and path no template takes is none of the rows, whatever its query.
   const asGivenRegex = joinRegexes(claimed.map((candidate) => candidate.asGivenRegex))
   const optionalWwwRegex = joinRegexes(claimed.map((candidate) => candidate.optionalWwwRegex))
