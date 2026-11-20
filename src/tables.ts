@@ -1435,7 +1435,8 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
       const sourceValue = found.params[name]
 
-      // A root holds the scheme, which a main URL under `http` changes, and the host read beside it.
+      // A root holds the scheme, which a main URL under `http` changes, and the host read beside
+      // it.
       if (name === 'root') {
         return true
       }
