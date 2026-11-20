@@ -5,6 +5,8 @@
     "missingFeedHosts": "No hosts for the {{key}} feed",
     "keptParamInTemplate": "The {{key}} row keeps {{name}}, which its URL already sets",
     "sharedCaseMark": "The {{key}} row marks the case of {{name}}, which shares a part of its URL with another value",
-    "ampersandEntityName": "The {{key}} row sets {{name}}, which the ampersand mark reads as another parameter"
+    "ampersandEntityName": "The {{key}} row sets {{name}}, which the ampersand mark reads as another parameter",
+    "statefulCheckRegex": "The check of {{name}} is a pattern with a g or y flag, which answers differently on a second call",
+    "unanchoredCheckRegex": "The check of {{name}} is a pattern without ^ at its start and $ at its end"
   }
 }

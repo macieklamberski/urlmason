@@ -5,6 +5,7 @@ import {
   getQueryParamValues,
   getSubdomain,
   isAnyOf,
+  isFunction,
   isHttpUrl,
   isNullish,
   isPresent,
@@ -17,7 +18,14 @@ import {
   trimObject,
 } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
-import type { UrlLenient, UrlParams, UrlRow, UrlTable, UrlTableOptions } from '../types.js'
+import type {
+  UrlCheck,
+  UrlLenient,
+  UrlParams,
+  UrlRow,
+  UrlTable,
+  UrlTableOptions,
+} from '../types.js'
 import {
   appendValue,
   decodeQueryValue,
@@ -83,6 +91,8 @@ type CompiledTemplate = {
 type UrlPart = 'host' | 'path' | 'query'
 
 type MapText = (text: string) => string
+
+type CheckFunction = (value: string) => boolean
 
 // The pattern of a value, and of one character of it where a value can sit behind fixed text.
 type Capture = {
@@ -156,6 +166,8 @@ const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
 // A URL parser removes a tab, a line feed and a carriage return, so `I\nD` is fetched as `ID`.
 const parserRemovedRegex = /[\t\n\r]/
+// A scheme and host with no path, where a parser reads the path `/` before a query.
+const pathlessBaseRegex = /^[^/]+:\/\/[^/]+$/
 
 const rootPlaceholder = '{root}'
 const schemePlaceholder = '{scheme}'
@@ -237,6 +249,32 @@ const decodePath = (path: string): string => {
     .split('/')
     .map((segment) => decodePercent(segment).replaceAll('%', '%25').replaceAll('/', '%2F'))
     .join('/')
+}
+
+// Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
+// call, and one without both anchors takes a value that only holds a match.
+const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string, CheckFunction> => {
+  const functions: Record<string, CheckFunction> = {}
+
+  for (const [name, check] of Object.entries(checks)) {
+    if (isFunction(check)) {
+      functions[name] = check
+
+      continue
+    }
+
+    if (check.global || check.sticky) {
+      throw new Error(t(locales.errors.statefulCheckRegex, { name }))
+    }
+
+    if (!check.source.startsWith('^') || !check.source.endsWith('$')) {
+      throw new Error(t(locales.errors.unanchoredCheckRegex, { name }))
+    }
+
+    functions[name] = (value) => check.test(value)
+  }
+
+  return functions
 }
 
 // A row the table keeps to itself, so an edit of a row given, returned or selected changes no read.
@@ -356,6 +394,7 @@ const compileTemplate = (
   rowIndex: number,
   isAlias: boolean,
   options: UrlTableOptions,
+  checks: Record<string, CheckFunction>,
   lenient: UrlLenient | undefined,
   hasAmpersandMark: boolean,
 ): CompiledTemplate => {
@@ -497,7 +536,6 @@ const compileTemplate = (
     throw new Error(t(locales.errors.sharedCaseMark, { key, name: sharedName }))
   }
 
-  const checks = options.checks ?? {}
   // A name the template holds twice keeps the first value read.
   const readGroups = (params: Record<string, string>, groups: Record<string, string> = {}) => {
     for (const [group, value] of Object.entries(groups)) {
@@ -510,6 +548,10 @@ const compileTemplate = (
   }
   const passesChecks = (params: Record<string, string>): boolean => {
     return Object.entries(params).every(([name, value]) => checks[name]?.(value) ?? true)
+  }
+  // A query on a host with no path sits behind the slash of its root, as `example.com/?rss`.
+  const writeBase = (base: string, pairs: Array<QueryPair>): string => {
+    return pairs.length > 0 && pathlessBaseRegex.test(base) ? `${base}/` : base
   }
   const multiSegmentCaptures = Object.fromEntries(
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
@@ -824,9 +866,11 @@ const compileTemplate = (
       return
     }
 
+    const writtenPairs = passedQueryNames.length > 0 ? pairs : [...pairs, ...keptPairs]
+
     return {
-      base: `${origin}${filledPath}`,
-      pairs: passedQueryNames.length > 0 ? pairs : [...pairs, ...keptPairs],
+      base: writeBase(`${origin}${filledPath}`, writtenPairs),
+      pairs: writtenPairs,
     }
   }
 
@@ -907,7 +951,9 @@ const compileTemplate = (
       ? fillPlaceholders(rootPlaceholder).replace(trailingSlashRegex, '')
       : `${fillPlaceholders(scheme)}://${fillPlaceholders(host)}`
 
-    return `${origin}${fillPlaceholders(path, encodePath)}${writeQuery(sortPairs(pairs))}`
+    const base = writeBase(`${origin}${fillPlaceholders(path, encodePath)}`, pairs)
+
+    return `${base}${writeQuery(sortPairs(pairs))}`
   }
 
   const getWrittenText: CompiledTemplate['getWrittenText'] = (pair) => {
@@ -967,11 +1013,19 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   }
   const lenients = rows.map(getLenient)
   const hasAmpersandMark = lenients.some((lenient) => lenient.ampersandEntity === true)
+  const checks = toCheckFunctions(options.checks)
   const compiledRows = rows.map((row, rowIndex) => {
     return [row.main, ...(row.aliases ?? [])].map((template, index) => {
-      const lenient = lenients[rowIndex]
-
-      return compileTemplate(template, row, rowIndex, index > 0, options, lenient, hasAmpersandMark)
+      return compileTemplate(
+        template,
+        row,
+        rowIndex,
+        index > 0,
+        options,
+        checks,
+        lenients[rowIndex],
+        hasAmpersandMark,
+      )
     })
   })
   const compiled = compiledRows.flat()
@@ -994,15 +1048,13 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
   // The templates of the key's rows in the order written, each row's main URL before its aliases.
   const getRowTemplates = (key: string, select?: Select): Array<Array<CompiledTemplate>> => {
-    const rowTemplates = compiledRows.filter((_templates, rowIndex) => {
-      return rows[rowIndex].key === key && (select?.(copyRow(rows[rowIndex])) ?? true)
-    })
-
-    if (rowTemplates.length === 0) {
+    if (!rows.some((row) => row.key === key)) {
       throw new Error(t(locales.errors.missingFeedTemplate, { key }))
     }
 
-    return rowTemplates
+    return compiledRows.filter((_templates, rowIndex) => {
+      return rows[rowIndex].key === key && (select?.(copyRow(rows[rowIndex])) ?? true)
+    })
   }
 
   const build: UrlTable<Key, Row>['build'] = (key, params, select) => {

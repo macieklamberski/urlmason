@@ -64,7 +64,7 @@ export type UrlHosts = {
   tenants?: Array<string | RegExp>
 }
 
-export type UrlCheck = (value: string) => boolean
+export type UrlCheck = ((value: string) => boolean) | RegExp
 
 export type UrlTableOptions = {
   hosts?: UrlHosts
@@ -73,8 +73,9 @@ export type UrlTableOptions = {
   // Whether `www` in front of a tenant label is dropped, so `www.alice.example.com` matches as
   // `alice.example.com`.
   isWwwTenantPrefix?: boolean
-  // A check per placeholder name, such as `{ locale: isLocale }`. A URL whose value fails its
-  // check is neither built nor read.
+  // A check per placeholder name: a function, as `{ locale: isLocale }`, or a pattern anchored at
+  // both ends with no `g` or `y` flag, as `{ id: /^\d+$/ }`. A URL whose value fails its check is
+  // neither built nor read.
   checks?: Record<string, UrlCheck>
   // The `keptParams` of every row that names none of its own.
   keptParams?: Array<string>

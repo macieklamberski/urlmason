@@ -90,6 +90,15 @@ const rootFeeds = defineFeedUrls('example', rootTemplates, {
 
 const selfHostedRootFeeds = defineFeedUrls('example', rootTemplates)
 
+const pathlessFeeds = defineFeedUrls(
+  'example',
+  [
+    { key: 'view', main: '{root}?format=feed&type=rss' },
+    { key: 'site', main: 'https://example.org?feed=rss' },
+  ],
+  { hosts: { exact: ['example.com'] } },
+)
+
 const categoryFeeds = defineFeedUrls('example', [
   { key: 'category', main: 'https://www.example.com/c/{slug}/{id}.rss' },
   { key: 'category', main: 'https://www.example.com/c/{slug}.rss' },
@@ -369,9 +378,23 @@ describe('defineFeedUrls', () => {
       expect(value).toBe(expected)
     })
 
+    it('should return undefined for a format no row of the key has', () => {
+      const value = { username: 'alice' }
+
+      expect(feeds.getFeedUrl('posts', value, 'json')).toBeUndefined()
+    })
+
     it('should throw for an unknown key', () => {
       // @ts-expect-error: A key the table does not hold fails the typecheck too.
       const throwing = () => feeds.getFeedUrl('unknown')
+
+      expect(throwing).toThrow('No feed template for unknown')
+    })
+
+    it('should throw for an unknown key with a format', () => {
+      const value = { username: 'alice' }
+      // @ts-expect-error: A key the table does not hold fails the typecheck too.
+      const throwing = () => feeds.getFeedUrl('unknown', value, 'atom')
 
       expect(throwing).toThrow('No feed template for unknown')
     })
@@ -414,6 +437,47 @@ describe('defineFeedUrls', () => {
       const value = {}
 
       expect(rootFeeds.getFeedUrl('latest', value)).toBeUndefined()
+    })
+
+    it('should write a slash before the query of a root with no path', () => {
+      const value = { root: 'https://example.com' }
+      const expected = 'https://example.com/?format=feed&type=rss'
+
+      expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
+    })
+
+    it('should write one slash before the query of a root that ends in the slash', () => {
+      const value = { root: 'https://example.com/' }
+      const expected = 'https://example.com/?format=feed&type=rss'
+
+      expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
+    })
+
+    it('should write one slash before the query of a root that ends in two slashes', () => {
+      const value = { root: 'https://example.com//' }
+      const expected = 'https://example.com/?format=feed&type=rss'
+
+      expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
+    })
+
+    it('should write the query after the base path of a root', () => {
+      const value = { root: 'https://example.com/wiki' }
+      const expected = 'https://example.com/wiki?format=feed&type=rss'
+
+      expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
+    })
+
+    it('should drop the trailing slash of a base path before the query', () => {
+      const value = { root: 'https://example.com/wiki/' }
+      const expected = 'https://example.com/wiki?format=feed&type=rss'
+
+      expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
+    })
+
+    it('should write a slash before the query of a fixed host with no path', () => {
+      const expected = 'https://example.org/?feed=rss'
+
+      expect(pathlessFeeds.getFeedUrl('site')).toBe(expected)
     })
 
     it('should build the row without the placeholder whose value is undefined', () => {
@@ -494,6 +558,12 @@ describe('defineFeedUrls', () => {
       }
 
       expect(value).toEqual(expected)
+    })
+
+    it('should return undefined for a format no row of the key has', () => {
+      const value = { username: 'alice' }
+
+      expect(plurkFeeds.getFeedEntry('plurks', value, 'json')).toBeUndefined()
     })
   })
 
@@ -619,6 +689,12 @@ describe('defineFeedUrls', () => {
       const value = { root: 'https://example.com' }
 
       expect(spellingFeeds.getFeedSpellings('page', value)).toBeUndefined()
+    })
+
+    it('should return undefined for a format no row of the key has', () => {
+      const value = { root: 'https://example.com' }
+
+      expect(spellingFeeds.getFeedSpellings('posts', value, 'json')).toBeUndefined()
     })
 
     it('should throw for an unknown key', () => {
@@ -1326,6 +1402,20 @@ describe('defineFeedUrls', () => {
         expect(hint?.key).toBe(expected)
       })
 
+      it('should return the hint of a query behind the slash of a root with no path', () => {
+        const value = 'https://example.com/?format=feed&type=rss'
+        const expected: FeedHint = { key: 'example:view' }
+
+        expect(pathlessFeeds.getFeedHint(value)).toEqual(expected)
+      })
+
+      it('should return the hint of a query straight behind the host', () => {
+        const value = 'https://example.com?format=feed&type=rss'
+        const expected: FeedHint = { key: 'example:view' }
+
+        expect(pathlessFeeds.getFeedHint(value)).toEqual(expected)
+      })
+
       it('should return undefined for another host', () => {
         const value = 'https://example.org/forum/latest.rss'
 
@@ -1511,6 +1601,21 @@ describe('defineFeedUrls', () => {
       const pageFeeds = rootFeeds.forUrl(value)
 
       expect(pageFeeds?.getFeedUrl('latest', params)).toBe(expected)
+    })
+
+    it('should write a slash before the query of a root filled from the page', () => {
+      const value = 'https://example.com/news'
+      const expected = 'https://example.com/?format=feed&type=rss'
+      const pageFeeds = pathlessFeeds.forUrl(value)
+
+      expect(pageFeeds?.getFeedUrl('view')).toBe(expected)
+    })
+
+    it('should return undefined for a format no row of the key has', () => {
+      const value = 'https://example.com/forum/t/1'
+      const pageFeeds = rootFeeds.forUrl(value)
+
+      expect(pageFeeds?.getFeedUrl('latest', {}, 'atom')).toBeUndefined()
     })
 
     it('should fill the root on a table without hosts', () => {

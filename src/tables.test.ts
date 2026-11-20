@@ -7,6 +7,11 @@ type PlayerRow = UrlRow & { ratio?: string }
 
 const regionLocaleRegex = /^[a-z]{2}-[A-Z]{2}$/
 const digitsRegex = /^\d+$/
+const hexRegex = /^[0-9a-f]+$/i
+const globalDigitsRegex = /^\d+$/g
+const stickyDigitsRegex = /^\d+$/y
+const endAnchoredDigitsRegex = /\d+$/
+const startAnchoredDigitsRegex = /^\d+/
 
 const playerRows: Array<PlayerRow> = [
   {
@@ -504,6 +509,25 @@ const checkedRepeat = defineUrls(
   { checks: { count: (value) => digitsRegex.test(value) } },
 )
 
+const checkedByRegex = defineUrls(
+  [
+    {
+      key: 'item',
+      main: 'https://example.com/items/{id}',
+      aliases: ['https://example.com/item?id={id}'],
+    },
+    { key: 'tag', main: 'https://example.com/tags/{tag}' },
+    { key: 'commit', main: 'https://example.com/commits/{hash}' },
+  ],
+  {
+    checks: {
+      id: digitsRegex,
+      tag: (value) => isAnyOf(value, ['news', 'tech']),
+      hash: hexRegex,
+    },
+  },
+)
+
 const movedFormat = defineUrls([
   {
     key: 'posts',
@@ -924,15 +948,22 @@ describe('defineUrls', () => {
       expect(players.build('video', value)).toBe(expected)
     })
 
-    it('should throw when the selector takes no row of the key', () => {
+    it('should return undefined when the selector takes no row of the key', () => {
       const value = { videoId: 'x8abc' }
       const select = (row: PlayerRow) => row.ratio === '4/3'
-      const throwing = () => players.build('video', value, select)
 
-      expect(throwing).toThrow('No feed template for video')
+      expect(players.build('video', value, select)).toBeUndefined()
     })
 
-    it('should throw for a selector that tells a row by identity', () => {
+    it('should throw for a key the table does not hold, whatever the selector', () => {
+      const value = { videoId: 'x8abc' }
+      const select = (row: PlayerRow) => row.ratio === '4/3'
+      const throwing = () => players.build('unknown', value, select)
+
+      expect(throwing).toThrow('No feed template for unknown')
+    })
+
+    it('should return undefined for a selector that tells a row by identity', () => {
       const rows: Array<UrlRow> = [
         { key: 'item', main: 'https://example.com/items/{id}.rss' },
         { key: 'item', main: 'https://example.com/items/{id}.atom' },
@@ -940,9 +971,8 @@ describe('defineUrls', () => {
       const table = defineUrls(rows)
       const value = { id: '7' }
       const select = (row: UrlRow) => row === rows[1]
-      const throwing = () => table.build('item', value, select)
 
-      expect(throwing).toThrow('No feed template for item')
+      expect(table.build('item', value, select)).toBeUndefined()
     })
 
     it('should write back the URL it read', () => {
@@ -1662,6 +1692,17 @@ describe('defineUrls', () => {
       const expected = 'https://alice.example.net/feed.xml'
 
       expect(rooted.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a slash before the query of a main URL with no path', () => {
+      const table = defineUrls(
+        [{ key: 'site', main: '{root}?format=feed', aliases: ['{root}/index.php?format=feed'] }],
+        { hosts: { exact: ['example.com'] } },
+      )
+      const value = 'https://example.com/index.php?format=feed'
+      const expected = 'https://example.com/?format=feed'
+
+      expect(table.getMainUrl(value)).toBe(expected)
     })
 
     it('should drop an empty pair between kept parameters', () => {
@@ -3104,6 +3145,115 @@ describe('defineUrls', () => {
       const value = 'https://example.com/search?types=a&types=bad&other=b'
 
       expect(checkedRepeat.read(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a pattern as a check', () => {
+    it('should read a value the pattern takes', () => {
+      const value = 'https://example.com/items/123'
+      const match = checkedByRegex.read(value)
+
+      expect(match?.key).toBe('item')
+    })
+
+    it('should return undefined for a value the pattern refuses', () => {
+      const value = 'https://example.com/items/alice'
+
+      expect(checkedByRegex.read(value)).toBeUndefined()
+    })
+
+    it('should build a URL from a value the pattern takes', () => {
+      const value = { id: '123' }
+      const expected = 'https://example.com/items/123'
+
+      expect(checkedByRegex.build('item', value)).toBe(expected)
+    })
+
+    it('should build no URL from a value the pattern refuses', () => {
+      const value = { id: 'alice' }
+
+      expect(checkedByRegex.build('item', value)).toBeUndefined()
+    })
+
+    it('should write the main URL of a value the pattern takes', () => {
+      const value = 'https://example.com/item?id=123'
+      const expected = 'https://example.com/items/123'
+
+      expect(checkedByRegex.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write no main URL of a value the pattern refuses', () => {
+      const value = 'https://example.com/item?id=alice'
+
+      expect(checkedByRegex.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read a value in the other letter case under a pattern with the i flag', () => {
+      const value = 'https://example.com/commits/5F3A'
+      const match = checkedByRegex.read(value)
+
+      expect(match?.key).toBe('commit')
+    })
+
+    it('should read a value a function takes beside a pattern', () => {
+      const value = 'https://example.com/tags/news'
+      const match = checkedByRegex.read(value)
+
+      expect(match?.key).toBe('tag')
+    })
+
+    it('should return undefined for a value a function refuses beside a pattern', () => {
+      const value = 'https://example.com/tags/sports'
+
+      expect(checkedByRegex.read(value)).toBeUndefined()
+    })
+
+    it('should throw for a pattern with the g flag', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
+          checks: { id: globalDigitsRegex },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
+      )
+    })
+
+    it('should throw for a pattern with the y flag', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
+          checks: { id: stickyDigitsRegex },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
+      )
+    })
+
+    it('should throw for a pattern without ^ at its start', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
+          checks: { id: endAnchoredDigitsRegex },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern without ^ at its start and $ at its end',
+      )
+    })
+
+    it('should throw for a pattern without $ at its end', () => {
+      const throwing = () => {
+        return defineUrls([{ key: 'item', main: 'https://example.com/items/{id}' }], {
+          checks: { id: startAnchoredDigitsRegex },
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern without ^ at its start and $ at its end',
+      )
     })
   })
 
