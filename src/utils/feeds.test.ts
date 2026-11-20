@@ -2356,6 +2356,41 @@ describe('defineFeedUrls', () => {
       })
     })
   })
+
+  describe('with a feed on a host no row names', () => {
+    it('should read the feed under the root the URL shows', () => {
+      const value = 'https://example.org/forum/latest.rss'
+      const options = { isAnyHost: true }
+      const expected: Record<string, string> = { root: 'https://example.org/forum' }
+      const match = selfHostedRootFeeds.read(value, options)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read the feed under the root given', () => {
+      const value = 'https://example.org/forum/search.rss?q=cats'
+      const options = { root: 'https://example.org/forum' }
+      const expected: Record<string, string> = {
+        query: 'cats',
+        root: 'https://example.org/forum',
+      }
+      const match = selfHostedRootFeeds.read(value, options)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return no hint for a feed only a read under a root takes', () => {
+      const value = 'https://example.org/forum/latest.rss'
+
+      expect(selfHostedRootFeeds.getFeedHint(value)).toBeUndefined()
+    })
+
+    it('should return no main URL for a feed only a read under a root takes', () => {
+      const value = 'http://example.org/forum/latest.rss'
+
+      expect(selfHostedRootFeeds.getMainFeedUrl(value)).toBeUndefined()
+    })
+  })
 })
 
 describe('getMainFeedUrl', () => {

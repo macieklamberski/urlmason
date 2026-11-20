@@ -88,6 +88,17 @@ export type UrlTableOptions = {
   lenient?: UrlLenient
 }
 
+// How the rows that open with `{root}` read a URL on any host. With either option only those rows
+// are read, `hosts` is left aside, the URL is never exact, and `root` is among the values read.
+export type UrlReadOptions = {
+  // The root the page lives under, as `https://example.com/forum`. The URL is under it on the same
+  // host and port, in any scheme, `www`, letter case and trailing slash. It wins over `isAnyHost`.
+  root?: string
+  // Whether the URL shows the root: the shortest one under which a row with fixed text in its path
+  // reads the URL, then the shortest under which any row does, up to eight segments of base path.
+  isAnyHost?: boolean
+}
+
 export type UrlMatch<Key extends string, Row> = {
   key: Key
   // The values read, decoded. The segments a row's `/{*}` took are the value `tail`, which a URL
@@ -109,7 +120,7 @@ export type UrlTable<Key extends string, Row> = {
   rows: Array<Row>
   build: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => string | undefined
   buildAll: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => Array<string>
-  read: (url: string) => UrlMatch<Key, Row> | undefined
+  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
   getMainUrl: (url: string) => string | undefined
   forUrl: (url: string) => Pick<UrlTable<Key, Row>, 'build' | 'buildAll'> | undefined
 }
@@ -123,7 +134,8 @@ export type FeedUrlTable<Key extends string = string> = {
   getFeedSpellings: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
   getFeedHint: (url: string) => FeedHint | undefined
   getMainFeedUrl: (url: string) => string | undefined
-  read: (url: string) => UrlMatch<Key, FeedUrlRow<Key>> | undefined
+  // A feed on a host no row names gets no hint and no main URL: only `read` takes the options.
+  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, FeedUrlRow<Key>> | undefined
   forUrl: (
     url: string,
   ) => Pick<FeedUrlTable<Key>, 'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'> | undefined
@@ -135,7 +147,7 @@ export type Platform = {
   // table reads comes back under any key.
   feeds: Omit<FeedUrlTable<never>, 'rows' | 'read'> & {
     rows: Array<FeedUrlRow>
-    read: (url: string) => UrlMatch<string, FeedUrlRow> | undefined
+    read: (url: string, options?: UrlReadOptions) => UrlMatch<string, FeedUrlRow> | undefined
   }
   // The sites of the platform, each row an origin with no path, for the host and scheme facts
   // that hold on every page and not only on a feed.

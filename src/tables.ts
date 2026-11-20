@@ -2,6 +2,7 @@ import {
   decodePercent,
   encodePathSegment,
   escapeRegex,
+  getOrigin,
   getQueryParamValues,
   getSubdomain,
   isAnyOf,
@@ -22,7 +23,9 @@ import type {
   DeepReadonly,
   UrlCheck,
   UrlLenient,
+  UrlMatch,
   UrlParams,
+  UrlReadOptions,
   UrlRow,
   UrlTable,
   UrlTableOptions,
@@ -172,8 +175,14 @@ const escapeSplitRegex = /(%[0-9a-f]{2})/i
 const parserRemovedRegex = /[\t\n\r]/
 // A scheme and host with no path, where a parser reads the path `/` before a query.
 const pathlessBaseRegex = /^[^/]+:\/\/[^/]+$/
+const trailingSlashesRegex = /\/+$/
+const fixedPathTextRegex = /[^/]/
 
 const rootPlaceholder = '{root}'
+// The host a `{root}` row is read on under a root, with the path behind the root as its path.
+const standInOrigin = 'https://root.invalid'
+// An install sits at most a few segments deep, and each root tried is one more pass over the URL.
+const maxBasePathSegments = 8
 const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const ownGroupRegex = /^p\d+$/
@@ -260,6 +269,14 @@ const decodePath = (path: string): string => {
 }
 
 const portRegex = /:\d+$/
+
+// Whether the path behind `{root}` holds fixed text, as `viewtopic.php`, which shows where the
+// root ends. A path of values alone fits behind a root of any length.
+const hasFixedPath = (template: string): boolean => {
+  const [path] = template.slice(rootPlaceholder.length).split('?')
+
+  return fixedPathTextRegex.test(path.replace(placeholderRegex, '').replace(openTailMark, ''))
+}
 
 // Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
 // call, and one without both anchors takes a value that only holds a match.
@@ -1362,7 +1379,136 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     return { ...found, params: found.params }
   }
 
-  const read: UrlTable<Key, Row>['read'] = (url) => {
+  type RootRow = Row & { rootRowIndex: number }
+  type RootTable = UrlTable<Key, RootRow>
+  type RootTables = { all: RootTable; fixed: RootTable }
+
+  // The rows that open with `{root}` as rows on one fixed host, which stands for whatever root a
+  // URL is read under. Every other part of a read is the one a table on a fixed host does.
+  const defineRootUrls = (takesTemplate: (template: string) => boolean): RootTable => {
+    const rootRows: Array<RootRow> = []
+
+    for (const [rootRowIndex, row] of rows.entries()) {
+      const [main, ...aliases] = [row.main, ...(row.aliases ?? [])]
+        .filter((template) => template.startsWith(rootPlaceholder) && takesTemplate(template))
+        .map((template) => template.replace(rootPlaceholder, standInOrigin))
+
+      if (main !== undefined) {
+        rootRows.push({ ...row, main, aliases, rootRowIndex })
+      }
+    }
+
+    // The rows are built here, so they are already the row type the table copies them to.
+    const givenRootRows = rootRows as ReadonlyArray<
+      DeepReadonly<UrlRow<Key>> & Extra & { rootRowIndex: number }
+    >
+
+    return defineUrls<Key, Extra & { rootRowIndex: number }>(givenRootRows, {
+      ...options,
+      hosts: undefined,
+    })
+  }
+
+  // Defined on the first read under a root, so a table never read that way compiles no pattern.
+  let rootTables: RootTables | undefined
+
+  const getRootTables = (): RootTables => {
+    if (!rootTables) {
+      rootTables = { all: defineRootUrls(() => true), fixed: defineRootUrls(hasFixedPath) }
+    }
+
+    return rootTables
+  }
+
+  // A URL read by its `{root}` rows alone, whatever its host: under the root given, or under the
+  // root its own path shows.
+  const readRooted = (url: string, readOptions: UrlReadOptions): UrlMatch<Key, Row> | undefined => {
+    const parsedUrl = parseUrl(url)
+    const origin = getOrigin(parsedUrl)
+
+    if (!parsedUrl || !origin || !isHttpUrl(parsedUrl)) {
+      return
+    }
+
+    const { all, fixed } = getRootTables()
+    const segments = parsedUrl.pathname.replace(leadingSlashesRegex, '/').split('/')
+    // A root is the first segments of the path, with the empty one in front of its first slash.
+    const readBehind = (table: RootTable, rootLength: number) => {
+      const rest = segments.slice(rootLength).map((segment) => `/${segment}`)
+
+      return table.read(`${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`)
+    }
+    const readUnder = (root: string, rootLength: number): UrlMatch<Key, Row> | undefined => {
+      const match = checks.root?.(root) === false ? undefined : readBehind(all, rootLength)
+
+      if (!match) {
+        return
+      }
+
+      const row = rows[match.row.rootRowIndex]
+
+      return {
+        key: row.key,
+        params: { ...match.params, root },
+        row: copyRow(row),
+        isAlias: match.isAlias || !row.main.startsWith(rootPlaceholder),
+        isExact: false,
+      }
+    }
+
+    if (readOptions.root !== undefined) {
+      const rootUrl = parseUrl(readOptions.root)
+      const givenOrigin = getOrigin(rootUrl)
+
+      if (!rootUrl || !givenOrigin || !isHttpUrl(rootUrl)) {
+        return
+      }
+
+      const rootPath = rootUrl.pathname.replace(trailingSlashesRegex, '')
+      const rootLength = rootPath.split('/').length
+      const isSameHost =
+        stripWww(rootUrl.hostname) === stripWww(parsedUrl.hostname) &&
+        rootUrl.port === parsedUrl.port
+      // Whole segments are compared, so the root `/forum` is no root of `/forums`.
+      const basePath = segments.slice(0, rootLength).join('/')
+
+      if (!isSameHost || !isSameText(decodePath(basePath), decodePath(rootPath))) {
+        return
+      }
+
+      return readUnder(`${givenOrigin}${rootPath}`, rootLength)
+    }
+
+    const roots: Array<{ root: string; rootLength: number }> = []
+    const maxRootLength = Math.min(segments.length, maxBasePathSegments + 1)
+
+    for (let rootLength = 1; rootLength <= maxRootLength; rootLength++) {
+      const root = `${origin}${segments.slice(0, rootLength).join('/')}`
+
+      // A root that ends in a slash is the root in front of that slash.
+      if (!root.endsWith('/')) {
+        roots.push({ root, rootLength })
+      }
+    }
+
+    // A row of values alone reads `/forum/viewtopic.php` at the origin, as a user in a group, so
+    // the roots a row with fixed text reads the URL under go first, each list shortest first.
+    const fixedRoots = roots.filter(({ rootLength }) => readBehind(fixed, rootLength))
+
+    for (const { root, rootLength } of [...fixedRoots, ...roots]) {
+      const match = readUnder(root, rootLength)
+
+      if (match) {
+        return match
+      }
+    }
+  }
+
+  const read: UrlTable<Key, Row>['read'] = (url, readOptions) => {
+    if (readOptions?.root !== undefined || readOptions?.isAnyHost) {
+      return readRooted(url, readOptions)
+    }
+
     const found = readTemplate(url)
 
     if (!found) {
