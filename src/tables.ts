@@ -19,6 +19,7 @@ import {
 } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
 import type {
+  DeepReadonly,
   UrlCheck,
   UrlLenient,
   UrlParams,
@@ -1053,13 +1054,14 @@ const compileTemplate = (
 // `getMainUrl` writes a URL in its row's main spelling.
 export const defineUrls = <const Key extends string, Extra extends object = object>(
   // Extra is never read off the rows, so a field no row type names fails the typecheck.
-  givenRows: Array<UrlRow<Key> & NoInfer<Extra>>,
+  givenRows: ReadonlyArray<DeepReadonly<UrlRow<Key>> & NoInfer<Extra>>,
   options: UrlTableOptions = {},
 ): UrlTable<Key, UrlRow<Key> & Extra> => {
   type Row = UrlRow<Key> & Extra
   type Select = (row: Row) => boolean
 
-  const rows: Array<Row> = givenRows.map(copyRow)
+  // A row given read-only, as from a list declared `as const`, is copied and never written to.
+  const rows = givenRows.map((row) => copyRow(row as Row))
 
   const getLenient = (row: Row): UrlLenient => {
     const marks: UrlLenient = { ...options.lenient, ...row.lenient }

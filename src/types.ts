@@ -50,6 +50,11 @@ export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
   format?: FeedFormat
 }
 
+// A row as a list declared `as const` holds it: every field and every list in it read-only.
+export type DeepReadonly<Value> = Value extends object
+  ? { readonly [Field in keyof Value]: DeepReadonly<Value[Field]> }
+  : Value
+
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type UrlParams = Record<string, string | undefined>
 
@@ -135,4 +140,6 @@ export type Platform = {
   // The sites of the platform, each row an origin with no path, for the host and scheme facts
   // that hold on every page and not only on a feed.
   sites?: Pick<UrlTable<string, UrlRow>, 'getMainUrl'>
+  // The page URLs of the platform, a table with no rows until the platform gets its page rows.
+  pages?: Pick<UrlTable<string, UrlRow>, 'read'>
 }

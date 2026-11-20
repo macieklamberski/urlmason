@@ -1,5 +1,6 @@
 import { parseUrl } from 'trousse'
 import type {
+  DeepReadonly,
   FeedFormat,
   FeedHint,
   FeedUrlRow,
@@ -18,7 +19,7 @@ type FeedPage<Key extends string> = Pick<
 // `{platform}:{kind}`, as `dailymotion:playlist`.
 export const defineFeedUrls = <const Key extends string>(
   platform: string,
-  rows: Array<FeedUrlRow<Key>>,
+  rows: ReadonlyArray<DeepReadonly<FeedUrlRow<Key>>>,
   options: UrlTableOptions = {},
 ): FeedUrlTable<Key> => {
   const urls = defineUrls<Key, { format?: FeedFormat }>(rows, options)
