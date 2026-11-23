@@ -1211,6 +1211,34 @@ describe('defineUrls', () => {
       expect(table.build('item', value, select)).toBeUndefined()
     })
 
+    it('should build nothing from a host label with a space', () => {
+      const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
+      const value = { journal: 'a b' }
+
+      expect(table.build('journal', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a host label holding a slash', () => {
+      const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
+      const value = { journal: 'attacker.example/x' }
+
+      expect(table.build('journal', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a host label holding an at sign', () => {
+      const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
+      const value = { journal: 'user@attacker' }
+
+      expect(table.build('journal', value)).toBeUndefined()
+    })
+
+    it('should build nothing from a root holding a query', () => {
+      const table = defineUrls([{ key: 'site', main: '{root}/feed' }])
+      const value = { root: 'https://attacker.example?x=https://example.com' }
+
+      expect(table.build('site', value)).toBeUndefined()
+    })
+
     it('should write back the URL it read', () => {
       const value = 'https://www.example.com/embed/caf%C3%A9'
       const match = players.read(value)

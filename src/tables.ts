@@ -312,6 +312,9 @@ const decodePath = (path: string): string => {
 }
 
 const portRegex = /:\d+$/
+// The characters that end a host in a URL, and in a root all but the path's slash.
+const hostDelimiterRegex = /[/?#@\\]/
+const rootDelimiterRegex = /[?#@\\]/
 
 // Whether the path behind `{root}` holds fixed text, as `viewtopic.php`, which shows where the
 // root ends. A path of values alone fits behind a root of any length.
@@ -1221,10 +1224,25 @@ const compileTemplate = (
     const origin = isRootTemplate
       ? fillPlaceholders(rootPlaceholder).replace(trailingSlashRegex, '')
       : `${fillPlaceholders(scheme)}://${fillPlaceholders(host)}`
+    // A value carried into a host or a root from a path, as `a/b`, would move the URL to another
+    // host that still parses, so a delimiter there builds nothing.
+    const isMoved = isRootTemplate
+      ? rootDelimiterRegex.test(origin)
+      : hostDelimiterRegex.test(fillPlaceholders(host))
+
+    if (isMoved) {
+      return
+    }
 
     const base = writeBase(`${origin}${fillPlaceholders(path, encodePath)}`, pairs)
+    const url = `${base}${writeQuery(sortPairs(pairs))}`
 
-    return `${base}${writeQuery(sortPairs(pairs))}`
+    // A host label and a root are written as given, so a value can hold a space no URL takes.
+    if (!parseUrl(url)) {
+      return
+    }
+
+    return url
   }
 
   const getWrittenText: CompiledTemplate['getWrittenText'] = (pair) => {
