@@ -651,7 +651,7 @@ const compileTemplate = (
   for (const segment of path.split('/')) {
     const segmentNames = [...segment.matchAll(placeholderRegex)].map(([, name]) => name)
 
-    for (const name of options.isFallThrough && segmentNames.length > 1 ? segmentNames : []) {
+    for (const name of segmentNames.length > 1 ? segmentNames : []) {
       const check = givenRowChecks?.[name] ?? options.checks?.[name]
 
       if (check instanceof RegExp && isAnyOf(check.flags, ['', 'i'])) {

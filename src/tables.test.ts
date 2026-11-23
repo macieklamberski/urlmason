@@ -4934,11 +4934,16 @@ describe('defineUrls', () => {
         expect(functionChecked.read(value)).toBeUndefined()
       })
 
-      it('should cut at the last fixed text in a table without fall-through', () => {
+      it('should end a value at the end of its check pattern in a table without fall-through', () => {
         const value = 'https://example.com/posts/123-my-first-post'
+        const expected: Record<string, string> = {
+          id: '123',
+          slug: 'my-first-post',
+        }
         const strict = defineUrls(rows, { checks: { id: digitsRegex } })
+        const match = strict.read(value)
 
-        expect(strict.read(value)).toBeUndefined()
+        expect(match?.params).toEqual(expected)
       })
 
       it('should read a long run of the fixed text within a second', () => {
