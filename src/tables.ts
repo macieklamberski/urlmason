@@ -4,6 +4,7 @@ import {
   escapeRegex,
   getOrigin,
   getQueryParamValues,
+  getRegistrableDomain,
   getSubdomain,
   isAnyOf,
   isFunction,
@@ -386,6 +387,11 @@ const toEntrySource = (entry: string | RegExp): string => {
   return isString(entry) ? escapeRegex(entry) : `(?:${entry.source.replace(anchorsRegex, '')})`
 }
 
+// A host that is its own registrable domain, as `example.com` and not `blog.example.com`.
+const isApexHost = (host: string): boolean => {
+  return getRegistrableDomain(`https://${host}`) === host
+}
+
 // A template text with each placeholder and each piece of text around one written anew.
 const mapTemplate = (
   text: string,
@@ -681,13 +687,18 @@ const compileTemplate = (
     const wwwSource = isWwwOptional ? '(?:www\\.)?' : ''
     const tenantWwwSource = options.isWwwTenantPrefix ? wwwSource : ''
     const normalize = (value: string): string => (isWwwOptional ? stripWww(value) : value)
-    // In a page table a listed host is read as listed: `www` in front of it only where listed.
+    // In a page table `www` is read in front of an apex host, and in front of a subdomain host
+    // only where `hosts` lists it, since a subdomain serves no `www` of its own.
     const listedHosts = options.isFallThrough ? hosts.filter(isString) : []
-    const isListed = listedHosts.length > 0
+    const toPageHostSource = (value: string): string => {
+      const bare = stripWww(value)
+
+      return isApexHost(bare) ? `${wwwSource}${escapeRegex(bare)}` : escapeRegex(value)
+    }
     const hostSources = [
       ...hosts.map((value) => {
-        if (isListed && isString(value)) {
-          return escapeRegex(value)
+        if (options.isFallThrough && isString(value)) {
+          return toPageHostSource(value)
         }
 
         return `${wwwSource}${toEntrySource(isString(value) ? normalize(value) : value)}`
@@ -697,8 +708,8 @@ const compileTemplate = (
     const isFixedHost = !host.startsWith('{') || host.startsWith('{domain}')
     const bareHost = stripWww(host)
     const listedForms = [bareHost, `www.${bareHost}`].filter((form) => listedHosts.includes(form))
-    const isListedFixedHost = isListed && isFixedHost && !host.includes('{')
-    const fixedPrefixSource = isFixedHost && !isListedFixedHost ? wwwSource : ''
+    const isPageFixedHost = Boolean(options.isFallThrough) && isFixedHost && !host.includes('{')
+    const fixedPrefixSource = isFixedHost && !isPageFixedHost ? wwwSource : ''
     const isTenantHost = !isFixedHost && !host.startsWith('{host}')
     const tenantPrefixSource = isTenantHost ? tenantWwwSource : ''
     const hostCaptures = {
@@ -713,10 +724,11 @@ const compileTemplate = (
     )
     const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`
 
-    if (isListedFixedHost) {
+    if (isPageFixedHost) {
       const forms = listedForms.length > 0 ? listedForms : [host]
+      const sources = isApexHost(bareHost) ? [toPageHostSource(bareHost)] : forms.map(escapeRegex)
 
-      return new RegExp(`^(?:${forms.map(escapeRegex).join('|')})${pathPattern}$`, flags)
+      return new RegExp(`^(?:${sources.join('|')})${pathPattern}$`, flags)
     }
 
     return new RegExp(`^${prefixSource}${hostSource}${pathPattern}$`, flags)

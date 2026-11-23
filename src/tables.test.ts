@@ -4795,61 +4795,72 @@ describe('defineUrls', () => {
 
     describe('listed hosts', () => {
       const hostRows: Array<UrlRow> = [{ key: 'profile', main: '{scheme}://{host}/{username}' }]
-      const fixedRows: Array<UrlRow> = [{ key: 'profile', main: 'https://example.com/{username}' }]
-      const bareHosts = { exact: ['example.com'] }
-      const bothHosts = { exact: ['example.com', 'www.example.com'] }
+      const subdomainRows: Array<UrlRow> = [
+        { key: 'profile', main: 'https://blog.example.com/{username}' },
+      ]
+      const apexRows: Array<UrlRow> = [{ key: 'profile', main: 'https://example.com/{username}' }]
+      const subdomainHosts = { exact: ['blog.example.com'] }
+      const bothSubdomainHosts = { exact: ['blog.example.com', 'www.blog.example.com'] }
 
-      it('should return undefined for www in front of a listed host', () => {
-        const value = 'https://www.example.com/alice'
-        const table = defineUrls(hostRows, { hosts: bareHosts, isFallThrough: true })
+      it('should return undefined for www in front of a listed subdomain host', () => {
+        const value = 'https://www.blog.example.com/alice'
+        const table = defineUrls(hostRows, { hosts: subdomainHosts, isFallThrough: true })
 
         expect(table.read(value)).toBeUndefined()
       })
 
-      it('should read www in front of a host where the list names it', () => {
-        const value = 'https://www.example.com/alice'
+      it('should read www in front of a subdomain host where the list names it', () => {
+        const value = 'https://www.blog.example.com/alice'
         const expected: Record<string, string> = {
-          host: 'www.example.com',
+          host: 'www.blog.example.com',
           username: 'alice',
           scheme: 'https',
         }
-        const table = defineUrls(hostRows, { hosts: bothHosts, isFallThrough: true })
+        const table = defineUrls(hostRows, { hosts: bothSubdomainHosts, isFallThrough: true })
         const match = table.read(value)
 
         expect(match?.params).toEqual(expected)
       })
 
-      it('should return undefined for www in front of the host a row writes', () => {
-        const value = 'https://www.example.com/alice'
-        const table = defineUrls(fixedRows, { hosts: bareHosts, isFallThrough: true })
-
-        expect(table.read(value)).toBeUndefined()
-      })
-
-      it('should read www in front of the host a row writes where the list names it', () => {
-        const value = 'https://www.example.com/alice'
-        const expected = 'https://example.com/alice'
-        const table = defineUrls(fixedRows, { hosts: bothHosts, isFallThrough: true })
-
-        expect(table.getMainUrl(value)).toBe(expected)
-      })
-
-      it('should read www in front of the host a row writes in a table that lists no host', () => {
-        const value = 'https://www.example.com/alice'
-        const expected = 'https://example.com/alice'
-        const table = defineUrls(fixedRows, { isFallThrough: true })
-
-        expect(table.getMainUrl(value)).toBe(expected)
-      })
-
-      it('should read www in front of a listed host in a table without fall-through', () => {
+      it('should read www in front of a listed apex host the list names without it', () => {
         const value = 'https://www.example.com/alice'
         const expected: Record<string, string> = {
           host: 'www.example.com',
           username: 'alice',
           scheme: 'https',
         }
-        const table = defineUrls(hostRows, { hosts: bareHosts })
+        const table = defineUrls(hostRows, {
+          hosts: { exact: ['example.com'] },
+          isFallThrough: true,
+        })
+        const match = table.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should return undefined for www in front of the subdomain host a row writes', () => {
+        const value = 'https://www.blog.example.com/alice'
+        const table = defineUrls(subdomainRows, { isFallThrough: true })
+
+        expect(table.read(value)).toBeUndefined()
+      })
+
+      it('should read www in front of the apex host a row writes', () => {
+        const value = 'https://www.example.com/alice'
+        const expected = 'https://example.com/alice'
+        const table = defineUrls(apexRows, { isFallThrough: true })
+
+        expect(table.getMainUrl(value)).toBe(expected)
+      })
+
+      it('should read www in front of a listed subdomain host in a table without fall-through', () => {
+        const value = 'https://www.blog.example.com/alice'
+        const expected: Record<string, string> = {
+          host: 'www.blog.example.com',
+          username: 'alice',
+          scheme: 'https',
+        }
+        const table = defineUrls(hostRows, { hosts: subdomainHosts })
         const match = table.read(value)
 
         expect(match?.params).toEqual(expected)
