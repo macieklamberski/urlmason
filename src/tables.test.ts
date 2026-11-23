@@ -4414,7 +4414,7 @@ describe('defineUrls', () => {
 
     it('should pass a value the check of the row refuses to a later row of the same shape', () => {
       const value = 'https://example.com/users/alice'
-      const expected: Record<string, string> = { username: 'alice' }
+      const expected = { username: 'alice' }
       const match = rowChecked.read(value)
 
       expect(match?.params).toEqual(expected)
@@ -4670,7 +4670,7 @@ describe('defineUrls', () => {
       it('should read a row under a root its check takes', () => {
         const value = 'https://example.org/forum/topic/5'
         const options = { isAnyHost: true }
-        const expected: Record<string, string> = {
+        const expected = {
           topicId: '5',
           root: 'https://example.org/forum',
         }
@@ -4682,7 +4682,7 @@ describe('defineUrls', () => {
       it('should hand the root to a check beside the values read', () => {
         const value = 'https://example.org/forum/5/post/5'
         const options = { root: 'https://example.org/forum/5' }
-        const expected: Record<string, string> = {
+        const expected = {
           postId: '5',
           root: 'https://example.org/forum/5',
         }

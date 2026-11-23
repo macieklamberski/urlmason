@@ -327,11 +327,15 @@ const hasFixedPath = (template: string): boolean => {
 // Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
 // call, and one without both anchors takes a value that only holds a match.
 const toCheckFunctions = <Rest extends Array<unknown>>(
-  checks: Record<string, CheckFunction<Rest> | RegExp> = {},
+  checks: Record<string, CheckFunction<Rest> | RegExp | undefined> = {},
 ): Record<string, CheckFunction<Rest>> => {
   const functions: Record<string, CheckFunction<Rest>> = {}
 
   for (const [name, check] of Object.entries(checks)) {
+    if (!check) {
+      continue
+    }
+
     if (isFunction(check)) {
       functions[name] = check
 

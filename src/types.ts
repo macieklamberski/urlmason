@@ -48,8 +48,10 @@ export type UrlRow<Key extends string = string> = {
   // turns the table's mark off.
   lenient?: UrlLenient
   // The row's own checks beside the table's, in the same forms: a value passes both. A function
-  // also gets every value the row read or is built from, as `(date, { host }) => …`.
-  checks?: Record<string, UrlRowCheck>
+  // also gets every value the row read or is built from, as `(date, { host }) => …`. A check
+  // left undefined is no check: a list of rows that check different names types each name a row
+  // does not check as undefined.
+  checks?: Record<string, UrlRowCheck | undefined>
 }
 
 export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
