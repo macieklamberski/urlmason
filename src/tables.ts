@@ -681,14 +681,24 @@ const compileTemplate = (
     const wwwSource = isWwwOptional ? '(?:www\\.)?' : ''
     const tenantWwwSource = options.isWwwTenantPrefix ? wwwSource : ''
     const normalize = (value: string): string => (isWwwOptional ? stripWww(value) : value)
+    // In a page table a listed host is read as listed: `www` in front of it only where listed.
+    const listedHosts = options.isFallThrough ? hosts.filter(isString) : []
+    const isListed = listedHosts.length > 0
     const hostSources = [
       ...hosts.map((value) => {
+        if (isListed && isString(value)) {
+          return escapeRegex(value)
+        }
+
         return `${wwwSource}${toEntrySource(isString(value) ? normalize(value) : value)}`
       }),
       ...(tenantDomains.length > 0 ? [`${tenantWwwSource}${tenantSource}\\.${domainSource}`] : []),
     ]
     const isFixedHost = !host.startsWith('{') || host.startsWith('{domain}')
-    const fixedPrefixSource = isFixedHost ? wwwSource : ''
+    const bareHost = stripWww(host)
+    const listedForms = [bareHost, `www.${bareHost}`].filter((form) => listedHosts.includes(form))
+    const isListedFixedHost = isListed && isFixedHost && !host.includes('{')
+    const fixedPrefixSource = isFixedHost && !isListedFixedHost ? wwwSource : ''
     const isTenantHost = !isFixedHost && !host.startsWith('{host}')
     const tenantPrefixSource = isTenantHost ? tenantWwwSource : ''
     const hostCaptures = {
@@ -702,6 +712,12 @@ const compileTemplate = (
       hostCaptures,
     )
     const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`
+
+    if (isListedFixedHost) {
+      const forms = listedForms.length > 0 ? listedForms : [host]
+
+      return new RegExp(`^(?:${forms.map(escapeRegex).join('|')})${pathPattern}$`, flags)
+    }
 
     return new RegExp(`^${prefixSource}${hostSource}${pathPattern}$`, flags)
   }

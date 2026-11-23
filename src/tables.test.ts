@@ -4793,6 +4793,69 @@ describe('defineUrls', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
+    describe('listed hosts', () => {
+      const hostRows: Array<UrlRow> = [{ key: 'profile', main: '{scheme}://{host}/{username}' }]
+      const fixedRows: Array<UrlRow> = [{ key: 'profile', main: 'https://example.com/{username}' }]
+      const bareHosts = { exact: ['example.com'] }
+      const bothHosts = { exact: ['example.com', 'www.example.com'] }
+
+      it('should return undefined for www in front of a listed host', () => {
+        const value = 'https://www.example.com/alice'
+        const table = defineUrls(hostRows, { hosts: bareHosts, isFallThrough: true })
+
+        expect(table.read(value)).toBeUndefined()
+      })
+
+      it('should read www in front of a host where the list names it', () => {
+        const value = 'https://www.example.com/alice'
+        const expected: Record<string, string> = {
+          host: 'www.example.com',
+          username: 'alice',
+          scheme: 'https',
+        }
+        const table = defineUrls(hostRows, { hosts: bothHosts, isFallThrough: true })
+        const match = table.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should return undefined for www in front of the host a row writes', () => {
+        const value = 'https://www.example.com/alice'
+        const table = defineUrls(fixedRows, { hosts: bareHosts, isFallThrough: true })
+
+        expect(table.read(value)).toBeUndefined()
+      })
+
+      it('should read www in front of the host a row writes where the list names it', () => {
+        const value = 'https://www.example.com/alice'
+        const expected = 'https://example.com/alice'
+        const table = defineUrls(fixedRows, { hosts: bothHosts, isFallThrough: true })
+
+        expect(table.getMainUrl(value)).toBe(expected)
+      })
+
+      it('should read www in front of the host a row writes in a table that lists no host', () => {
+        const value = 'https://www.example.com/alice'
+        const expected = 'https://example.com/alice'
+        const table = defineUrls(fixedRows, { isFallThrough: true })
+
+        expect(table.getMainUrl(value)).toBe(expected)
+      })
+
+      it('should read www in front of a listed host in a table without fall-through', () => {
+        const value = 'https://www.example.com/alice'
+        const expected: Record<string, string> = {
+          host: 'www.example.com',
+          username: 'alice',
+          scheme: 'https',
+        }
+        const table = defineUrls(hostRows, { hosts: bareHosts })
+        const match = table.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+    })
+
     describe('two values in one segment', () => {
       const rows: Array<UrlRow> = [{ key: 'post', main: 'https://example.com/posts/{id}-{slug}' }]
       const table = defineUrls(rows, { checks: { id: digitsRegex }, isFallThrough: true })
