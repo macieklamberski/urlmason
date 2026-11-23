@@ -1118,7 +1118,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   // Extra is never read off the rows, so a field no row type names fails the typecheck.
   givenRows: ReadonlyArray<DeepReadonly<UrlRow<Key>> & NoInfer<Extra>>,
   options: UrlTableOptions = {},
-): UrlTable<Key, UrlRow<Key> & Extra> => {
+): UrlTable<Key, UrlRow<Key> & NoInfer<Extra>> => {
   type Row = UrlRow<Key> & Extra
   type Select = (row: Row) => boolean
 
