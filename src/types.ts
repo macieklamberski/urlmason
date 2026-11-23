@@ -153,5 +153,5 @@ export type Platform = {
   // that hold on every page and not only on a feed.
   sites?: Pick<UrlTable<string, UrlRow>, 'getMainUrl'>
   // The page URLs of the platform, a table with no rows until the platform gets its page rows.
-  pages?: Pick<UrlTable<string, UrlRow>, 'read'>
+  pages: Pick<UrlTable<string, UrlRow>, 'read'>
 }

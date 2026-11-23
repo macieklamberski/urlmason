@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { includesAnyOf, isLocale } from 'trousse'
 import type { FeedEntry, FeedHint, FeedUrlRow, Platform } from '../types.js'
 import { defineFeedUrls, getMainFeedUrl } from './feeds.js'
+import { defineUrls } from './tables.js'
 
 const feeds = defineFeedUrls(
   'example',
@@ -2405,8 +2406,12 @@ describe('getMainFeedUrl', () => {
     feeds: defineFeedUrls('example', rows, {
       checks: { userId: (value) => includesAnyOf(value, 'example:users:') },
     }),
+    pages: defineUrls([]),
   }
-  const unchecked: Platform = { feeds: defineFeedUrls('example', rows) }
+  const unchecked: Platform = {
+    feeds: defineFeedUrls('example', rows),
+    pages: defineUrls([]),
+  }
 
   it('should write an alias a platform claims as its main URL', () => {
     const value = 'https://feeds.example.com/users/example:users:123'
