@@ -4709,12 +4709,11 @@ describe('defineUrls', () => {
       expect(match?.params).toEqual(expected)
     })
 
-    it('should pass a URL to the deeper open row before a shallower one written first', () => {
+    it('should read a URL two open rows take as the one written first', () => {
       const value = 'https://example.com/alice/my-channel/about'
       const expected: Record<string, string> = {
         username: 'alice',
-        channel: 'my-channel',
-        tail: 'about',
+        tail: 'my-channel/about',
       }
       const match = fallThroughBlocks.read(value)
 

@@ -1170,6 +1170,8 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
     return b.ownNames.length - a.ownNames.length
   })
+  // A table that passes a refused URL on reads its rows in the order written.
+  const inReadOrder = options.isFallThrough ? claimed : bySpecificity
   // A URL whose host and path no template takes is none of the rows, whatever its query.
   const asGivenRegex = joinRegexes(claimed.map((candidate) => candidate.asGivenRegex))
   const optionalWwwRegex = joinRegexes(claimed.map((candidate) => candidate.optionalWwwRegex))
@@ -1319,7 +1321,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   const findTemplate = (tableUrl: TableUrl, isWwwOptional: boolean): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
 
-    for (const template of bySpecificity) {
+    for (const template of inReadOrder) {
       if (refused && !options.isFallThrough && refused.template.shape !== template.shape) {
         continue
       }
