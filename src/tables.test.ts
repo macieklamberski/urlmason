@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
-import type { UrlMatch, UrlRow } from '../types.js'
+import type { UrlMatch, UrlRow, UrlValue } from '../types.js'
 import { defineUrls } from './tables.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
@@ -26,7 +26,7 @@ const playerRows: Array<PlayerRow> = [
   { key: 'search', main: 'https://www.example.com/search?q={query}' },
 ]
 
-const players = defineUrls<string, { ratio?: string }>(playerRows, {
+const players = defineUrls(playerRows, {
   hosts: { tenants: ['example.org'] },
   checks: { locale: isLocale },
 })
@@ -622,6 +622,14 @@ const checkedOpenPages = defineUrls(
   { checks: { id: digitsRegex } },
 )
 
+const tailCheckedPages = defineUrls([
+  {
+    key: 'issue',
+    main: 'https://example.com/issues/{id}/{*}',
+    checks: { tail: /^(?:comments\/5|café)$/ },
+  },
+])
+
 const boards = defineUrls(
   [
     { key: 'topic', main: '{root}/viewtopic.php?t={topicId}', aliases: ['{root}/topic/{topicId}'] },
@@ -631,6 +639,8 @@ const boards = defineUrls(
   ],
   { checks: { topicId: digitsRegex } },
 )
+
+type BoardMatch = NonNullable<ReturnType<typeof boards.read>>
 
 const topicBoards = defineUrls([{ key: 'topic', main: '{root}/viewtopic.php?t={topicId}' }], {
   checks: { topicId: digitsRegex },
@@ -841,7 +851,7 @@ describe('defineUrls', () => {
     })
 
     it('should read a URL as the same row after the key of a returned row is edited', () => {
-      const table = defineUrls([
+      const table = defineUrls<UrlRow>([
         { key: 'posts', main: 'https://example.com/feed' },
         { key: 'comments', main: 'https://example.com/comments/feed' },
       ])
@@ -856,7 +866,7 @@ describe('defineUrls', () => {
     })
 
     it('should build the URL of a key after the key of a returned row is edited', () => {
-      const table = defineUrls([
+      const table = defineUrls<UrlRow>([
         { key: 'posts', main: 'https://example.com/feed' },
         { key: 'comments', main: 'https://example.com/comments/feed' },
       ])
@@ -884,7 +894,7 @@ describe('defineUrls', () => {
     })
 
     it('should read a URL as the same row after the key of a row it read is edited', () => {
-      const table = defineUrls([
+      const table = defineUrls<UrlRow>([
         { key: 'posts', main: 'https://example.com/feed' },
         { key: 'comments', main: 'https://example.com/comments/feed' },
       ])
@@ -902,7 +912,7 @@ describe('defineUrls', () => {
     })
 
     it('should keep the listed parameters after the list of a returned row is edited', () => {
-      const table = defineUrls([
+      const table = defineUrls<UrlRow>([
         {
           key: 'posts',
           main: 'https://example.com/feed',
@@ -937,7 +947,7 @@ describe('defineUrls', () => {
     })
 
     it('should keep the listed parameters after the list of a row it read is edited', () => {
-      const table = defineUrls([
+      const table = defineUrls<UrlRow>([
         {
           key: 'posts',
           main: 'https://example.com/feed',
@@ -1101,7 +1111,7 @@ describe('defineUrls', () => {
       const value = 'https://www.example.com/pt-BR/docs/api/v2'
       const expected = {
         locale: 'pt-BR',
-        path: 'api/v2',
+        path: ['api', 'v2'],
       }
       const match = players.read(value)
 
@@ -2559,7 +2569,7 @@ describe('defineUrls', () => {
   describe('with the ampersand entity mark', () => {
     it('should read &amp; between query pairs as &', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
-      const expected: Record<string, string> = {
+      const expected = {
         id: '7',
         guid: 'a1b2',
       }
@@ -3468,7 +3478,7 @@ describe('defineUrls', () => {
   describe('with a URL read twice', () => {
     it('should not let an edit of the values read change the next read', () => {
       const value = 'https://example.com/items?id=5'
-      const expected: Record<string, string> = { id: '5' }
+      const expected = { id: '5' }
       const match = moved.read(value)
 
       if (match) {
@@ -3503,10 +3513,107 @@ describe('defineUrls', () => {
     })
   })
 
+  describe('with an escaped percent sign or slash in a value', () => {
+    const tags = defineUrls([
+      { key: 'tag', main: 'https://example.com/tag/{tag}' },
+      { key: 'tag-feed', main: 'https://example.com/data/rss?tag={tag}' },
+      { key: 'docs', main: 'https://example.com/docs/{path*}' },
+    ])
+
+    it('should read an escaped percent sign in a path value decoded', () => {
+      const value = 'https://example.com/tag/100%25'
+      const expected = { tag: '100%' }
+      const match = tags.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read an escaped slash in a path value decoded', () => {
+      const value = 'https://example.com/tag/a%2Fb'
+      const expected = { tag: 'a/b' }
+      const match = tags.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should write a path value with a percent sign read from a path into a query once', () => {
+      const value = 'https://example.com/tag/100%25'
+      const expected = 'https://example.com/data/rss?tag=100%25'
+      const match = tags.read(value)
+
+      expect(tags.build('tag-feed', match?.params)).toBe(expected)
+    })
+
+    it('should write a path value with a slash read from a path into a query once', () => {
+      const value = 'https://example.com/tag/a%2Fb'
+      const expected = 'https://example.com/data/rss?tag=a/b'
+      const match = tags.read(value)
+
+      expect(tags.build('tag-feed', match?.params)).toBe(expected)
+    })
+
+    it('should write back a path value with a percent sign it read', () => {
+      const value = 'https://example.com/tag/100%25'
+      const match = tags.read(value)
+
+      expect(tags.build('tag', match?.params)).toBe(value)
+    })
+
+    it('should write back a path value with a slash it read', () => {
+      const value = 'https://example.com/tag/a%2Fb'
+      const match = tags.read(value)
+
+      expect(tags.build('tag', match?.params)).toBe(value)
+    })
+
+    it('should read an escaped slash inside one segment of a multi-segment value decoded', () => {
+      const value = 'https://example.com/docs/guides/a%2Fb'
+      const expected = { path: ['guides', 'a/b'] }
+      const match = tags.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should write each segment of a multi-segment value once', () => {
+      const value = { path: ['guides', 'a/b', '100%'] }
+      const expected = 'https://example.com/docs/guides/a%2Fb/100%25'
+
+      expect(tags.build('docs', value)).toBe(expected)
+    })
+
+    it('should write a multi-segment value given as text at its slashes', () => {
+      const value = { path: 'guides/a' }
+      const expected = 'https://example.com/docs/guides/a'
+
+      expect(tags.build('docs', value)).toBe(expected)
+    })
+
+    it('should write no value of one segment given as a list', () => {
+      const value = { tag: ['a', 'b'] }
+
+      expect(tags.build('tag', value)).toBeUndefined()
+    })
+
+    it('should read a query value with a percent sign and an ampersand decoded', () => {
+      const value = 'https://example.com/data/rss?tag=R%26D%20100%25'
+      const expected = { tag: 'R&D 100%' }
+      const match = tags.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should write a query value with a percent sign and an ampersand once', () => {
+      const value = { tag: 'R&D 100%' }
+      const expected = 'https://example.com/data/rss?tag=R%26D%20100%25'
+
+      expect(tags.build('tag-feed', value)).toBe(expected)
+    })
+  })
+
   describe('with an open tail', () => {
     it('should read a URL with no segment behind the path without a tail', () => {
       const value = 'https://example.com/acme/app'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'app',
       }
@@ -3517,7 +3624,7 @@ describe('defineUrls', () => {
 
     it('should read a trailing slash behind the path without a tail', () => {
       const value = 'https://example.com/acme/app/'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'app',
       }
@@ -3526,96 +3633,44 @@ describe('defineUrls', () => {
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read one segment behind the path as the tail', () => {
-      const value = 'https://example.com/acme/app/issues'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'issues',
-      }
-      const match = openPages.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read a tail of one segment without its trailing slash', () => {
-      const value = 'https://example.com/acme/app/issues/'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'issues',
-      }
-      const match = openPages.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read several segments behind the path as one tail', () => {
+    it('should leave the tail out of the values read', () => {
       const value = 'https://example.com/acme/app/issues/12'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'app',
-        tail: 'issues/12',
       }
       const match = openPages.read(value)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read a tail of several segments without its trailing slash', () => {
-      const value = 'https://example.com/acme/app/issues/12/'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'issues/12',
-      }
-      const match = openPages.read(value)
+    it('should check a tail as its segments joined by a slash, without the empty ones', () => {
+      const value = 'https://example.com/issues/12//comments//5/'
+      const expected = 'issue'
+      const match = tailCheckedPages.read(value)
 
-      expect(match?.params).toEqual(expected)
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a tail its check refuses', () => {
+      const value = 'https://example.com/issues/12/history'
+
+      expect(tailCheckedPages.read(value)).toBeUndefined()
+    })
+
+    it('should check a tail with its segments decoded', () => {
+      const value = 'https://example.com/issues/12/caf%C3%A9'
+      const expected = 'issue'
+      const match = tailCheckedPages.read(value)
+
+      expect(match?.key).toBe(expected)
     })
 
     it('should read a URL with a query no row names', () => {
       const value = 'https://example.com/acme/app/issues/12?page=2'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'app',
-        tail: 'issues/12',
-      }
-      const match = openPages.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read an encoded segment of the tail decoded', () => {
-      const value = 'https://example.com/acme/app/caf%C3%A9/menu'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'café/menu',
-      }
-      const match = openPages.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should keep an encoded slash in the tail apart from a slash', () => {
-      const value = 'https://example.com/acme/app/a%2Fb/c'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'a%2Fb/c',
-      }
-      const match = openPages.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should drop the empty segments of a tail', () => {
-      const value = 'https://example.com/acme/app//issues//12'
-      const expected: Record<string, string> = {
-        owner: 'acme',
-        repo: 'app',
-        tail: 'issues/12',
       }
       const match = openPages.read(value)
 
@@ -3624,7 +3679,7 @@ describe('defineUrls', () => {
 
     it('should read slashes alone behind the path without a tail', () => {
       const value = 'https://example.com/acme/app///'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'app',
       }
@@ -3635,7 +3690,7 @@ describe('defineUrls', () => {
 
     it('should read a longer last segment as the value and not as a tail', () => {
       const value = 'https://example.com/acme/application'
-      const expected: Record<string, string> = {
+      const expected = {
         owner: 'acme',
         repo: 'application',
       }
@@ -3662,9 +3717,8 @@ describe('defineUrls', () => {
 
     it('should read a value its check takes in front of a tail', () => {
       const value = 'https://example.com/issues/12/comments'
-      const expected: Record<string, string> = {
+      const expected = {
         id: '12',
-        tail: 'comments',
       }
       const match = checkedOpenPages.read(value)
 
@@ -3691,7 +3745,7 @@ describe('defineUrls', () => {
       const value = {
         owner: 'acme',
         repo: 'app',
-        tail: 'issues/12',
+        tail: ['issues', '12'],
       }
       const expected = 'https://example.com/acme/app'
 
@@ -3816,7 +3870,7 @@ describe('defineUrls', () => {
     it('should read a URL under a root with no base path', () => {
       const value = 'https://example.org/viewtopic.php?t=5'
       const options = { root: 'https://example.org' }
-      const expected: UrlMatch<'topic', UrlRow<'topic'>> = {
+      const expected: BoardMatch = {
         key: 'topic',
         params: {
           topicId: '5',
@@ -3837,7 +3891,7 @@ describe('defineUrls', () => {
     it('should read a URL under a root with a base path', () => {
       const value = 'https://example.org/community/explore'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3846,7 +3900,7 @@ describe('defineUrls', () => {
     it('should read a query value under a root', () => {
       const value = 'https://example.org/community/viewtopic.php?t=5'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org/community',
       }
@@ -3858,8 +3912,7 @@ describe('defineUrls', () => {
     it('should read an open tail under a root', () => {
       const value = 'https://example.org/community/tag/news/2024'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = {
-        tail: 'news/2024',
+      const expected = {
         root: 'https://example.org/community',
       }
       const match = boards.read(value, options)
@@ -3886,7 +3939,7 @@ describe('defineUrls', () => {
     it('should read a URL under http under a root under https', () => {
       const value = 'http://example.org/community/explore'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3895,7 +3948,7 @@ describe('defineUrls', () => {
     it('should read a URL on www under a root without it', () => {
       const value = 'https://www.example.org/community/explore'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3904,7 +3957,7 @@ describe('defineUrls', () => {
     it('should read a URL without www under a root on www', () => {
       const value = 'https://example.org/community/explore'
       const options = { root: 'https://www.example.org/community' }
-      const expected: Record<string, string> = { root: 'https://www.example.org/community' }
+      const expected = { root: 'https://www.example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3913,7 +3966,7 @@ describe('defineUrls', () => {
     it('should read a URL under a root on the same port', () => {
       const value = 'https://example.org:8080/community/explore'
       const options = { root: 'https://example.org:8080/community' }
-      const expected: Record<string, string> = { root: 'https://example.org:8080/community' }
+      const expected = { root: 'https://example.org:8080/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3922,7 +3975,7 @@ describe('defineUrls', () => {
     it('should return the host of a root in lowercase', () => {
       const value = 'https://example.org/community/explore'
       const options = { root: 'https://EXAMPLE.org/community' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3931,7 +3984,7 @@ describe('defineUrls', () => {
     it('should read a base path in another letter case than the root has', () => {
       const value = 'https://example.org/Community/explore'
       const options = { root: 'https://example.org/community' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3940,7 +3993,7 @@ describe('defineUrls', () => {
     it('should read a base path the root writes with an escape', () => {
       const value = 'https://example.org/~alice/explore'
       const options = { root: 'https://example.org/%7Ealice' }
-      const expected: Record<string, string> = { root: 'https://example.org/%7Ealice' }
+      const expected = { root: 'https://example.org/%7Ealice' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3949,7 +4002,7 @@ describe('defineUrls', () => {
     it('should return a root given with a trailing slash without it', () => {
       const value = 'https://example.org/community/explore'
       const options = { root: 'https://example.org/community/' }
-      const expected: Record<string, string> = { root: 'https://example.org/community' }
+      const expected = { root: 'https://example.org/community' }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -4027,7 +4080,7 @@ describe('defineUrls', () => {
     it('should read a URL on a host the table does not list', () => {
       const value = 'https://example.org/blog/feed.xml'
       const options = { root: 'https://example.org/blog' }
-      const expected: Record<string, string> = { root: 'https://example.org/blog' }
+      const expected = { root: 'https://example.org/blog' }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -4036,7 +4089,7 @@ describe('defineUrls', () => {
     it('should read a URL on a host the table lists without the host as a value', () => {
       const value = 'https://alice.example.net/blog/feed.xml'
       const options = { root: 'https://alice.example.net/blog' }
-      const expected: Record<string, string> = { root: 'https://alice.example.net/blog' }
+      const expected = { root: 'https://alice.example.net/blog' }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -4047,7 +4100,7 @@ describe('defineUrls', () => {
     it('should find a root with no base path', () => {
       const value = 'https://example.org/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: UrlMatch<'topic', UrlRow<'topic'>> = {
+      const expected: BoardMatch = {
         key: 'topic',
         params: {
           topicId: '5',
@@ -4068,7 +4121,7 @@ describe('defineUrls', () => {
     it('should find a root with one segment of base path', () => {
       const value = 'https://example.org/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org/community',
       }
@@ -4080,7 +4133,7 @@ describe('defineUrls', () => {
     it('should find a root with two segments of base path', () => {
       const value = 'https://example.org/sites/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org/sites/community',
       }
@@ -4092,7 +4145,7 @@ describe('defineUrls', () => {
     it('should find a root with eight segments of base path', () => {
       const value = 'https://example.org/a/b/c/d/e/f/g/h/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org/a/b/c/d/e/f/g/h',
       }
@@ -4111,7 +4164,7 @@ describe('defineUrls', () => {
     it('should find a root with a port', () => {
       const value = 'https://example.org:8080/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org:8080/community',
       }
@@ -4123,7 +4176,7 @@ describe('defineUrls', () => {
     it('should return a base path with an escape as the URL writes it', () => {
       const value = 'https://example.org/%7Ealice/viewtopic.php?t=5'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         topicId: '5',
         root: 'https://example.org/%7Ealice',
       }
@@ -4135,8 +4188,7 @@ describe('defineUrls', () => {
     it('should take the shortest root a row reads the URL under', () => {
       const value = 'https://example.org/tag/tag/news'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
-        tail: 'tag/news',
+      const expected = {
         root: 'https://example.org',
       }
       const match = boards.read(value, options)
@@ -4147,8 +4199,7 @@ describe('defineUrls', () => {
     it('should read an open tail under the root it finds', () => {
       const value = 'https://example.org/community/tag/news/2024'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
-        tail: 'news/2024',
+      const expected = {
         root: 'https://example.org/community',
       }
       const match = boards.read(value, options)
@@ -4177,7 +4228,7 @@ describe('defineUrls', () => {
     it('should read a row of values alone where no row with fixed text reads the URL', () => {
       const value = 'https://example.org/staff/alice'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
+      const expected = {
         group: 'staff',
         member: 'alice',
         root: 'https://example.org',
@@ -4190,8 +4241,7 @@ describe('defineUrls', () => {
     it('should read a row of an open tail alone at the origin', () => {
       const value = 'https://example.org/community/about'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = {
-        tail: 'community/about',
+      const expected = {
         root: 'https://example.org',
       }
       const match = openBoards.read(value, options)
@@ -4226,7 +4276,7 @@ describe('defineUrls', () => {
     it('should find a root on a host the table does not list', () => {
       const value = 'https://example.org/blog/feed.xml'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = { root: 'https://example.org/blog' }
+      const expected = { root: 'https://example.org/blog' }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -4247,7 +4297,7 @@ describe('defineUrls', () => {
 
     it('should read the host as a value on a table with hosts read with no option', () => {
       const value = 'https://alice.example.net/feed.xml'
-      const expected: Record<string, string> = {
+      const expected = {
         host: 'alice.example.net',
         root: 'https://alice.example.net',
       }
@@ -4534,10 +4584,10 @@ describe('defineUrls', () => {
 
       it('should read a year as the next row on the domain the check refuses it on', () => {
         const value = 'https://alice.example.org/2024/feed'
-        const expected: Record<string, string> = {
+        const expected = {
           scheme: 'https',
           host: 'alice.example.org',
-          post: '2024',
+          post: ['2024'],
         }
         const match = archives.read(value)
 
@@ -4648,7 +4698,6 @@ describe('defineUrls', () => {
         key: 'profile',
         params: {
           username: 'alice',
-          tail: 'followers',
         },
         row: {
           key: 'profile',
@@ -4661,13 +4710,12 @@ describe('defineUrls', () => {
       expect(fallThroughProfiles.read(value)).toEqual(expected)
     })
 
-    it('should read every segment behind the row that takes the URL as its tail', () => {
+    it('should read a URL with segments behind an open row as that row', () => {
       const value = 'https://example.com/alice/followers/x'
       const expected: UrlMatch<string, UrlRow> = {
         key: 'profile',
         params: {
           username: 'alice',
-          tail: 'followers/x',
         },
         row: {
           key: 'profile',
@@ -4684,9 +4732,7 @@ describe('defineUrls', () => {
       const value = 'https://example.com/editorial/some-article'
       const expected: UrlMatch<string, UrlRow> = {
         key: 'editorial',
-        params: {
-          tail: 'some-article',
-        },
+        params: {},
         row: {
           key: 'editorial',
           main: 'https://example.com/editorial/{*}',
@@ -4700,9 +4746,9 @@ describe('defineUrls', () => {
 
     it('should pass a value the check of a row refuses to a row of another shape', () => {
       const value = 'https://example.com/alice/followers'
-      const expected: Record<string, string> = {
+      const expected = {
         username: 'alice',
-        view: 'followers',
+        view: ['followers'],
       }
       const match = fallThroughRowChecked.read(value)
 
@@ -4711,9 +4757,8 @@ describe('defineUrls', () => {
 
     it('should read a URL two open rows take as the one written first', () => {
       const value = 'https://example.com/alice/my-channel/about'
-      const expected: Record<string, string> = {
+      const expected = {
         username: 'alice',
-        tail: 'my-channel/about',
       }
       const match = fallThroughBlocks.read(value)
 
@@ -4884,7 +4929,7 @@ describe('defineUrls', () => {
 
       it('should read a value behind the fixed text by its check pattern', () => {
         const value = 'https://example.com/posts/my-first-post-123'
-        const expected: Record<string, string> = {
+        const expected = {
           slug: 'my-first-post',
           id: '123',
         }
@@ -4899,7 +4944,7 @@ describe('defineUrls', () => {
 
       it('should read a value by the check pattern of its row', () => {
         const value = 'https://example.com/posts/123-my-first-post'
-        const expected: Record<string, string> = {
+        const expected = {
           id: '123',
           slug: 'my-first-post',
         }
@@ -4964,7 +5009,6 @@ describe('defineUrls', () => {
           key: 'profile',
           params: {
             username: 'alice',
-            tail: 'followers/x',
             root: 'https://example.org',
           },
           row: {
@@ -4981,9 +5025,8 @@ describe('defineUrls', () => {
       it('should pass a refused URL to the next row under the root given', () => {
         const value = 'https://example.org/forum/alice/followers'
         const options = { root: 'https://example.org/forum' }
-        const expected: Record<string, string> = {
+        const expected: Record<string, UrlValue> = {
           username: 'alice',
-          tail: 'followers',
           root: 'https://example.org/forum',
         }
         const match = fallThroughRootProfiles.read(value, options)

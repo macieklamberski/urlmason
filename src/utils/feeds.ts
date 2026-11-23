@@ -17,17 +17,19 @@ type FeedPage<Key extends string> = Pick<
 
 // One table of a platform's feed URLs, each row keyed by its kind. A hint is keyed
 // `{platform}:{kind}`, as `dailymotion:playlist`.
-export const defineFeedUrls = <const Key extends string>(
+export const defineFeedUrls = <const Row extends FeedUrlRow>(
   platform: string,
-  rows: Array<FeedUrlRow<Key>>,
+  rows: Array<Row>,
   options: FeedUrlTableOptions = {},
-): FeedUrlTable<Key> => {
+): FeedUrlTable<Row['key'], Row> => {
+  type Key = Row['key']
+
   // A looser row would claim a feed URL another row refused, as a file under a refused branch.
   if ('isFallThrough' in options && options.isFallThrough) {
     throw new Error(t(locales.errors.feedFallThrough, { platform }))
   }
 
-  const urls = defineUrls<Key, { format?: FeedFormat }>(rows, options)
+  const urls = defineUrls(rows, options)
 
   const composeHint = (key: string, format?: FeedFormat): FeedHint => {
     const hintKey = `${platform}:${key}`
@@ -44,7 +46,7 @@ export const defineFeedUrls = <const Key extends string>(
       return
     }
 
-    return (row: FeedUrlRow<Key>): boolean => row.format === format
+    return (row: Row): boolean => row.format === format
   }
 
   // The feed methods on a table or on the table of one page.

@@ -21,6 +21,7 @@ import {
 } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
 import type {
+  UrlKeyMatch,
   UrlLenient,
   UrlMatch,
   UrlParams,
@@ -28,6 +29,7 @@ import type {
   UrlRow,
   UrlTable,
   UrlTableOptions,
+  UrlValue,
 } from '../types.js'
 import {
   appendValue,
@@ -69,14 +71,14 @@ type CompiledTemplate = {
   asGivenRegex: RegExp
   optionalWwwRegex: RegExp
   // The values of a URL the template takes, read as given or with an optional `www`.
-  readParams: (tableUrl: TableUrl, isWwwOptional: boolean) => Record<string, string> | undefined
+  readParams: (tableUrl: TableUrl, isWwwOptional: boolean) => Record<string, UrlValue> | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
   // spelling a mark covers is read in the template's, with the path and the pairs written that way.
   readRawParams: (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
-    params: Record<string, string>,
+    params: Record<string, UrlValue>,
   ) => RawRead | undefined
   // Whether the trailing slash mark writes the path with another trailing slash, and whether the
   // template takes a host and decoded path with the trailing slash the path has.
@@ -88,7 +90,7 @@ type CompiledTemplate = {
   getRawUrl: (rawParams: RawParams, keptPairs: Array<QueryPair>) => RawUrl | undefined
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
-  passesChecks: (params: Record<string, string>) => boolean
+  passesChecks: (params: Record<string, UrlValue>) => boolean
   // The host, the path and the own parameter names with every value left out, and whether the
   // path has an open tail. Two templates of one shape differ only in their values, as two rows
   // for two values of `format`.
@@ -113,10 +115,12 @@ type Capture = {
   unit?: string
 }
 
-// A placeholder a pattern captures, with the part of the URL it sits in.
+// A placeholder a pattern captures, with the part of the URL it sits in, and whether its value
+// spans several path segments, as a `{name*}` value and the open tail do.
 type Captured = {
   name: string
   part: UrlPart
+  isList: boolean
 }
 
 // A parameter a template sets itself, as `alt=rss`, `id={id}` or the flag `rss`.
@@ -193,7 +197,7 @@ const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const ownGroupRegex = /^p\d+$/
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
-// The open tail: `{*}` behind the last slash of a path, read as the value `tail`.
+// The open tail: `{*}` behind the last slash of a path, which the checks see as the value `tail`.
 const openTailMark = '{*}'
 const openTailSuffix = `/${openTailMark}`
 const openTailName = 'tail'
@@ -229,36 +233,65 @@ const toLowerCaseValue = (value: string): string => {
     .join('')
 }
 
-// A `{name*}` value is one or more segments joined by `/`. An empty segment is dropped, as a
-// doubled slash names the same page, and a value with no segment left is no value.
-const getPlaceholderValue = (params: UrlParams, placeholder: string): string | undefined => {
+// A `{name*}` value is a list of one or more segments. An empty segment is dropped, as a doubled
+// slash names the same page, and a value with no segment left is no value. A string is read as
+// segments joined by `/`, and a list is no value of a placeholder of one segment.
+const getPlaceholderValue = (params: UrlParams, placeholder: string): UrlValue | undefined => {
+  const value = params[toBareName(placeholder)]
+
   if (!isMultiSegment(placeholder)) {
-    return params[placeholder]
+    return Array.isArray(value) ? undefined : value
   }
 
-  const segments = params[placeholder.slice(0, -1)]?.split('/').filter((segment) => segment)
+  const segments = (isString(value) ? value.split('/') : value)?.filter((segment) => segment)
 
   if (!segments?.length) {
     return
   }
 
-  return segments.join('/')
+  return segments
+}
+
+// A value as text, as a check sees it: a list as its segments joined by `/`.
+const toValueText = (value: UrlValue): string => {
+  return Array.isArray(value) ? value.join('/') : value
+}
+
+const toCheckParams = (params: Record<string, UrlValue>): Record<string, string> => {
+  return Object.fromEntries(
+    Object.entries(params).map(([name, value]) => [name, toValueText(value)]),
+  )
+}
+
+// Two values read the same: two strings, or two lists of the same segments.
+const isSameValue = (
+  left: UrlValue | undefined,
+  right: UrlValue | undefined,
+  isSame: (left: string, right: string) => boolean,
+): boolean => {
+  if (left === right) {
+    return true
+  }
+
+  if (!Array.isArray(left) || !Array.isArray(right)) {
+    return isString(left) && isString(right) && isSame(left, right)
+  }
+
+  return (
+    left.length === right.length && left.every((segment, index) => isSame(segment, right[index]))
+  )
 }
 
 // A path value as pages link it: a `%` that starts no escape becomes `%25` and non-ASCII is
-// percent-encoded, while a valid escape keeps its spelling, so no value is encoded twice.
+// percent-encoded, while a valid escape keeps its spelling, so a caller can pass `caf%C3%A9`.
 const encodePathValue = (value: string): string => {
   return encodePathSegment(value)
     .replace(strayPercentRegex, '%25')
     .replace(nonAsciiRegex, encodeURIComponent)
 }
 
-const encodePath = (value: string, placeholder: string): string => {
-  if (!isMultiSegment(placeholder)) {
-    return encodePathValue(value)
-  }
-
-  return value.split('/').map(encodePathValue).join('/')
+const encodePath = (value: UrlValue): string => {
+  return Array.isArray(value) ? value.map(encodePathValue).join('/') : encodePathValue(value)
 }
 
 // A path decoded segment by segment, so `%40` and `@` compare equal. A decoded `%` and `/` are
@@ -484,7 +517,11 @@ const compileTemplate = (
   // Every placeholder is captured as `p{index}`, so a URL is read back to its values.
   const wrapCaptureIn = (part: UrlPart) => {
     return (name: string, source: string): string => {
-      captured.push({ name: toBareName(name), part })
+      captured.push({
+        name: toBareName(name),
+        part,
+        isList: part === 'path' && isMultiSegment(name),
+      })
 
       return `(?<${captureGroupPrefix}${captured.length - 1}>${source})`
     }
@@ -623,16 +660,34 @@ const compileTemplate = (
 
   const hasRowChecks = Object.keys(rowChecks).length > 0
   // A name the template holds twice keeps the first value read.
-  const readGroups = (params: Record<string, string>, groups: Record<string, string> = {}) => {
+  const readGroups = (params: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
     for (const [group, value] of Object.entries(groups)) {
-      const name = getCaptured(group)?.name
+      const captured = getCaptured(group)
 
-      if (name !== undefined && params[name] === undefined) {
-        params[name] = value
+      if (!captured || params[captured.name] !== undefined) {
+        continue
       }
+
+      // A group left unset holds no value.
+      if (captured.part !== 'path' || !isString(value)) {
+        params[captured.name] = value
+
+        continue
+      }
+
+      // The path is matched with a decoded `%` and `/` written as `%25` and `%2F`, so a value
+      // decodes once more to `100%` and `a/b`, and a list is cut at the slashes left.
+      params[captured.name] = captured.isList
+        ? value
+            .split('/')
+            .filter((segment) => segment)
+            .map(decodePercent)
+        : decodePercent(value)
     }
   }
-  const passesChecks = (params: Record<string, string>): boolean => {
+  const passesChecks = (listParams: Record<string, UrlValue>): boolean => {
+    const params = toCheckParams(listParams)
+
     return Object.entries(params).every(([name, value]) => {
       return (checks[name]?.(value) ?? true) && (rowChecks[name]?.(value, params) ?? true)
     })
@@ -735,7 +790,7 @@ const compileTemplate = (
   }
   // An open tail is every segment behind the path, an empty one included, as pages link them.
   const readPathSource = isOpen
-    ? `${pathSource}(?:/${wrapCaptureIn('path')(openTailName, '.*')})?`
+    ? `${pathSource}(?:/${wrapCaptureIn('path')(`${openTailName}*`, '.*')})?`
     : pathSource
   const asGivenRegex = toHostPathRegex(false, readPathSource, 'i')
   const optionalWwwRegex = toHostPathRegex(true, readPathSource, 'i')
@@ -762,7 +817,7 @@ const compileTemplate = (
   const readParams = (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
-  ): Record<string, string> | undefined => {
+  ): Record<string, UrlValue> | undefined => {
     const { url, hostPath } = tableUrl
     const match = claimsUrls && (isWwwOptional ? optionalWwwRegex : asGivenRegex).exec(hostPath)
 
@@ -770,20 +825,14 @@ const compileTemplate = (
       return
     }
 
-    const params: Record<string, string> = {}
+    const params: Record<string, UrlValue> = {}
 
     readGroups(params, match.groups)
 
-    // A tail is read as a `{name*}` value is written: without its empty segments, and one with no
-    // segment left, as after a doubled slash, is no value.
-    if (isOpen) {
-      const tail = getPlaceholderValue(params, `${openTailName}*`)
-
-      if (tail === undefined) {
-        delete params[openTailName]
-      } else {
-        params[openTailName] = tail
-      }
+    // A tail is read as a `{name*}` value: without its empty segments, and one with no segment
+    // left, as after a doubled slash, is no value.
+    if (isOpen && !params[openTailName]?.length) {
+      delete params[openTailName]
     }
 
     for (const { name, isFlag, regex } of ownParams) {
@@ -844,17 +893,18 @@ const compileTemplate = (
     })
   }
 
-  // A raw value as the pattern of `readParams` matches it.
+  // A raw value as `readParams` reads it.
   const decodeValue = (value: string, part: UrlPart): string => {
     if (part === 'host') {
       return value
     }
 
-    return part === 'path' ? decodePath(value) : decodeQueryValue(value).trim()
+    return part === 'path' ? decodePercent(decodePath(value)) : decodeQueryValue(value).trim()
   }
 
   // The text a match ran on and its values, the values the case mark covers in lowercase.
-  const lowercaseValues = (match: RegExpExecArray, params: Record<string, string>) => {
+  const lowercaseValues = (match: RegExpExecArray, listParams: Record<string, UrlValue>) => {
+    const params = toCheckParams(listParams)
     const groups = { ...match.groups }
     let text = match.input
 
@@ -1047,7 +1097,7 @@ const compileTemplate = (
 
   // A template whose placeholders the values do not all fill builds no URL.
   const getUrl: CompiledTemplate['getUrl'] = (params = {}) => {
-    const values: Record<string, string> = {}
+    const values: Record<string, UrlValue> = {}
 
     // An empty value is no value: a host label or path segment left empty builds a broken URL, as
     // `/t//feed`, and a query value left empty a feed the page does not name, as
@@ -1063,7 +1113,7 @@ const compileTemplate = (
 
       const check = checks[toBareName(name)]
 
-      if (check && !check(value)) {
+      if (check && !check(toValueText(value))) {
         return
       }
 
@@ -1071,7 +1121,9 @@ const compileTemplate = (
     }
 
     if (hasRowChecks) {
-      const filled = Object.fromEntries(names.map((name) => [toBareName(name), values[name]]))
+      const filled = Object.fromEntries(
+        names.map((name) => [toBareName(name), toValueText(values[name])]),
+      )
 
       const isRefused = Object.entries(filled).some(([name, value]) => {
         return rowChecks[name]?.(value, filled) === false
@@ -1082,19 +1134,14 @@ const compileTemplate = (
       }
     }
 
-    const fillPlaceholders = (
-      text: string,
-      encode = (value: string, _name: string) => value,
-    ): string => {
-      return text.replace(placeholderRegex, (_placeholder, name: string) => {
-        return encode(values[name], name)
-      })
+    const fillPlaceholders = (text: string, encode: (value: UrlValue) => string = toValueText) => {
+      return text.replace(placeholderRegex, (_placeholder, name: string) => encode(values[name]))
     }
     const pairs: Array<QueryPair> = []
 
     for (const { own, passedName } of templateParams) {
       if (!own) {
-        const passedPairs = passQuery(values[passedName])
+        const passedPairs = passQuery(toValueText(values[passedName]))
 
         // A template without the passed query is another feed than the one the values name.
         if (passedPairs === refusedQuery) {
@@ -1170,12 +1217,11 @@ const compileTemplate = (
 // One table of URLs, keyed by what each row is. `build` writes a row's URL from the values a page
 // gave, `buildAll` lists every spelling of it, `read` takes a URL back to its row and values, and
 // `getMainUrl` writes a URL in its row's main spelling.
-export const defineUrls = <const Key extends string, Extra extends object = object>(
-  // Extra is never read off the rows, so a field no row type names fails the typecheck.
-  givenRows: Array<UrlRow<Key> & NoInfer<Extra>>,
+export const defineUrls = <const Row extends UrlRow>(
+  givenRows: Array<Row>,
   options: UrlTableOptions = {},
-): UrlTable<Key, UrlRow<Key> & NoInfer<Extra>> => {
-  type Row = UrlRow<Key> & Extra
+): UrlTable<Row['key'], Row> => {
+  type Key = Row['key']
   type Select = (row: Row) => boolean
 
   // The given rows are copied and never written to.
@@ -1366,7 +1412,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   // A template that takes a URL, without values where it refuses the URL.
   type TakenTemplate = {
     template: CompiledTemplate
-    params?: Record<string, string>
+    params?: Record<string, UrlValue>
     tableUrl: TableUrl
     isWwwOptional: boolean
   }
@@ -1491,7 +1537,14 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     return { ...found, params: found.params }
   }
 
-  type RootRow = Row & { rootRowIndex: number }
+  // The values of a read are typed from the key it read, which a read here holds as any key.
+  const toMatch = (
+    match: UrlKeyMatch<string, UrlRow> & { key: Key; row: Row },
+  ): UrlMatch<Key, Row> => {
+    return match as UrlMatch<Key, Row>
+  }
+
+  type RootRow = UrlRow<Key> & { rootRowIndex: number }
   type RootTable = UrlTable<Key, RootRow>
   type RootTables = { all: RootTable; fixed: RootTable }
 
@@ -1506,11 +1559,11 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
         .map((template) => template.replace(rootPlaceholder, standInOrigin))
 
       if (main !== undefined) {
-        rootRows.push({ ...row, main, aliases, rootRowIndex })
+        rootRows.push({ ...row, key: row.key, main, aliases, rootRowIndex })
       }
     }
 
-    return defineUrls<Key, Extra & { rootRowIndex: number }>(rootRows, {
+    return defineUrls(rootRows, {
       ...options,
       hosts: undefined,
     })
@@ -1560,13 +1613,13 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
       const row = rows[match.row.rootRowIndex]
 
-      return {
+      return toMatch({
         key: row.key,
         params: { ...match.params, root },
         row: copyRow(row),
         isAlias: match.isAlias || !row.main.startsWith(rootPlaceholder),
         isExact: false,
-      }
+      })
     }
 
     if (readOptions.root !== undefined) {
@@ -1629,14 +1682,18 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     }
 
     const row = rows[found.template.rowIndex]
+    // The tail is read for the checks alone: no feed is built from it.
+    const params = { ...found.params }
 
-    return {
+    delete params[openTailName]
+
+    return toMatch({
       key: row.key,
-      params: found.params,
+      params,
       row: copyRow(row),
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
-    }
+    })
   }
 
   // The URL a template read, written as its row's main URL, or undefined where it cannot be.
@@ -1765,11 +1822,11 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
         return true
       }
 
-      if (caseNames.includes(name) && sourceValue !== undefined) {
-        return isSameText(value, sourceValue)
+      if (caseNames.includes(name)) {
+        return isSameValue(value, sourceValue, isSameText)
       }
 
-      return value === sourceValue
+      return isSameValue(value, sourceValue, (left, right) => left === right)
     })
 
     if (!isReadAsWritten) {

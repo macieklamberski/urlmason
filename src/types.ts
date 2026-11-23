@@ -53,8 +53,12 @@ export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
   format?: FeedFormat
 }
 
+// A value of one path segment, host label or query value is a string. A `{name*}` value spans
+// several path segments, so it is a list of segments, as `['a/b', 'c']`.
+export type UrlValue = string | Array<string>
+
 // A value left undefined is no value, so the URL it would fill is skipped.
-export type UrlParams = Record<string, string | undefined>
+export type UrlParams = Record<string, UrlValue | undefined>
 
 export type UrlHosts = {
   // The exact hosts a `{host}` placeholder stands for. A pattern stands for one name across
@@ -67,6 +71,7 @@ export type UrlHosts = {
   tenants?: Array<string | RegExp>
 }
 
+// A check sees a list value as its segments joined by `/`, as `a/b/c` for `['a/b', 'c']`.
 export type UrlCheck = ((value: string) => boolean) | RegExp
 
 export type UrlRowCheck = ((value: string, params: Record<string, string>) => boolean) | RegExp
@@ -109,11 +114,62 @@ export type UrlReadOptions = {
   isAnyHost?: boolean
 }
 
-export type UrlMatch<Key extends string, Row> = {
+// The names of a template's placeholders, but a passed query's, which names no value.
+type TemplateNames<Template extends string> =
+  Template extends `${infer Before}{${infer Name}}${infer Rest}`
+    ? (Before extends `${string}${'?' | '&'}` ? never : Name) | TemplateNames<Rest>
+    : never
+
+// The templates of a row: its main URL and its aliases.
+type RowTemplates<Row> = Row extends { main: infer Main extends string }
+  ? Main | (Row extends { aliases: ReadonlyArray<infer Alias extends string> } ? Alias : never)
+  : never
+
+// The names every template of a union holds.
+type CommonNames<Template extends string> = (
+  Template extends string
+    ? (names: TemplateNames<Template>) => void
+    : never
+) extends (names: infer Names) => void
+  ? Names
+  : never
+
+type ValueName<Name> = Name extends `${infer Bare extends string}*`
+  ? Bare
+  : Name extends string
+    ? Name
+    : never
+
+type NameValue<Name> = Name extends `${string}*` ? Array<string> : string
+
+// The values the templates of a key read: a `{name*}` value a list, every other name a string,
+// and the open tail none. A name only some templates hold may be absent. A template the type does
+// not spell out reads any value.
+type TemplateValues<Template extends string> = string extends Template
+  ? Record<string, UrlValue | undefined>
+  : {
+      [Name in Exclude<CommonNames<Template>, '*'> as ValueName<Name>]: NameValue<Name>
+    } & {
+      [Name in Exclude<
+        TemplateNames<Template>,
+        '*' | CommonNames<Template>
+      > as ValueName<Name>]?: NameValue<Name>
+    }
+
+// The rows of one key, or every row where the rows do not spell their keys out.
+type KeyRows<Key, Row> = [Extract<Row, { key: Key }>] extends [never]
+  ? Row
+  : Extract<Row, { key: Key }>
+
+type KeyValues<Key, Row> = TemplateValues<RowTemplates<KeyRows<Key, Row>>>
+
+export type UrlMatch<Key extends string, Row> = Key extends Key ? UrlKeyMatch<Key, Row> : never
+
+export type UrlKeyMatch<Key extends string, Row> = {
   key: Key
-  // The values read, decoded. The segments a row's `/{*}` took are the value `tail`, which a URL
-  // with none lacks. A URL with a tail is not exact and has no main URL, and `build` writes none.
-  params: Record<string, string>
+  // The values read, decoded. The segments a row's `/{*}` took are no value: only the checks see
+  // them, as `tail`. A URL with a tail is not exact and has no main URL.
+  params: KeyValues<Key, Row>
   row: Row
   isAlias: boolean
   // Whether the URL is written as the row writes it, or in a spelling its marks cover: the same
@@ -135,7 +191,7 @@ export type UrlTable<Key extends string, Row> = {
   forUrl: (url: string) => Pick<UrlTable<Key, Row>, 'build' | 'buildAll'> | undefined
 }
 
-export type FeedUrlTable<Key extends string = string> = {
+export type FeedUrlTable<Key extends string = string, Row = FeedUrlRow<Key>> = {
   // The platform's name, the part of a hint key before the colon.
   platform: string
   rows: Array<FeedUrlRow<Key>>
@@ -145,10 +201,10 @@ export type FeedUrlTable<Key extends string = string> = {
   getFeedHint: (url: string) => FeedHint | undefined
   getMainFeedUrl: (url: string) => string | undefined
   // A feed on a host no row names gets no hint and no main URL: only `read` takes the options.
-  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, FeedUrlRow<Key>> | undefined
+  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
   forUrl: (
     url: string,
-  ) => Pick<FeedUrlTable<Key>, 'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'> | undefined
+  ) => Pick<FeedUrlTable<Key, Row>, 'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'> | undefined
 }
 
 export type Platform = {
