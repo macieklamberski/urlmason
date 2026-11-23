@@ -33,6 +33,9 @@ export type UrlRow<Key extends string = string> = {
   // A row that is built and never read, such as a feed on a site's own domain, where nothing in
   // the URL names the platform.
   isBuildOnly?: boolean
+  // A name that tells the row from another of its key with the same placeholders, which the
+  // values cannot tell apart. A build given a variant takes only the rows of that variant.
+  variant?: string
   // How the row's query values are written: `minimal`, the default, escapes only what would
   // change the URL's structure, and `form` encodes as `URLSearchParams` does, `:` as `%3A` and a
   // space as `+`.
@@ -199,9 +202,24 @@ export type FeedUrlTable<Key extends string = string, Row = FeedUrlRow<Key>> = {
   // The platform's name, the part of a hint key before the colon.
   platform: string
   rows: Array<FeedUrlRow<Key>>
-  getFeedUrl: (key: Key, params?: UrlParams, format?: FeedFormat) => string | undefined
-  getFeedEntry: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
-  getFeedSpellings: (key: Key, params?: UrlParams, format?: FeedFormat) => FeedEntry | undefined
+  getFeedUrl: (
+    key: Key,
+    params?: UrlParams,
+    format?: FeedFormat,
+    variant?: string,
+  ) => string | undefined
+  getFeedEntry: (
+    key: Key,
+    params?: UrlParams,
+    format?: FeedFormat,
+    variant?: string,
+  ) => FeedEntry | undefined
+  getFeedSpellings: (
+    key: Key,
+    params?: UrlParams,
+    format?: FeedFormat,
+    variant?: string,
+  ) => FeedEntry | undefined
   getFeedHint: (url: string) => FeedHint | undefined
   getMainFeedUrl: (url: string) => string | undefined
   // A feed on a host no row names gets no hint and no main URL: only `read` takes the options.

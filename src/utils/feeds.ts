@@ -41,20 +41,26 @@ export const defineFeedUrls = <const Row extends FeedUrlRow>(
     return { key: hintKey, format }
   }
 
-  const selectFormat = (format?: FeedFormat) => {
-    if (!format) {
+  const selectRow = (format?: FeedFormat, variant?: string) => {
+    if (!format && variant === undefined) {
       return
     }
 
-    return (row: Row): boolean => row.format === format
+    return (row: Row): boolean => {
+      return (
+        (!format || row.format === format) && (variant === undefined || row.variant === variant)
+      )
+    }
   }
 
   // The feed methods on a table or on the table of one page.
   const onPage = (page: Pick<typeof urls, 'build' | 'buildAll'>): FeedPage<Key> => {
     return {
-      getFeedUrl: (key, params, format) => page.build(key, params, selectFormat(format)),
-      getFeedEntry: (key, params, format) => {
-        const uri = page.build(key, params, selectFormat(format))
+      getFeedUrl: (key, params, format, variant) => {
+        return page.build(key, params, selectRow(format, variant))
+      },
+      getFeedEntry: (key, params, format, variant) => {
+        const uri = page.build(key, params, selectRow(format, variant))
 
         if (!uri) {
           return
@@ -62,8 +68,8 @@ export const defineFeedUrls = <const Row extends FeedUrlRow>(
 
         return { uri, hint: composeHint(key, format) }
       },
-      getFeedSpellings: (key, params, format) => {
-        const uris = page.buildAll(key, params, selectFormat(format))
+      getFeedSpellings: (key, params, format, variant) => {
+        const uris = page.buildAll(key, params, selectRow(format, variant))
 
         if (uris.length === 0) {
           return

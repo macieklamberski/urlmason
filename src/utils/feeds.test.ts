@@ -36,6 +36,11 @@ const encodedFeeds = defineFeedUrls('example', [
   { key: 'brace', main: 'https://www.example.com/b/%7Bx%7D/rss' },
 ])
 
+const variantFeeds = defineFeedUrls('example', [
+  { key: 'site', main: '{root}/feed', format: 'rss' },
+  { key: 'site', main: '{root}/api/feed', format: 'rss', variant: 'api' },
+])
+
 const hintFeeds = defineFeedUrls('example', [
   { key: 'products', main: 'https://example.com/{shop}/products.rdf', format: 'rdf' },
   { key: 'videos', main: 'https://example.com/{username}/videos.xml' },
@@ -388,6 +393,26 @@ describe('defineFeedUrls', () => {
       const value = { username: 'alice' }
 
       expect(feeds.getFeedUrl('posts', value, 'json')).toBeUndefined()
+    })
+
+    it('should pick the row of the variant among rows with the same placeholders', () => {
+      const value = { root: 'https://example.com' }
+      const expected = 'https://example.com/api/feed'
+
+      expect(variantFeeds.getFeedUrl('site', value, 'rss', 'api')).toBe(expected)
+    })
+
+    it('should build the first row of the key without a variant', () => {
+      const value = { root: 'https://example.com' }
+      const expected = 'https://example.com/feed'
+
+      expect(variantFeeds.getFeedUrl('site', value, 'rss')).toBe(expected)
+    })
+
+    it('should return undefined for a variant no row of the key has', () => {
+      const value = { root: 'https://example.com' }
+
+      expect(variantFeeds.getFeedUrl('site', value, undefined, 'legacy')).toBeUndefined()
     })
 
     it('should throw for an unknown key', () => {
