@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isAnyOf, isLocale } from 'trousse'
+import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
 import type { UrlMatch, UrlRow } from '../types.js'
 import { defineUrls } from './tables.js'
 
@@ -647,6 +647,177 @@ const mixedBoards = defineUrls([
 ])
 
 const fileFeeds = defineUrls([{ key: 'file', main: '{root}/{path*}.atom' }])
+
+const sevenCharactersRegex = /^.{7}$/
+const yearRegex = /^\d{4}$/
+const dateRegex = /^\d{4}(?:\/\d{2}){0,2}$/
+const uploadsListRegex = /^UULF/
+
+const rowChecked = defineUrls(
+  [
+    { key: 'item', main: 'https://example.com/items/{id}', checks: { id: digitsRegex } },
+    { key: 'tag', main: 'https://example.com/tags/{id}' },
+    { key: 'user', main: 'https://example.com/users/{id}', checks: { id: digitsRegex } },
+    { key: 'profile', main: 'https://example.com/users/{username}' },
+    {
+      key: 'commit',
+      main: 'https://example.com/commits/{hash}',
+      checks: { hash: sevenCharactersRegex },
+    },
+    {
+      key: 'docs',
+      main: 'https://example.com/{locale}/docs',
+      checks: { locale: regionLocaleRegex },
+      lenient: { case: ['locale'] },
+    },
+  ],
+  { checks: { hash: hexRegex } },
+)
+
+const reservedHosts = ['api.example.com', 'open.example.com']
+
+const newsletters = defineUrls(
+  [
+    {
+      key: 'newsletter',
+      main: '{scheme}://{host}/feed',
+      checks: { host: (host) => !reservedHosts.includes(host) },
+    },
+    {
+      key: 'private-podcast',
+      main: '{scheme}://{host}/feed/podcast/{publication}/private/{token}.rss',
+    },
+  ],
+  { hosts: { tenants: ['example.com'] } },
+)
+
+const playlists = defineUrls([
+  {
+    key: 'playlist',
+    main: 'https://example.com/feeds/videos.xml?playlist_id={playlistId}',
+    checks: { playlistId: (playlistId) => !uploadsListRegex.test(playlistId) },
+  },
+  { key: 'videos', main: 'https://example.com/feeds/videos.xml?playlist_id={playlistId}' },
+])
+
+const journals = defineUrls(
+  [
+    { key: 'posts', main: '{scheme}://{host}/{journal}/data/rss', isBuildOnly: true },
+    {
+      key: 'posts',
+      main: '{scheme}://{host}/data/rss',
+      checks: { host: (host) => host !== 'asylums.example.com' },
+    },
+  ],
+  { hosts: { exact: ['asylums.example.com'], tenants: ['example.com'] } },
+)
+
+const archives = defineUrls(
+  [
+    {
+      key: 'date-archive',
+      main: '{scheme}://{host}/{date*}/feed',
+      checks: {
+        date: (date, { host }) => !(yearRegex.test(date) && endsWithAnyOf(host, '.example.org')),
+      },
+    },
+    { key: 'post-comments', main: '{scheme}://{host}/{post*}/feed' },
+  ],
+  { hosts: { tenants: ['example.com', 'example.org'] }, checks: { date: dateRegex } },
+)
+
+const rootChecked = defineUrls([
+  {
+    key: 'topic',
+    main: '{root}/topic/{topicId}',
+    checks: { root: (root) => !endsWithAnyOf(root, '/archive') },
+  },
+  {
+    key: 'post',
+    main: '{root}/post/{postId}',
+    checks: { postId: (postId, { root }) => endsWithAnyOf(root, `/${postId}`) },
+  },
+])
+
+const profileViews = ['followers', 'following']
+
+const isChannel = (value: string): boolean => {
+  return !isAnyOf(value, profileViews)
+}
+
+const profileRows: Array<UrlRow> = [
+  { key: 'editorial', main: 'https://example.com/editorial/{*}' },
+  { key: 'channel', main: 'https://example.com/{username}/{channel}/{*}' },
+  { key: 'profile', main: 'https://example.com/{username}/{*}' },
+]
+
+const profileChecks = {
+  username: (value: string) => !isAnyOf(value, 'editorial'),
+  channel: isChannel,
+}
+
+const fallThroughProfiles = defineUrls(profileRows, { checks: profileChecks, isFallThrough: true })
+
+const sameShapeProfiles = defineUrls(profileRows, { checks: profileChecks })
+
+const fallThroughRowChecked = defineUrls(
+  [
+    {
+      key: 'channel',
+      main: 'https://example.com/{username}/{channel}',
+      checks: { channel: isChannel },
+    },
+    {
+      key: 'view',
+      main: 'https://example.com/{username}/{view*}',
+      lenient: { trailingSlash: true },
+    },
+  ],
+  { isFallThrough: true },
+)
+
+const fallThroughIssues = defineUrls(
+  [
+    { key: 'issue', main: 'https://example.com/issues/{id}/{*}' },
+    { key: 'home', main: 'https://example.com' },
+  ],
+  { checks: { id: digitsRegex }, isFallThrough: true },
+)
+
+const fallThroughBlocks = defineUrls(
+  [
+    { key: 'profile', main: 'https://example.com/{username}/{*}' },
+    { key: 'channel', main: 'https://example.com/{username}/{channel}/{*}' },
+    {
+      key: 'block',
+      main: 'https://example.com/{username}/{channel}/{block}',
+      checks: { block: digitsRegex },
+    },
+  ],
+  { isFallThrough: true },
+)
+
+const selectedRows: Array<UrlRow> = [
+  { key: 'feed', main: 'https://example.com/feed?alt=rss' },
+  { key: 'feed', main: 'https://example.com/feed' },
+  { key: 'site', main: 'https://example.com/{*}' },
+  { key: 'page', main: 'https://example.com/{page}?{query}' },
+]
+
+const fallThroughSelected = defineUrls(selectedRows, { isFallThrough: true })
+
+const sameShapeSelected = defineUrls(selectedRows)
+
+const fallThroughSites = defineUrls(selectedRows.slice(0, 3), { isFallThrough: true })
+
+const rootProfileRows: Array<UrlRow> = [
+  { key: 'channel', main: '{root}/{username}/{channel}/{*}', checks: { channel: isChannel } },
+  { key: 'profile', main: '{root}/{username}/{*}' },
+]
+
+const fallThroughRootProfiles = defineUrls(rootProfileRows, { isFallThrough: true })
+
+const sameShapeRootProfiles = defineUrls(rootProfileRows)
 
 describe('defineUrls', () => {
   describe('rows', () => {
@@ -4119,6 +4290,590 @@ describe('defineUrls', () => {
       boards.read(value, options)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with a check of a row', () => {
+    it('should read a value the check of the row takes', () => {
+      const value = 'https://example.com/items/123'
+      const expected = 'item'
+      const match = rowChecked.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a value the check of the row refuses', () => {
+      const value = 'https://example.com/items/alice'
+
+      expect(rowChecked.read(value)).toBeUndefined()
+    })
+
+    it('should read the same value on a row without the check', () => {
+      const value = 'https://example.com/tags/alice'
+      const expected = 'tag'
+      const match = rowChecked.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should pass a value the check of the row refuses to a later row of the same shape', () => {
+      const value = 'https://example.com/users/alice'
+      const expected: Record<string, string> = { username: 'alice' }
+      const match = rowChecked.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should read a value the check of the table and the check of the row both take', () => {
+      const value = 'https://example.com/commits/5f3a9c1'
+      const expected = 'commit'
+      const match = rowChecked.read(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a value only the check of the table takes', () => {
+      const value = 'https://example.com/commits/5f3a'
+
+      expect(rowChecked.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value only the check of the row takes', () => {
+      const value = 'https://example.com/commits/zzzzzzz'
+
+      expect(rowChecked.read(value)).toBeUndefined()
+    })
+
+    it('should build a URL from a value the check of the row takes', () => {
+      const value = { id: '123' }
+      const expected = 'https://example.com/items/123'
+
+      expect(rowChecked.build('item', value)).toBe(expected)
+    })
+
+    it('should build no URL from a value the check of the row refuses', () => {
+      const value = { id: 'alice' }
+
+      expect(rowChecked.build('item', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a value only the check of the table takes', () => {
+      const value = { hash: '5f3a' }
+
+      expect(rowChecked.build('commit', value)).toBeUndefined()
+    })
+
+    it('should write a value as spelled where the check of the row refuses its lowercase', () => {
+      const value = 'http://example.com/en-US/docs'
+      const expected = 'https://example.com/en-US/docs'
+
+      expect(rowChecked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should throw for a pattern with the g flag', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'item',
+            main: 'https://example.com/items/{id}',
+            checks: { id: globalDigitsRegex },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
+      )
+    })
+
+    it('should throw for a pattern with the y flag', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'item',
+            main: 'https://example.com/items/{id}',
+            checks: { id: stickyDigitsRegex },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
+      )
+    })
+
+    it('should throw for a pattern without ^ at its start', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'item',
+            main: 'https://example.com/items/{id}',
+            checks: { id: endAnchoredDigitsRegex },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern without ^ at its start and $ at its end',
+      )
+    })
+
+    it('should throw for a pattern without $ at its end', () => {
+      const throwing = () => {
+        return defineUrls([
+          {
+            key: 'item',
+            main: 'https://example.com/items/{id}',
+            checks: { id: startAnchoredDigitsRegex },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The check of id is a pattern without ^ at its start and $ at its end',
+      )
+    })
+
+    it('should not let an edit of the checks of a row given change a read under a root', () => {
+      const checks: Record<string, RegExp> = { topicId: digitsRegex }
+      const table = defineUrls([{ key: 'topic', main: '{root}/topic/{topicId}', checks }])
+      const value = 'https://example.org/topic/5f3a'
+      const options = { isAnyHost: true }
+
+      checks.topicId = hexRegex
+
+      expect(table.read(value, options)).toBeUndefined()
+    })
+
+    describe('on a host one row takes and another does not', () => {
+      it('should read a row on a host its check takes', () => {
+        const value = 'https://alice.example.com/feed'
+        const expected = 'newsletter'
+        const match = newsletters.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+
+      it('should return undefined for a row on a host its check refuses', () => {
+        const value = 'https://api.example.com/feed'
+
+        expect(newsletters.read(value)).toBeUndefined()
+      })
+
+      it('should read another row on the host the check of the first row refuses', () => {
+        const value = 'https://api.example.com/feed/podcast/123/private/5f3a.rss'
+        const expected = 'private-podcast'
+        const match = newsletters.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+    })
+
+    describe('on rows that share a value of two kinds', () => {
+      it('should read a value the check of the first row takes as that row', () => {
+        const value = 'https://example.com/feeds/videos.xml?playlist_id=PL5f3a'
+        const expected = 'playlist'
+        const match = playlists.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+
+      it('should read a value the check of the first row refuses as the next row', () => {
+        const value = 'https://example.com/feeds/videos.xml?playlist_id=UULF5f3a'
+        const expected = 'videos'
+        const match = playlists.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+    })
+
+    describe('on a host whose root row is refused and whose path rows are built', () => {
+      it('should read the root row on a host its check takes', () => {
+        const value = 'https://alice.example.com/data/rss'
+        const expected = 'posts'
+        const match = journals.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+
+      it('should return undefined for the root row on the host its check refuses', () => {
+        const value = 'https://asylums.example.com/data/rss'
+
+        expect(journals.read(value)).toBeUndefined()
+      })
+
+      it('should build the path row on the host the check of the root row refuses', () => {
+        const value = {
+          scheme: 'https',
+          host: 'asylums.example.com',
+          journal: 'alice',
+        }
+        const expected = 'https://asylums.example.com/alice/data/rss'
+
+        expect(journals.build('posts', value)).toBe(expected)
+      })
+
+      it('should build no root row on the host its check refuses', () => {
+        const value = {
+          scheme: 'https',
+          host: 'asylums.example.com',
+        }
+
+        expect(journals.build('posts', value)).toBeUndefined()
+      })
+    })
+
+    describe('on a value one domain reads as another kind', () => {
+      it('should read a year as a date on a domain the check takes it on', () => {
+        const value = 'https://alice.example.com/2024/feed'
+        const expected = 'date-archive'
+        const match = archives.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+
+      it('should read a year as the next row on the domain the check refuses it on', () => {
+        const value = 'https://alice.example.org/2024/feed'
+        const expected: Record<string, string> = {
+          scheme: 'https',
+          host: 'alice.example.org',
+          post: '2024',
+        }
+        const match = archives.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should read a year and a month as a date on the domain that refuses a year', () => {
+        const value = 'https://alice.example.org/2024/05/feed'
+        const expected = 'date-archive'
+        const match = archives.read(value)
+
+        expect(match?.key).toBe(expected)
+      })
+
+      it('should build no date row from a year on the domain the check refuses it on', () => {
+        const value = {
+          scheme: 'https',
+          host: 'alice.example.org',
+          date: '2024',
+        }
+
+        expect(archives.build('date-archive', value)).toBeUndefined()
+      })
+    })
+
+    describe('under a root', () => {
+      it('should return undefined for a root the check of the row refuses', () => {
+        const value = 'https://example.org/archive/topic/5'
+        const options = { isAnyHost: true }
+
+        expect(rootChecked.read(value, options)).toBeUndefined()
+      })
+
+      it('should read a row under a root its check takes', () => {
+        const value = 'https://example.org/forum/topic/5'
+        const options = { isAnyHost: true }
+        const expected: Record<string, string> = {
+          topicId: '5',
+          root: 'https://example.org/forum',
+        }
+        const match = rootChecked.read(value, options)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should hand the root to a check beside the values read', () => {
+        const value = 'https://example.org/forum/5/post/5'
+        const options = { root: 'https://example.org/forum/5' }
+        const expected: Record<string, string> = {
+          postId: '5',
+          root: 'https://example.org/forum/5',
+        }
+        const match = rootChecked.read(value, options)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should return undefined for a value the check refuses under the root given', () => {
+        const value = 'https://example.org/forum/5/post/7'
+        const options = { root: 'https://example.org/forum/5' }
+
+        expect(rootChecked.read(value, options)).toBeUndefined()
+      })
+    })
+  })
+
+  describe('with fall-through', () => {
+    it('should read a URL the first row takes as without the option', () => {
+      const value = 'https://example.com/alice'
+      const expected: UrlMatch<string, UrlRow> = {
+        key: 'profile',
+        params: {
+          username: 'alice',
+        },
+        row: {
+          key: 'profile',
+          main: 'https://example.com/{username}/{*}',
+        },
+        isAlias: false,
+        isExact: true,
+      }
+
+      expect(fallThroughProfiles.read(value)).toEqual(expected)
+    })
+
+    it('should read a URL whose values the checks of the deeper row take as that row', () => {
+      const value = 'https://example.com/alice/my-channel'
+      const expected: UrlMatch<string, UrlRow> = {
+        key: 'channel',
+        params: {
+          username: 'alice',
+          channel: 'my-channel',
+        },
+        row: {
+          key: 'channel',
+          main: 'https://example.com/{username}/{channel}/{*}',
+        },
+        isAlias: false,
+        isExact: true,
+      }
+
+      expect(fallThroughProfiles.read(value)).toEqual(expected)
+    })
+
+    it('should pass a value the check of the table refuses to a row of another shape', () => {
+      const value = 'https://example.com/alice/followers'
+      const expected: UrlMatch<string, UrlRow> = {
+        key: 'profile',
+        params: {
+          username: 'alice',
+          tail: 'followers',
+        },
+        row: {
+          key: 'profile',
+          main: 'https://example.com/{username}/{*}',
+        },
+        isAlias: false,
+        isExact: false,
+      }
+
+      expect(fallThroughProfiles.read(value)).toEqual(expected)
+    })
+
+    it('should read every segment behind the row that takes the URL as its tail', () => {
+      const value = 'https://example.com/alice/followers/x'
+      const expected: UrlMatch<string, UrlRow> = {
+        key: 'profile',
+        params: {
+          username: 'alice',
+          tail: 'followers/x',
+        },
+        row: {
+          key: 'profile',
+          main: 'https://example.com/{username}/{*}',
+        },
+        isAlias: false,
+        isExact: false,
+      }
+
+      expect(fallThroughProfiles.read(value)).toEqual(expected)
+    })
+
+    it('should pass a URL to the earlier of two rows of one depth', () => {
+      const value = 'https://example.com/editorial/some-article'
+      const expected: UrlMatch<string, UrlRow> = {
+        key: 'editorial',
+        params: {
+          tail: 'some-article',
+        },
+        row: {
+          key: 'editorial',
+          main: 'https://example.com/editorial/{*}',
+        },
+        isAlias: false,
+        isExact: false,
+      }
+
+      expect(fallThroughProfiles.read(value)).toEqual(expected)
+    })
+
+    it('should pass a value the check of a row refuses to a row of another shape', () => {
+      const value = 'https://example.com/alice/followers'
+      const expected: Record<string, string> = {
+        username: 'alice',
+        view: 'followers',
+      }
+      const match = fallThroughRowChecked.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should pass a URL to the deeper open row before a shallower one written first', () => {
+      const value = 'https://example.com/alice/my-channel/about'
+      const expected: Record<string, string> = {
+        username: 'alice',
+        channel: 'my-channel',
+        tail: 'about',
+      }
+      const match = fallThroughBlocks.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return undefined where no later row takes the URL', () => {
+      const value = 'https://example.com/issues/alice'
+
+      expect(fallThroughIssues.read(value)).toBeUndefined()
+    })
+
+    it('should pass a URL with a parameter value no row of the key lists to a later row', () => {
+      const value = 'https://example.com/feed?alt=json'
+      const expected: Record<string, string> = { page: 'feed' }
+      const match = fallThroughSelected.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return undefined where the parameter refuses every later row too', () => {
+      const value = 'https://example.com/feed?alt=json'
+
+      expect(fallThroughSites.read(value)).toBeUndefined()
+    })
+
+    it('should say whether the URL is written as the row that took it writes it', () => {
+      const value = 'https://example.com/alice/followers/'
+      const match = fallThroughRowChecked.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should write the main URL of the row that took the URL', () => {
+      const value = 'http://example.com/alice/followers/'
+      const expected = 'https://example.com/alice/followers'
+
+      expect(fallThroughRowChecked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should build no URL of another row from a value the check refuses', () => {
+      const value = {
+        username: 'alice',
+        channel: 'followers',
+      }
+
+      expect(fallThroughRowChecked.build('channel', value)).toBeUndefined()
+    })
+
+    it('should read 300 rows that all refuse a value within a second', () => {
+      const rows = Array.from({ length: 300 }, (_, index) => {
+        return { key: 'item', main: `https://example.com/{username}?id${index}={id}` }
+      })
+      const table = defineUrls(rows, { checks: { id: digitsRegex }, isFallThrough: true })
+      const query = Array.from({ length: 300 }, (_, index) => `id${index}=alice`).join('&')
+      const value = `https://example.com/alice?${query}`
+      const startedAt = performance.now()
+
+      table.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read 300 rows that a parameter all refuses within a second', () => {
+      const rows = Array.from({ length: 300 }, () => {
+        return { key: 'page', main: 'https://example.com/{username}' }
+      })
+      const table = defineUrls(
+        [{ key: 'feed', main: 'https://example.com/{username}?view=feed' }, ...rows],
+        { isFallThrough: true },
+      )
+      const value = 'https://example.com/alice?view=other'
+      const startedAt = performance.now()
+
+      table.read(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    describe('under a root', () => {
+      it('should pass a refused URL to the next row under the root before a longer root', () => {
+        const value = 'https://example.org/alice/followers/x'
+        const options = { isAnyHost: true }
+        const expected: UrlMatch<string, UrlRow> = {
+          key: 'profile',
+          params: {
+            username: 'alice',
+            tail: 'followers/x',
+            root: 'https://example.org',
+          },
+          row: {
+            key: 'profile',
+            main: '{root}/{username}/{*}',
+          },
+          isAlias: false,
+          isExact: false,
+        }
+
+        expect(fallThroughRootProfiles.read(value, options)).toEqual(expected)
+      })
+
+      it('should pass a refused URL to the next row under the root given', () => {
+        const value = 'https://example.org/forum/alice/followers'
+        const options = { root: 'https://example.org/forum' }
+        const expected: Record<string, string> = {
+          username: 'alice',
+          tail: 'followers',
+          root: 'https://example.org/forum',
+        }
+        const match = fallThroughRootProfiles.read(value, options)
+
+        expect(match?.params).toEqual(expected)
+      })
+    })
+
+    describe('without the option', () => {
+      it('should return undefined for a value the check refuses beside a row of another shape', () => {
+        const value = 'https://example.com/alice/followers'
+
+        expect(sameShapeProfiles.read(value)).toBeUndefined()
+      })
+
+      it('should return undefined for a refused value with segments behind it', () => {
+        const value = 'https://example.com/alice/followers/x'
+
+        expect(sameShapeProfiles.read(value)).toBeUndefined()
+      })
+
+      it('should return undefined for a refused value beside an earlier row of one depth', () => {
+        const value = 'https://example.com/editorial/some-article'
+
+        expect(sameShapeProfiles.read(value)).toBeUndefined()
+      })
+
+      it('should return undefined for a parameter value no row of the key lists', () => {
+        const value = 'https://example.com/feed?alt=json'
+
+        expect(sameShapeSelected.read(value)).toBeUndefined()
+      })
+
+      it('should read a URL refused under one root under a longer root', () => {
+        const value = 'https://example.org/alice/followers/x'
+        const options = { isAnyHost: true }
+        const expected: Record<string, string> = {
+          username: 'followers',
+          channel: 'x',
+          root: 'https://example.org/alice',
+        }
+        const match = sameShapeRootProfiles.read(value, options)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should return undefined for a URL refused under the root given', () => {
+        const value = 'https://example.org/forum/alice/followers'
+        const options = { root: 'https://example.org/forum' }
+
+        expect(sameShapeRootProfiles.read(value, options)).toBeUndefined()
+      })
     })
   })
 })

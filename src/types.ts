@@ -44,6 +44,9 @@ export type UrlRow<Key extends string = string> = {
   // The row's marks over the table's, key by key, so `{ case: [] }` or `{ trailingSlash: false }`
   // turns the table's mark off.
   lenient?: UrlLenient
+  // The row's own checks beside the table's, in the same forms: a value passes both. A function
+  // also gets every value the row read or is built from, as `(date, { host }) => …`.
+  checks?: Record<string, UrlRowCheck>
 }
 
 export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
@@ -51,9 +54,11 @@ export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
 }
 
 // A row as a list declared `as const` holds it: every field and every list in it read-only.
-export type DeepReadonly<Value> = Value extends object
-  ? { readonly [Field in keyof Value]: DeepReadonly<Value[Field]> }
-  : Value
+export type DeepReadonly<Value> = Value extends UrlRowCheck
+  ? Value
+  : Value extends object
+    ? { readonly [Field in keyof Value]: DeepReadonly<Value[Field]> }
+    : Value
 
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type UrlParams = Record<string, string | undefined>
@@ -71,6 +76,8 @@ export type UrlHosts = {
 
 export type UrlCheck = ((value: string) => boolean) | RegExp
 
+export type UrlRowCheck = ((value: string, params: Record<string, string>) => boolean) | RegExp
+
 export type UrlTableOptions = {
   hosts?: UrlHosts
   // Whether `www` can be a tenant, so `www.example.com` matches a `{user}.example.com` row.
@@ -86,7 +93,14 @@ export type UrlTableOptions = {
   keptParams?: Array<string>
   // The marks of every row, which a row's own `lenient` overrides key by key.
   lenient?: UrlLenient
+  // Whether a row that refuses a URL, by a check or by a parameter that tells rows apart, passes
+  // it to the next row that fits in the order rows are read, of any shape. For page tables: a
+  // feed table tries only rows of the same shape.
+  isFallThrough?: boolean
 }
+
+// A feed table takes no `isFallThrough`: a looser row would claim a feed another row refused.
+export type FeedUrlTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
 
 // How the rows that open with `{root}` read a URL on any host. With either option only those rows
 // are read, `hosts` is left aside, the URL is never exact, and `root` is among the values read.

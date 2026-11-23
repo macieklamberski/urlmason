@@ -1,12 +1,13 @@
-import { parseUrl } from 'trousse'
+import { parseUrl, t } from 'trousse'
+import locales from '../locales.json' with { type: 'json' }
 import type {
   DeepReadonly,
   FeedFormat,
   FeedHint,
   FeedUrlRow,
   FeedUrlTable,
+  FeedUrlTableOptions,
   Platform,
-  UrlTableOptions,
 } from '../types.js'
 import { defineUrls } from './tables.js'
 
@@ -20,8 +21,13 @@ type FeedPage<Key extends string> = Pick<
 export const defineFeedUrls = <const Key extends string>(
   platform: string,
   rows: ReadonlyArray<DeepReadonly<FeedUrlRow<Key>>>,
-  options: UrlTableOptions = {},
+  options: FeedUrlTableOptions = {},
 ): FeedUrlTable<Key> => {
+  // A looser row would claim a feed URL another row refused, as a file under a refused branch.
+  if ('isFallThrough' in options && options.isFallThrough) {
+    throw new Error(t(locales.errors.feedFallThrough, { platform }))
+  }
+
   const urls = defineUrls<Key, { format?: FeedFormat }>(rows, options)
 
   const composeHint = (key: string, format?: FeedFormat): FeedHint => {

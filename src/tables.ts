@@ -21,7 +21,6 @@ import {
 import locales from '../locales.json' with { type: 'json' }
 import type {
   DeepReadonly,
-  UrlCheck,
   UrlLenient,
   UrlMatch,
   UrlParams,
@@ -74,7 +73,11 @@ type CompiledTemplate = {
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
   // spelling a mark covers is read in the template's, with the path and the pairs written that way.
-  readRawParams: (tableUrl: TableUrl, isWwwOptional: boolean) => RawRead | undefined
+  readRawParams: (
+    tableUrl: TableUrl,
+    isWwwOptional: boolean,
+    params: Record<string, string>,
+  ) => RawRead | undefined
   // Whether the trailing slash mark writes the path with another trailing slash, and whether the
   // template takes a host and decoded path with the trailing slash the path has.
   isSlashRespelled: (pathname: string) => boolean
@@ -99,7 +102,10 @@ type UrlPart = 'host' | 'path' | 'query'
 
 type MapText = (text: string) => string
 
-type CheckFunction = (value: string) => boolean
+// A check of the table gets the value alone, and one of a row the values read beside it.
+type CheckFunction<Rest extends Array<unknown> = []> = (value: string, ...rest: Rest) => boolean
+
+type RowCheckFunction = CheckFunction<[params: Record<string, string>]>
 
 // The pattern of a value, and of one character of it where a value can sit behind fixed text.
 type Capture = {
@@ -280,8 +286,10 @@ const hasFixedPath = (template: string): boolean => {
 
 // Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
 // call, and one without both anchors takes a value that only holds a match.
-const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string, CheckFunction> => {
-  const functions: Record<string, CheckFunction> = {}
+const toCheckFunctions = <Rest extends Array<unknown>>(
+  checks: Record<string, CheckFunction<Rest> | RegExp> = {},
+): Record<string, CheckFunction<Rest>> => {
+  const functions: Record<string, CheckFunction<Rest>> = {}
 
   for (const [name, check] of Object.entries(checks)) {
     if (isFunction(check)) {
@@ -298,14 +306,14 @@ const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string,
       throw new Error(t(locales.errors.unanchoredCheckRegex, { name }))
     }
 
-    functions[name] = (value) => check.test(value)
+    functions[name] = (value, ..._rest) => check.test(value)
   }
 
   const hostCheck = functions.host
 
   // A host is read with its port, which names no other host, so its check sees the host alone.
   if (hostCheck) {
-    functions.host = (value) => hostCheck(value.replace(portRegex, ''))
+    functions.host = (value, ...rest) => hostCheck(value.replace(portRegex, ''), ...rest)
   }
 
   return functions
@@ -313,11 +321,17 @@ const toCheckFunctions = (checks: Record<string, UrlCheck> = {}): Record<string,
 
 // A row the table keeps to itself, so an edit of a row given, returned or selected changes no read.
 const copyRow = <Row extends UrlRow>(row: Row): Row => {
-  if (!row.keptParams) {
-    return { ...row }
+  const copy = { ...row }
+
+  if (row.keptParams) {
+    copy.keptParams = [...row.keptParams]
   }
 
-  return { ...row, keptParams: [...row.keptParams] }
+  if (row.checks) {
+    copy.checks = { ...row.checks }
+  }
+
+  return copy
 }
 
 const toTableUrl = (url: URL): TableUrl => {
@@ -356,6 +370,9 @@ const readTableUrl = (url: string): TableUrl | undefined => {
 
   return tableUrl
 }
+
+// The root a URL is being read under, which the rows on the stand-in host hand to their checks.
+let readRoot: string | undefined
 
 // One pattern any of the patterns matches, so a table reads a URL on none of its rows at once.
 const joinRegexes = (regexes: Array<RegExp>): RegExp => {
@@ -429,6 +446,7 @@ const compileTemplate = (
   isAlias: boolean,
   options: UrlTableOptions,
   checks: Record<string, CheckFunction>,
+  rowChecks: Record<string, RowCheckFunction>,
   lenient: UrlLenient | undefined,
   hasAmpersandMark: boolean,
 ): CompiledTemplate => {
@@ -592,6 +610,7 @@ const compileTemplate = (
     throw new Error(t(locales.errors.sharedCaseMark, { key, name: sharedName }))
   }
 
+  const hasRowChecks = Object.keys(rowChecks).length > 0
   // A name the template holds twice keeps the first value read.
   const readGroups = (params: Record<string, string>, groups: Record<string, string> = {}) => {
     for (const [group, value] of Object.entries(groups)) {
@@ -603,7 +622,9 @@ const compileTemplate = (
     }
   }
   const passesChecks = (params: Record<string, string>): boolean => {
-    return Object.entries(params).every(([name, value]) => checks[name]?.(value) ?? true)
+    return Object.entries(params).every(([name, value]) => {
+      return (checks[name]?.(value) ?? true) && (rowChecks[name]?.(value, params) ?? true)
+    })
   }
   // A query on a host with no path sits behind the slash of its root, as `example.com/?rss`.
   const writeBase = (base: string, pairs: Array<QueryPair>): string => {
@@ -737,6 +758,11 @@ const compileTemplate = (
       params.root = url.origin
     }
 
+    // A row read under a root sits on the stand-in host, and its checks see the root it is under.
+    if (readRoot !== undefined) {
+      params.root = readRoot
+    }
+
     return params
   }
 
@@ -772,7 +798,7 @@ const compileTemplate = (
   }
 
   // The text a match ran on and its values, the values the case mark covers in lowercase.
-  const lowercaseValues = (match: RegExpExecArray) => {
+  const lowercaseValues = (match: RegExpExecArray, params: Record<string, string>) => {
     const groups = { ...match.groups }
     let text = match.input
 
@@ -785,8 +811,15 @@ const compileTemplate = (
 
       const value = toLowerCaseValue(text.slice(range[0], range[1]))
 
+      const { name } = captured
+      const decoded = decodeValue(value, captured.part)
+
       // A value whose check refuses the lowercase, as `en-US`, stays as written.
-      if (checks[captured.name]?.(decodeValue(value, captured.part)) === false) {
+      if (checks[name]?.(decoded) === false) {
+        continue
+      }
+
+      if (rowChecks[name]?.(decoded, { ...params, [name]: decoded }) === false) {
         continue
       }
 
@@ -816,7 +849,7 @@ const compileTemplate = (
     return (isWwwOptional ? slashedOptionalWwwRegex : slashedAsGivenRegex).test(hostPath)
   }
 
-  const readRawParams = (tableUrl: TableUrl, isWwwOptional: boolean): RawRead | undefined => {
+  const readRawParams: CompiledTemplate['readRawParams'] = (tableUrl, isWwwOptional, params) => {
     const { url } = tableUrl
     const { pairs } = readQuery(tableUrl)
     const regex = isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex
@@ -829,7 +862,7 @@ const compileTemplate = (
       return
     }
 
-    const respelledHostPath = lowercaseValues(match)
+    const respelledHostPath = lowercaseValues(match, params)
 
     if (!readRawGroups(rawParams, respelledHostPath.groups)) {
       return
@@ -870,7 +903,7 @@ const compileTemplate = (
         return
       }
 
-      const respelledValue = lowercaseValues(queryMatch)
+      const respelledValue = lowercaseValues(queryMatch, params)
 
       if (!readRawGroups(rawParams, respelledValue.groups)) {
         return
@@ -981,6 +1014,18 @@ const compileTemplate = (
       values[name] = value
     }
 
+    if (hasRowChecks) {
+      const filled = Object.fromEntries(names.map((name) => [toBareName(name), values[name]]))
+
+      const isRefused = Object.entries(filled).some(([name, value]) => {
+        return rowChecks[name]?.(value, filled) === false
+      })
+
+      if (isRefused) {
+        return
+      }
+    }
+
     const fillPlaceholders = (
       text: string,
       encode = (value: string, _name: string) => value,
@@ -1089,6 +1134,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   const lenients = rows.map(getLenient)
   const hasAmpersandMark = lenients.some((lenient) => lenient.ampersandEntity === true)
   const checks = toCheckFunctions(options.checks)
+  const rowChecks = rows.map((row) => toCheckFunctions(row.checks))
   const compiledRows = rows.map((row, rowIndex) => {
     return [row.main, ...(row.aliases ?? [])].map((template, index) => {
       return compileTemplate(
@@ -1098,6 +1144,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
         index > 0,
         options,
         checks,
+        rowChecks[rowIndex],
         lenients[rowIndex],
         hasAmpersandMark,
       )
@@ -1269,12 +1316,12 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
   // The first template that takes the URL decides. A value its check refuses passes the URL on
   // only to a template of the same shape, as a row for another value of `format`, so a looser
-  // row, as one without the query or with an open path, does not take it.
+  // row does not take it. Under `isFallThrough` every refusal passes it on to every later row.
   const findTemplate = (tableUrl: TableUrl, isWwwOptional: boolean): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
 
     for (const template of bySpecificity) {
-      if (refused && refused.template.shape !== template.shape) {
+      if (refused && !options.isFallThrough && refused.template.shape !== template.shape) {
         continue
       }
 
@@ -1284,17 +1331,23 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
         continue
       }
 
-      if (!template.passesChecks(params)) {
-        if (!refused) {
-          refused = { template, tableUrl, isWwwOptional }
-        }
+      const isCheckRefused = !template.passesChecks(params)
+      const isSelectorRefused =
+        !isCheckRefused && hasUnlistedSelector(template, tableUrl, isWwwOptional)
 
-        continue
+      if (!isCheckRefused && !isSelectorRefused) {
+        return { template, params, tableUrl, isWwwOptional }
       }
 
-      const isRefused = hasUnlistedSelector(template, tableUrl, isWwwOptional)
+      // A parameter that names a feed no row knows ends the read of a table that tries only rows
+      // of the same shape.
+      if (isSelectorRefused && !options.isFallThrough) {
+        return { template, tableUrl, isWwwOptional }
+      }
 
-      return { template, params: isRefused ? undefined : params, tableUrl, isWwwOptional }
+      if (!refused) {
+        refused = { template, tableUrl, isWwwOptional }
+      }
     }
 
     return refused
@@ -1304,6 +1357,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
   // so the trailing slash mark does not cover it.
   const readRawParams = ({
     template,
+    params,
     tableUrl,
     isWwwOptional,
   }: FoundTemplate): RawRead | undefined => {
@@ -1325,7 +1379,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       return
     }
 
-    return template.readRawParams(tableUrl, isWwwOptional)
+    return template.readRawParams(tableUrl, isWwwOptional, params)
   }
 
   const readTableTemplate = (tableUrl: TableUrl): TakenTemplate | undefined => {
@@ -1433,13 +1487,19 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
     const { all, fixed } = getRootTables()
     const segments = parsedUrl.pathname.replace(leadingSlashesRegex, '/').split('/')
     // A root is the first segments of the path, with the empty one in front of its first slash.
-    const readBehind = (table: RootTable, rootLength: number) => {
+    const readBehind = (table: RootTable, root: string, rootLength: number) => {
       const rest = segments.slice(rootLength).map((segment) => `/${segment}`)
 
-      return table.read(`${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`)
+      readRoot = root
+
+      try {
+        return table.read(`${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`)
+      } finally {
+        readRoot = undefined
+      }
     }
     const readUnder = (root: string, rootLength: number): UrlMatch<Key, Row> | undefined => {
-      const match = checks.root?.(root) === false ? undefined : readBehind(all, rootLength)
+      const match = checks.root?.(root) === false ? undefined : readBehind(all, root, rootLength)
 
       if (!match) {
         return
@@ -1493,7 +1553,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
 
     // A row of values alone reads `/forum/viewtopic.php` at the origin, as a user in a group, so
     // the roots a row with fixed text reads the URL under go first, each list shortest first.
-    const fixedRoots = roots.filter(({ rootLength }) => readBehind(fixed, rootLength))
+    const fixedRoots = roots.filter(({ root, rootLength }) => readBehind(fixed, root, rootLength))
 
     for (const { root, rootLength } of [...fixedRoots, ...roots]) {
       const match = readUnder(root, rootLength)

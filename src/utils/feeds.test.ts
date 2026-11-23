@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { includesAnyOf, isLocale } from 'trousse'
-import type { FeedEntry, FeedHint, FeedUrlRow, Platform } from '../types.js'
+import type { FeedEntry, FeedHint, FeedUrlRow, Platform, UrlTableOptions } from '../types.js'
 import { defineFeedUrls, getMainFeedUrl } from './feeds.js'
 import { defineUrls } from './tables.js'
 
@@ -188,6 +188,11 @@ const checkedFeeds = defineFeedUrls(
     checks: { locale: isLocale, country: isShortLabel, host: (host) => host !== 'example.org' },
   },
 )
+
+const rowCheckedFeeds = defineFeedUrls('example', [
+  { key: 'item', main: 'https://www.example.com/items/{id}.rss', checks: { id: /^\d+$/ } },
+  { key: 'tag', main: 'https://www.example.com/tags/{id}.rss' },
+])
 
 describe('defineFeedUrls', () => {
   it('should throw for a template without an http scheme', () => {
@@ -2355,6 +2360,64 @@ describe('defineFeedUrls', () => {
 
         expect(hint?.key).toBe(expected)
       })
+    })
+  })
+
+  describe('with a check of a row', () => {
+    it('should return a hint for a value the check of the row takes', () => {
+      const value = 'https://www.example.com/items/123.rss'
+      const expected: FeedHint = { key: 'example:item' }
+
+      expect(rowCheckedFeeds.getFeedHint(value)).toEqual(expected)
+    })
+
+    it('should return undefined for a value the check of the row refuses', () => {
+      const value = 'https://www.example.com/items/alice.rss'
+
+      expect(rowCheckedFeeds.getFeedHint(value)).toBeUndefined()
+    })
+
+    it('should return a hint for the same value on a row without the check', () => {
+      const value = 'https://www.example.com/tags/alice.rss'
+      const expected: FeedHint = { key: 'example:tag' }
+
+      expect(rowCheckedFeeds.getFeedHint(value)).toEqual(expected)
+    })
+
+    it('should build no feed URL from a value the check of the row refuses', () => {
+      const value = { id: 'alice' }
+
+      expect(rowCheckedFeeds.getFeedUrl('item', value)).toBeUndefined()
+    })
+  })
+
+  describe('with fall-through', () => {
+    it('should throw for a table that sets the option', () => {
+      const throwing = () => {
+        return defineFeedUrls('example', [{ key: 'posts', main: 'https://example.com/feed' }], {
+          // @ts-expect-error: This is for testing purposes.
+          isFallThrough: true,
+        })
+      }
+
+      expect(throwing).toThrow(
+        'The example feed table sets isFallThrough, which only a page table takes',
+      )
+    })
+
+    it('should throw for options of a page table that set the option', () => {
+      const options: UrlTableOptions = { isFallThrough: true }
+      const throwing = () => {
+        return defineFeedUrls(
+          'example',
+          [{ key: 'posts', main: 'https://example.com/feed' }],
+          options,
+        )
+      }
+
+      expect(throwing).toThrow(
+        'The example feed table sets isFallThrough, which only a page table takes',
+      )
     })
   })
 

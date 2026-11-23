@@ -10,6 +10,7 @@
     "unanchoredCheckRegex": "The check of {{name}} is a pattern without ^ at its start and $ at its end",
     "misplacedOpenTail": "The {{key}} row writes {*} elsewhere than at the end of its path, behind a slash",
     "openTailBesideMultiSegment": "The {{key}} row writes {*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
-    "openTailName": "The {{key}} row names a value tail, which {*} is read as"
+    "openTailName": "The {{key}} row names a value tail, which {*} is read as",
+    "feedFallThrough": "The {{platform}} feed table sets isFallThrough, which only a page table takes"
   }
 }
