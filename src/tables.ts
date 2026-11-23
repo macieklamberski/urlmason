@@ -419,6 +419,7 @@ const toRegexSource = (
   capture: Capture,
   captures: Record<string, string> = {},
   mapLiteral: MapText = (literal) => literal,
+  patterns: Record<string, string> = {},
 ): string => {
   const pieces = text
     .split(placeholderRegex)
@@ -430,9 +431,14 @@ const toRegexSource = (
         return escapeRegex(piece)
       }
 
-      const laterSource = index > 1 ? toLaterSource(capture, pieces[index - 1]) : undefined
+      const frontPattern = index > 1 ? patterns[pieces[index - 2]] : undefined
+      // A value in front that its pattern ends before the fixed text leaves the rest to this one.
+      const isFreed =
+        frontPattern !== undefined && !new RegExp(`^${frontPattern}$`, 'i').test(pieces[index - 1])
+      const laterSource =
+        index > 1 && !isFreed ? toLaterSource(capture, pieces[index - 1]) : undefined
 
-      return wrapCapture(piece, captures[piece] ?? laterSource ?? capture.source)
+      return wrapCapture(piece, captures[piece] ?? patterns[piece] ?? laterSource ?? capture.source)
     })
     .join('')
 }
@@ -440,7 +446,7 @@ const toRegexSource = (
 // A template as two functions: the values of a URL it takes, and its URL for a page's values.
 const compileTemplate = (
   template: string,
-  { key, queryEncoding }: UrlRow,
+  { key, queryEncoding, checks: givenRowChecks }: UrlRow,
   rowIndex: number,
   isAlias: boolean,
   options: UrlTableOptions,
@@ -633,6 +639,21 @@ const compileTemplate = (
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
   )
 
+  // Two values in one segment: one whose check is a pattern is read by that pattern.
+  const pathPatterns: Record<string, string> = {}
+
+  for (const segment of path.split('/')) {
+    const segmentNames = [...segment.matchAll(placeholderRegex)].map(([, name]) => name)
+
+    for (const name of options.isFallThrough && segmentNames.length > 1 ? segmentNames : []) {
+      const check = givenRowChecks?.[name] ?? options.checks?.[name]
+
+      if (check instanceof RegExp && isAnyOf(check.flags, ['', 'i'])) {
+        pathPatterns[name] = toEntrySource(check)
+      }
+    }
+  }
+
   // Matched on the decoded path without its trailing slash.
   const pathSource = toRegexSource(
     path.replace(trailingSlashRegex, ''),
@@ -640,11 +661,19 @@ const compileTemplate = (
     pathCapture,
     multiSegmentCaptures,
     decodePath,
+    pathPatterns,
   )
   // The path as the template writes it, for a URL read in its own spelling.
   // A template with no path is a site, which a URL names with or without the slash of its root.
   const rawPathSource = path
-    ? toRegexSource(path, wrapCaptureIn('path'), pathCapture, multiSegmentCaptures)
+    ? toRegexSource(
+        path,
+        wrapCaptureIn('path'),
+        pathCapture,
+        multiSegmentCaptures,
+        undefined,
+        pathPatterns,
+      )
     : '/?'
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.

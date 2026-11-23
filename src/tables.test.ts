@@ -4793,6 +4793,90 @@ describe('defineUrls', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
+    describe('two values in one segment', () => {
+      const rows: Array<UrlRow> = [{ key: 'post', main: 'https://example.com/posts/{id}-{slug}' }]
+      const table = defineUrls(rows, { checks: { id: digitsRegex }, isFallThrough: true })
+
+      it('should end a value at the end of its check pattern', () => {
+        const value = 'https://example.com/posts/123-my-first-post'
+        const expected: Record<string, string> = {
+          id: '123',
+          slug: 'my-first-post',
+        }
+        const match = table.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should read a value behind the fixed text by its check pattern', () => {
+        const value = 'https://example.com/posts/my-first-post-123'
+        const expected: Record<string, string> = {
+          slug: 'my-first-post',
+          id: '123',
+        }
+        const slugFirst = defineUrls(
+          [{ key: 'post', main: 'https://example.com/posts/{slug}-{id}' }],
+          { checks: { id: digitsRegex }, isFallThrough: true },
+        )
+        const match = slugFirst.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should read a value by the check pattern of its row', () => {
+        const value = 'https://example.com/posts/123-my-first-post'
+        const expected: Record<string, string> = {
+          id: '123',
+          slug: 'my-first-post',
+        }
+        const rowChecked = defineUrls(
+          [
+            {
+              key: 'post',
+              main: 'https://example.com/posts/{id}-{slug}',
+              checks: { id: digitsRegex },
+            },
+          ],
+          { isFallThrough: true },
+        )
+        const match = rowChecked.read(value)
+
+        expect(match?.params).toEqual(expected)
+      })
+
+      it('should return undefined where the check pattern takes no part of the segment', () => {
+        const value = 'https://example.com/posts/draft-my-first-post'
+
+        expect(table.read(value)).toBeUndefined()
+      })
+
+      it('should cut at the last fixed text where the check is a function', () => {
+        const value = 'https://example.com/posts/123-my-first-post'
+        const functionChecked = defineUrls(rows, {
+          checks: { id: (id) => digitsRegex.test(id) },
+          isFallThrough: true,
+        })
+
+        expect(functionChecked.read(value)).toBeUndefined()
+      })
+
+      it('should cut at the last fixed text in a table without fall-through', () => {
+        const value = 'https://example.com/posts/123-my-first-post'
+        const strict = defineUrls(rows, { checks: { id: digitsRegex } })
+
+        expect(strict.read(value)).toBeUndefined()
+      })
+
+      it('should read a long run of the fixed text within a second', () => {
+        const value = `https://example.com/posts/${'1-'.repeat(100000)}`
+        const startedAt = performance.now()
+
+        table.read(value)
+
+        expect(performance.now() - startedAt).toBeLessThan(1000)
+      })
+    })
+
     describe('under a root', () => {
       it('should pass a refused URL to the next row under the root before a longer root', () => {
         const value = 'https://example.org/alice/followers/x'
