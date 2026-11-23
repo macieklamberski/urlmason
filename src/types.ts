@@ -95,6 +95,9 @@ export type UrlTableOptions = {
 // A feed table takes no `isFallThrough`: a looser row would claim a feed another row refused.
 export type FeedUrlTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
 
+// A page table always passes a refused URL on, so it takes no `isFallThrough` either.
+export type PageUrlTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
+
 // How the rows that open with `{root}` read a URL on any host. With either option only those rows
 // are read, `hosts` is left aside, the URL is never exact, and `root` is among the values read.
 export type UrlReadOptions = {
