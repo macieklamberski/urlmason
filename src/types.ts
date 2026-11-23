@@ -60,15 +60,19 @@ export type UrlValue = string | Array<string>
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type UrlParams = Record<string, UrlValue | undefined>
 
+// A host or domain entry a function decides, given the host or domain without `www` or a port.
+export type UrlHostCheck = (host: string) => boolean
+
 export type UrlHosts = {
   // The exact hosts a `{host}` placeholder stands for. A pattern stands for one name across
   // suffixes, such as `/^example\.(?:com|de)$/`, anchored at both ends, and matches the host as
-  // given or without `www`.
-  exact?: Array<string | RegExp>
+  // given or without `www`. A function stands for the hosts it accepts.
+  exact?: Array<string | RegExp | UrlHostCheck>
   // The domains tenants live under: a `{domain}` placeholder stands for one, and `{host}` for every
   // one-label tenant under one. A pattern stands for a family of domains, such as
-  // `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends.
-  tenants?: Array<string | RegExp>
+  // `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends, and a function for the domains
+  // it accepts.
+  tenants?: Array<string | RegExp | UrlHostCheck>
 }
 
 // A check sees a list value as its segments joined by `/`, as `a/b/c` for `['a/b', 'c']`.

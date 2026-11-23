@@ -829,6 +829,24 @@ const fallThroughRootProfiles = defineUrls(rootProfileRows, { isFallThrough: tru
 
 const sameShapeRootProfiles = defineUrls(rootProfileRows)
 
+const checkedDomains = ['example.de', 'example.co.uk']
+
+const isCheckedDomain = (domain: string): boolean => {
+  return isAnyOf(domain, checkedDomains)
+}
+
+const checkedTenants = defineUrls(
+  [
+    { key: 'posts', main: '{scheme}://{host}/rss' },
+    { key: 'about', main: '{scheme}://{domain}/about' },
+  ],
+  { hosts: { tenants: [isCheckedDomain] }, isWwwTenantPrefix: true },
+)
+
+const checkedExact = defineUrls([{ key: 'jobs', main: '{scheme}://{host}/jobs/feed' }], {
+  hosts: { exact: [isCheckedDomain] },
+})
+
 describe('defineUrls', () => {
   describe('rows', () => {
     it('should return the rows it was given', () => {
@@ -5079,6 +5097,89 @@ describe('defineUrls', () => {
 
         expect(sameShapeRootProfiles.read(value, options)).toBeUndefined()
       })
+    })
+  })
+  describe('with a function among the hosts', () => {
+    it('should read a tenant under a domain the function accepts', () => {
+      const value = 'https://alice.example.co.uk/rss'
+      const match = checkedTenants.read(value)
+
+      expect(match?.key).toBe('posts')
+    })
+
+    it('should return undefined for a tenant under a domain the function refuses', () => {
+      const value = 'https://alice.example.net/rss'
+
+      expect(checkedTenants.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a tenant two labels under a domain the function accepts', () => {
+      const value = 'https://alice.blog.example.de/rss'
+
+      expect(checkedTenants.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for the domain the function accepts as a host', () => {
+      const value = 'https://example.co.uk/rss'
+
+      expect(checkedTenants.read(value)).toBeUndefined()
+    })
+
+    it('should return undefined for www in front of the domain under a www tenant prefix', () => {
+      const value = 'https://www.example.co.uk/rss'
+
+      expect(checkedTenants.read(value)).toBeUndefined()
+    })
+
+    it('should read www in front of a tenant under a www tenant prefix', () => {
+      const value = 'https://www.alice.example.co.uk/rss'
+      const match = checkedTenants.read(value)
+
+      expect(match?.key).toBe('posts')
+    })
+
+    it('should read a domain row on a domain the function accepts', () => {
+      const value = 'https://example.de/about'
+      const match = checkedTenants.read(value)
+
+      expect(match?.key).toBe('about')
+    })
+
+    it('should return undefined for a domain row on a domain the function refuses', () => {
+      const value = 'https://example.net/about'
+
+      expect(checkedTenants.read(value)).toBeUndefined()
+    })
+
+    it('should build a domain row for a page under a domain the function accepts', () => {
+      const value = 'https://alice.example.co.uk/'
+      const expected = 'https://example.co.uk/about'
+      const page = checkedTenants.forUrl(value)
+
+      expect(page?.build('about')).toBe(expected)
+    })
+
+    it('should build a URL on a host the function refuses', () => {
+      const value = {
+        scheme: 'https',
+        host: 'example.net',
+      }
+      const expected = 'https://example.net/rss'
+
+      expect(checkedTenants.build('posts', value)).toBe(expected)
+    })
+
+    it('should read an exact host the function accepts with www in front', () => {
+      const value = 'https://www.example.de/jobs/feed'
+      const match = checkedExact.read(value)
+
+      expect(match?.key).toBe('jobs')
+    })
+
+    it('should return undefined for a host under an exact host the function accepts', () => {
+      const value = 'https://alice.example.de/jobs/feed'
+
+      expect(checkedExact.read(value)).toBeUndefined()
     })
   })
 })

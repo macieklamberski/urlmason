@@ -5,9 +5,9 @@ import {
   getOrigin,
   getQueryParamValues,
   getRegistrableDomain,
-  getSubdomain,
   isAnyOf,
   isFunction,
+  isHostOf,
   isHttpUrl,
   isNullish,
   isPresent,
@@ -21,6 +21,7 @@ import {
 } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
 import type {
+  UrlHostCheck,
   UrlKeyMatch,
   UrlLenient,
   UrlMatch,
@@ -101,6 +102,8 @@ type CompiledTemplate = {
 }
 
 type UrlPart = 'host' | 'path' | 'query'
+
+type HostEntry = string | RegExp | UrlHostCheck
 
 type MapText = (text: string) => string
 
@@ -197,6 +200,7 @@ const schemePlaceholder = '{scheme}'
 const captureGroupPrefix = 'p'
 const ownGroupRegex = /^p\d+$/
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
+const anyDomainSource = '[^./]+(?:\\.[^./]+)+'
 // The open tail: `{*}` behind the last slash of a path, which the checks see as the value `tail`.
 const openTailMark = '{*}'
 const openTailSuffix = `/${openTailMark}`
@@ -415,9 +419,43 @@ const joinRegexes = (regexes: Array<RegExp>): RegExp => {
   return new RegExp(sources.join('|') || '(?!)', 'i')
 }
 
-// A host or domain entry as a regex source: a string as a literal, a pattern without its anchors.
-const toEntrySource = (entry: string | RegExp): string => {
+// A host or domain entry as a regex source: a string as a literal, a pattern without its anchors,
+// and a function as any domain, which `isListedHost` checks after the match.
+const toEntrySource = (entry: HostEntry): string => {
+  if (isFunction(entry)) {
+    return anyDomainSource
+  }
+
   return isString(entry) ? escapeRegex(entry) : `(?:${entry.source.replace(anchorsRegex, '')})`
+}
+
+const isListedIn = (value: string, entries: Array<HostEntry> = []): boolean => {
+  return entries.some((entry) => {
+    return isFunction(entry) ? entry(value) : isHostOf(`https://${value}`, entry)
+  })
+}
+
+// Whether a host, with or without `www`, is an exact host or one label under a tenant domain.
+// `www` is that label only where it can be a tenant.
+const isListedHost = (host: string, options: UrlTableOptions): boolean => {
+  const bareHost = stripWww(host)
+  const tenantHosts = options.isWwwTenant ? [host, bareHost] : [bareHost]
+  const parentDomains = tenantHosts.map((form) => form.slice(form.indexOf('.') + 1))
+
+  return (
+    isListedIn(host, options.hosts?.exact) ||
+    isListedIn(bareHost, options.hosts?.exact) ||
+    parentDomains.some((domain) => isListedIn(domain, options.hosts?.tenants))
+  )
+}
+
+// The nearest parent domain of a host that `tenants` lists.
+const getTenantDomain = (host: string, tenants: Array<HostEntry> = []): string | undefined => {
+  for (let index = host.indexOf('.'); index !== -1; index = host.indexOf('.', index + 1)) {
+    if (isListedIn(host.slice(index + 1), tenants)) {
+      return host.slice(index + 1)
+    }
+  }
 }
 
 // A host that is its own registrable domain, as `example.com` and not `blog.example.com`.
@@ -613,6 +651,7 @@ const compileTemplate = (
   const tenantSource = options.isWwwTenant ? '[^./]+' : '(?!www\\.)[^./]+'
 
   const hasHosts = hosts.length > 0 || tenantDomains.length > 0
+  const hasHostCheck = [...hosts, ...(options.hosts?.tenants ?? [])].some(isFunction)
 
   if (
     (!isRootTemplate && host.includes('{host}') && !hasHosts) ||
@@ -847,6 +886,17 @@ const compileTemplate = (
       }
 
       readGroups(params, queryMatch.groups)
+    }
+
+    // A function among the hosts matched any domain, so the host read is checked by it.
+    if (hasHostCheck && ('host' in params || 'domain' in params)) {
+      const isListed = isString(params.domain)
+        ? isListedIn(params.domain, options.hosts?.tenants)
+        : isListedHost(url.hostname, options)
+
+      if (!isListed) {
+        return
+      }
     }
 
     // A host is read with its port, as `forUrl` fills it.
@@ -1846,12 +1896,11 @@ export const defineUrls = <const Row extends UrlRow>(
       return
     }
 
-    const subdomain = getSubdomain(parsedUrl, options.hosts?.tenants ?? [])
     const urlParams: UrlParams = {
       scheme: parsedUrl.protocol.slice(0, -1),
       host: parsedUrl.host,
       root: parsedUrl.origin,
-      domain: subdomain ? parsedUrl.hostname.slice(subdomain.length + 1) : undefined,
+      domain: getTenantDomain(parsedUrl.hostname, options.hosts?.tenants),
     }
     // An undefined value the caller passes leaves the one of the page in place.
     const withUrlParams = (params: UrlParams = {}): UrlParams => {
