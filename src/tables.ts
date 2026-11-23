@@ -20,7 +20,6 @@ import {
 } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
 import type {
-  DeepReadonly,
   UrlLenient,
   UrlMatch,
   UrlParams,
@@ -1116,14 +1115,14 @@ const compileTemplate = (
 // `getMainUrl` writes a URL in its row's main spelling.
 export const defineUrls = <const Key extends string, Extra extends object = object>(
   // Extra is never read off the rows, so a field no row type names fails the typecheck.
-  givenRows: ReadonlyArray<DeepReadonly<UrlRow<Key>> & NoInfer<Extra>>,
+  givenRows: Array<UrlRow<Key> & NoInfer<Extra>>,
   options: UrlTableOptions = {},
 ): UrlTable<Key, UrlRow<Key> & NoInfer<Extra>> => {
   type Row = UrlRow<Key> & Extra
   type Select = (row: Row) => boolean
 
-  // A row given read-only, as from a list declared `as const`, is copied and never written to.
-  const rows = givenRows.map((row) => copyRow(row as Row))
+  // The given rows are copied and never written to.
+  const rows = givenRows.map((row) => copyRow<Row>(row))
 
   const getLenient = (row: Row): UrlLenient => {
     const marks: UrlLenient = { ...options.lenient, ...row.lenient }
@@ -1452,12 +1451,7 @@ export const defineUrls = <const Key extends string, Extra extends object = obje
       }
     }
 
-    // The rows are built here, so they are already the row type the table copies them to.
-    const givenRootRows = rootRows as ReadonlyArray<
-      DeepReadonly<UrlRow<Key>> & Extra & { rootRowIndex: number }
-    >
-
-    return defineUrls<Key, Extra & { rootRowIndex: number }>(givenRootRows, {
+    return defineUrls<Key, Extra & { rootRowIndex: number }>(rootRows, {
       ...options,
       hosts: undefined,
     })

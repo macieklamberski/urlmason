@@ -53,13 +53,6 @@ export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
   format?: FeedFormat
 }
 
-// A row as a list declared `as const` holds it: every field and every list in it read-only.
-export type DeepReadonly<Value> = Value extends UrlRowCheck
-  ? Value
-  : Value extends object
-    ? { readonly [Field in keyof Value]: DeepReadonly<Value[Field]> }
-    : Value
-
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type UrlParams = Record<string, string | undefined>
 

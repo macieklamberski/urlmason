@@ -1,7 +1,6 @@
 import { parseUrl, t } from 'trousse'
 import locales from '../locales.json' with { type: 'json' }
 import type {
-  DeepReadonly,
   FeedFormat,
   FeedHint,
   FeedUrlRow,
@@ -20,7 +19,7 @@ type FeedPage<Key extends string> = Pick<
 // `{platform}:{kind}`, as `dailymotion:playlist`.
 export const defineFeedUrls = <const Key extends string>(
   platform: string,
-  rows: ReadonlyArray<DeepReadonly<FeedUrlRow<Key>>>,
+  rows: Array<FeedUrlRow<Key>>,
   options: FeedUrlTableOptions = {},
 ): FeedUrlTable<Key> => {
   // A looser row would claim a feed URL another row refused, as a file under a refused branch.
