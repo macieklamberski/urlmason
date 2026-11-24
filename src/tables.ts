@@ -261,6 +261,18 @@ const toValueText = (value: UrlValue): string => {
   return Array.isArray(value) ? value.join('/') : value
 }
 
+const asciiUpperCaseRegex = /[A-Z]+/g
+
+// A value with its ASCII letters in lowercase, as a rewrite lowercases a URL whose other letters
+// are percent escapes.
+const toAsciiLowerCase = (value: UrlValue): UrlValue => {
+  const lowercase = (text: string) => {
+    return text.replace(asciiUpperCaseRegex, (letters) => letters.toLowerCase())
+  }
+
+  return Array.isArray(value) ? value.map(lowercase) : lowercase(value)
+}
+
 const toCheckParams = (params: Record<string, UrlValue>): Record<string, string> => {
   return Object.fromEntries(
     Object.entries(params).map(([name, value]) => [name, toValueText(value)]),
@@ -1174,7 +1186,12 @@ const compileTemplate = (
         return
       }
 
-      values[name] = value
+      // A value the case mark covers is written in lowercase, as its main URL holds it. A value
+      // whose check refuses the lowercase, as `en-US`, stays as written.
+      const lowercase = lenient?.case?.includes(toBareName(name)) ? toAsciiLowerCase(value) : value
+      const isLowercaseRefused = check && !check(toValueText(lowercase))
+
+      values[name] = isLowercaseRefused ? value : lowercase
     }
 
     if (hasRowChecks) {

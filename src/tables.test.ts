@@ -1219,6 +1219,33 @@ describe('defineUrls', () => {
       expect(table.build('journal', value)).toBe(expected)
     })
 
+    it('should write a value under the case mark in lowercase', () => {
+      const value = {
+        user: 'Alice',
+        list: 'Reading',
+      }
+      const expected = 'https://example.com/lists/alice/Reading'
+
+      expect(listed.build('list', value)).toBe(expected)
+    })
+
+    it('should keep a letter outside ASCII under the case mark as written', () => {
+      const value = {
+        user: 'CAFÉ',
+        list: 'Reading',
+      }
+      const expected = 'https://example.com/lists/caf%C3%89/Reading'
+
+      expect(listed.build('list', value)).toBe(expected)
+    })
+
+    it('should keep a value under the case mark whose check refuses the lowercase', () => {
+      const value = { locale: 'en-US' }
+      const expected = 'https://example.com/en-US/feed'
+
+      expect(localized.build('posts', value)).toBe(expected)
+    })
+
     it('should build nothing from a host label with a space', () => {
       const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
       const value = { journal: 'a b' }

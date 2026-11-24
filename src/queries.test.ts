@@ -10,7 +10,6 @@ import {
   sortPairs,
   toPair,
   toSearchParams,
-  writeHref,
   writeQuery,
 } from './queries.js'
 
@@ -388,23 +387,5 @@ describe('cutHref', () => {
     const parts = cutHref(value)
 
     expect(parts.base).toBe(expected)
-  })
-})
-
-describe('writeHref', () => {
-  it('should write a URL with another query', () => {
-    const value = cutHref(new URL('https://example.com/feed?alt=atom&max-results=5#top'))
-    const pairs = [toPair('max-results=5')]
-    const expected = 'https://example.com/feed?max-results=5#top'
-
-    expect(writeHref(value, pairs)).toBe(expected)
-  })
-
-  it('should write a URL without its query for no pair', () => {
-    const value = cutHref(new URL('https://example.com/feed?alt=atom#top'))
-    const pairs: Array<QueryPair> = []
-    const expected = 'https://example.com/feed#top'
-
-    expect(writeHref(value, pairs)).toBe(expected)
   })
 })

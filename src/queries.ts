@@ -153,11 +153,6 @@ export const writeQuery = (pairs: Array<QueryPair>): string => {
   return `?${pairs.map((pair) => pair.text).join('&')}`
 }
 
-// A URL's href with another query: the parts `cutHref` gave around the pairs.
-export const writeHref = (parts: HrefParts, pairs: Array<QueryPair>): string => {
-  return `${parts.base}${writeQuery(pairs)}${parts.hash}`
-}
-
 // The pairs as `URLSearchParams` reads them: the names and values of the query they write.
 export const toSearchParams = (pairs: Array<QueryPair>): URLSearchParams => {
   return new URLSearchParams(writeQuery(pairs))
