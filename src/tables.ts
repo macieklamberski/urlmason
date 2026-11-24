@@ -9,8 +9,6 @@ import {
   isFunction,
   isHostOf,
   isHttpUrl,
-  isNullish,
-  isPresent,
   isSameText,
   isString,
   parseUrl,
@@ -55,9 +53,8 @@ import {
 type CompiledTemplate = {
   rowIndex: number
   isAlias: boolean
-  // The query parameters the template sets itself, and the placeholders that take a passed query.
+  // The query parameters the template sets itself.
   ownNames: Array<string>
-  passedQueryNames: Array<string>
   // The placeholders of the host, which a URL reads in any case.
   hostNames: Array<string>
   // The parameters the template sets to a fixed value, as `alt=rss`, and the ones it reads a
@@ -81,12 +78,6 @@ type CompiledTemplate = {
     isWwwOptional: boolean,
     params: Record<string, UrlValue>,
   ) => RawRead | undefined
-  // Whether the trailing slash mark writes the path with another trailing slash, and whether the
-  // template takes a host and decoded path with the trailing slash the path has.
-  isSlashRespelled: (pathname: string) => boolean
-  takesSlashedHostPath: (hostPath: string, isWwwOptional: boolean) => boolean
-  // Whether the ampersand mark covers the template, so `&amp;` in a query is read as `&`.
-  isAmpersandEntityRead: boolean
   // The template's URL with values written as they were read, and the pairs no row names kept.
   getRawUrl: (rawParams: RawParams, keptPairs: Array<QueryPair>) => RawUrl | undefined
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
@@ -98,7 +89,7 @@ type CompiledTemplate = {
   shape: string
   // The path segments in front of an open tail, and infinity for a template without one.
   openDepth: number
-  getUrl: (params?: UrlParams) => string | typeof refusedQuery | undefined
+  getUrl: (params?: UrlParams) => string | undefined
 }
 
 type UrlPart = 'host' | 'path' | 'query'
@@ -142,11 +133,6 @@ type OwnParam = {
   rawRegex: RegExp
 }
 
-// One parameter of a template's query in the order written: its own, or a passed query.
-type TemplateParam =
-  | { own: OwnParam; passedName?: undefined }
-  | { own?: undefined; passedName: string }
-
 // A value as the URL spells it, with the part of the URL it was read from.
 type RawParams = Record<string, { value: string; part: UrlPart }>
 
@@ -163,12 +149,11 @@ type RawUrl = {
   pairs: Array<QueryPair>
 }
 
-// A URL as the templates read it: the host joined to the decoded path, without its trailing slash
-// and with it, and the query, parsed by the first template that takes the host and path.
+// A URL as the templates read it: the host joined to the decoded path without its trailing slash,
+// and the query, parsed by the first template that takes the host and path.
 type TableUrl = {
   url: URL
   hostPath: string
-  slashedHostPath: string
   query?: UrlQuery
 }
 
@@ -178,14 +163,11 @@ const trailingSlashRegex = /\/$/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 const leadingSlashesRegex = /^\/{2,}/
 const anchorsRegex = /^\^|\$$/g
-const passedQueryRegex = /^\{(\w+)\}$/
 // A value every part of a URL reads the same way, so it can move from one part to another.
 const plainValueRegex = /^[\w.~-]+$/
 const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
-// A URL parser removes a tab, a line feed and a carriage return, so `I\nD` is fetched as `ID`.
-const parserRemovedRegex = /[\t\n\r]/
 // A scheme and host with no path, where a parser reads the path `/` before a query.
 const pathlessBaseRegex = /^[^/]+:\/\/[^/]+$/
 const trailingSlashesRegex = /\/+$/
@@ -207,8 +189,6 @@ const openTailSuffix = `/${openTailMark}`
 const openTailName = 'tail'
 const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
 const queryCapture: Capture = { source: '.+', unit: '.' }
-// What a template builds from values that fill it and a passed query it cannot write.
-const refusedQuery = Symbol('refusedQuery')
 
 // A pair is under a name as `URLSearchParams` reads it, or with an escape that is no UTF-8 as
 // written, which is how some servers read it.
@@ -379,10 +359,6 @@ const toCheckFunctions = <Rest extends Array<unknown>>(
 const copyRow = <Row extends UrlRow>(row: Row): Row => {
   const copy = { ...row }
 
-  if (row.keptParams) {
-    copy.keptParams = [...row.keptParams]
-  }
-
   if (row.checks) {
     copy.checks = { ...row.checks }
   }
@@ -393,12 +369,11 @@ const copyRow = <Row extends UrlRow>(row: Row): Row => {
 const toTableUrl = (url: URL): TableUrl => {
   // A doubled slash after the host names the same feed: pages link `host//feed` for `host/feed`.
   const path = url.pathname.replace(leadingSlashesRegex, '/')
-  const slashedHostPath = url.hostname + decodePath(path)
+  const hostPath = url.hostname + decodePath(path)
 
   return {
     url,
-    hostPath: slashedHostPath.replace(trailingSlashRegex, ''),
-    slashedHostPath,
+    hostPath: hostPath.replace(trailingSlashRegex, ''),
   }
 }
 
@@ -542,7 +517,7 @@ const toRegexSource = (
 // A template as two functions: the values of a URL it takes, and its URL for a page's values.
 const compileTemplate = (
   template: string,
-  { key, queryEncoding, checks: givenRowChecks }: UrlRow,
+  { key, checks: givenRowChecks }: UrlRow,
   rowIndex: number,
   isAlias: boolean,
   options: UrlTableOptions,
@@ -591,33 +566,22 @@ const compileTemplate = (
 
     return captured[Number(group.slice(captureGroupPrefix.length))]
   }
-  const encodeQueryText: MapText = (text) => encodeText(text, queryEncoding)
   const entries = search ? [...toSearchParams(parseQuery(search))] : []
-  // A name with no value, such as `?rss`, is a flag, built with no value, and a placeholder
-  // with none, such as `?{query}`, a passed query, which names no parameter of the row.
-  const flagNames = entries
-    .filter(([name, value]) => !value && !passedQueryRegex.test(name))
-    .map(([name]) => name)
-  const templateParams = entries.map(([name, value]): TemplateParam => {
-    const passedName = value ? undefined : passedQueryRegex.exec(name)?.[1]
 
-    if (passedName !== undefined) {
-      return { passedName }
-    }
+  // A placeholder fills a value and never names a parameter, as `?{query}` or `?%7Bquery%7D`.
+  if (entries.some(([name]) => name.includes('{'))) {
+    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+  }
 
+  // A name with no value, such as `?rss`, is a flag, built with no value.
+  const flagNames = entries.filter(([, value]) => !value).map(([name]) => name)
+  const ownParams = entries.map(([name, value]): OwnParam => {
     const isFlag = flagNames.includes(name)
     const isFilled = !isFlag && value.includes('{')
-    // A flag is written by `composeQuery` under either encoding.
-    const writtenName = encodeText(name, isFlag ? 'minimal' : queryEncoding)
-    const writtenValue = isFilled ? '' : encodeQueryText(value)
+    const writtenName = encodeText(name)
+    const writtenValue = isFilled ? '' : encodeText(value)
     const source = toRegexSource(value, wrapCaptureIn('query'), queryCapture)
-    const rawSource = toRegexSource(
-      value,
-      wrapCaptureIn('query'),
-      queryCapture,
-      {},
-      encodeQueryText,
-    )
+    const rawSource = toRegexSource(value, wrapCaptureIn('query'), queryCapture, {}, encodeText)
     const own: OwnParam = {
       name,
       value,
@@ -629,40 +593,23 @@ const compileTemplate = (
       rawRegex: new RegExp(`^${rawSource}$`, 'd'),
     }
 
-    return { own }
+    return own
   })
-  const ownParams = templateParams.map((param) => param.own).filter(isPresent)
   const ownNames = ownParams.map((param) => param.name)
-  // An empty passed query passes nothing, so the row writes its own parameters alone.
-  const passedQueryNames = templateParams.map((param) => param.passedName).filter(isPresent)
-  const isAmpersandEntityRead = lenient?.ampersandEntity === true
-  // Behind another pair a name that starts with `amp;` is written `&amp;`, which a table with a
-  // row under the mark reads as `&` on every row.
+
+  // A parameter the template names twice, as `types=page&types=post`, has no one value to read.
+  if (ownNames.some((name, index) => ownNames.indexOf(name) !== index)) {
+    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+  }
+
+  // Behind another pair a name that starts with `amp;` is written `&amp;`, which a table under the
+  // mark reads as `&`.
   const entityName = ownNames.find((name) => name.startsWith(entityPrefix))
 
   if (hasAmpersandMark && entityName !== undefined) {
     throw new Error(t(locales.errors.ampersandEntityName, { key, name: entityName }))
   }
 
-  // A passed query is written as given, without the parameters the row sets itself. Under the
-  // ampersand mark `&amp;` separates pairs too.
-  const passQuery = (text: string): Array<QueryPair> | typeof refusedQuery => {
-    if (parserRemovedRegex.test(text)) {
-      return refusedQuery
-    }
-
-    const givenPairs = parseQuery(text)
-    const pairs = isAmpersandEntityRead ? readAmpersandEntities(givenPairs) : givenPairs
-
-    // A table with a row under the mark reads a pair that starts with `amp;` as another pair.
-    if (hasAmpersandMark && pairs.some((pair) => pair.text.startsWith(entityPrefix))) {
-      return refusedQuery
-    }
-
-    return pairs
-      .filter((pair) => pair.rawName && !isNamed(pair, ownNames))
-      .map((pair) => toPair(pair.text.replace(nonAsciiRegex, encodeURIComponent)))
-  }
   const hosts = options.hosts?.exact ?? []
   const tenantDomains = (options.hosts?.tenants ?? []).map((domain) => toEntrySource(domain))
   const domainSource = `(?:${tenantDomains.join('|')})`
@@ -680,11 +627,6 @@ const compileTemplate = (
   }
 
   const names = [...template.matchAll(placeholderRegex)].map(([, name]) => name)
-
-  // `?%7Bquery%7D` is read as the passed query `{query}`, which the template text never fills.
-  if (passedQueryNames.some((name) => !names.includes(name))) {
-    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
-  }
 
   const pathNames = [...path.matchAll(placeholderRegex)].map(([, name]) => name)
   const multiSegmentName = pathNames.find(isMultiSegment)
@@ -855,16 +797,11 @@ const compileTemplate = (
   // Matched on the path as given, with the indices a case mark lowercases.
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
-  const slashedPathSource = path ? `${pathSource}${path.endsWith('/') ? '/' : ''}` : '/?'
-  const slashedAsGivenRegex = toHostPathRegex(false, slashedPathSource, 'i')
-  const slashedOptionalWwwRegex = toHostPathRegex(true, slashedPathSource, 'i')
-  const isSlashFree = Boolean(path) && lenient?.trailingSlash === true
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
-  const repeatedNames = ownNames.filter((name, index) => ownNames.indexOf(name) !== index)
   const shapeNames = ownNames
     .map((name) => name.toLowerCase())
     .sort((left, right) => left.localeCompare(right))
-  const shapeQuery = [...shapeNames, ...passedQueryNames.map(() => '{}')].join('&')
+  const shapeQuery = shapeNames.join('&')
   const shapeHostPath = `${host}${path}`.replace(placeholderRegex, toShapePlaceholder)
   // A `#` is in no template, so an open template shares its shape with no template that is not.
   const shape = `${shapeHostPath}${isOpen ? '#' : ''}?${shapeQuery}`
@@ -895,10 +832,13 @@ const compileTemplate = (
 
     for (const { name, isFlag, regex } of ownParams) {
       const { searchParams } = readQuery(tableUrl)
-      const values = getQueryParamValues(searchParams, name, { preserveEmptyValues: isFlag })
-      // A name the row repeats, as `types=page&types=blogpost`, finds each value in any place.
-      const candidates = repeatedNames.includes(name) ? values : values.slice(0, 1)
-      const queryMatch = candidates.map((value) => regex.exec(value)).find((found) => found)
+      const [value] = getQueryParamValues(searchParams, name, { preserveEmptyValues: isFlag })
+
+      if (value === undefined) {
+        return
+      }
+
+      const queryMatch = regex.exec(value)
 
       if (!queryMatch) {
         return
@@ -1005,35 +945,14 @@ const compileTemplate = (
     return { text, groups }
   }
 
-  // A path with the trailing slash the template writes, where the trailing slash mark covers it.
-  const respellSlash = (pathname: string): string => {
-    if (!isSlashFree || pathname === '/') {
-      return pathname
-    }
-
-    const bare = pathname.replace(trailingSlashRegex, '')
-
-    return path.endsWith('/') ? `${bare}/` : bare
-  }
-
-  const isSlashRespelled = (pathname: string): boolean => {
-    return respellSlash(pathname) !== pathname
-  }
-
-  const takesSlashedHostPath = (hostPath: string, isWwwOptional: boolean): boolean => {
-    return (isWwwOptional ? slashedOptionalWwwRegex : slashedAsGivenRegex).test(hostPath)
-  }
-
   const readRawParams: CompiledTemplate['readRawParams'] = (tableUrl, isWwwOptional, params) => {
     const { url } = tableUrl
     const { pairs } = readQuery(tableUrl)
     const regex = isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex
-    const match = regex.exec(url.hostname + respellSlash(url.pathname))
+    const match = regex.exec(url.hostname + url.pathname)
     const rawParams: RawParams = {}
 
-    // A row that repeats a parameter name is read loosely, so a URL that gives the name once is
-    // not written as the row writes it.
-    if (!match || repeatedNames.length > 0) {
+    if (!match) {
       return
     }
 
@@ -1129,16 +1048,12 @@ const compileTemplate = (
     const origin = isRootTemplate
       ? fill(rootPlaceholder, 'host')
       : `${fill(scheme, 'host')}://${fill(host, 'host')}`
-    const pairs = templateParams.flatMap(({ own }) => {
-      if (!own) {
-        return keptPairs
-      }
-
+    const pairs = ownParams.map((own) => {
       if (!own.isFilled) {
-        return [own.pair]
+        return own.pair
       }
 
-      return [appendValue(own.pair, fill(own.value, 'query', encodeQueryText))]
+      return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
     const filledPath = fill(path, 'path')
 
@@ -1147,7 +1062,7 @@ const compileTemplate = (
       return
     }
 
-    const writtenPairs = passedQueryNames.length > 0 ? pairs : [...pairs, ...keptPairs]
+    const writtenPairs = [...pairs, ...keptPairs]
 
     return {
       base: writeBase(`${origin}${filledPath}`, writtenPairs),
@@ -1173,10 +1088,8 @@ const compileTemplate = (
     // `?videoChannelId=`.
     for (const name of names) {
       const value = getPlaceholderValue(params, name)
-      // A passed query can be empty. One that is no text, as `5` past the types, is no value.
-      const isMissing = passedQueryNames.includes(name) ? !isString(value) : !value
 
-      if (isNullish(value) || isMissing) {
+      if (!value) {
         return
       }
 
@@ -1213,32 +1126,14 @@ const compileTemplate = (
     }
     const pairs: Array<QueryPair> = []
 
-    for (const { own, passedName } of templateParams) {
-      if (!own) {
-        const passedPairs = passQuery(toValueText(values[passedName]))
-
-        // A template without the passed query is another feed than the one the values name.
-        if (passedPairs === refusedQuery) {
-          return refusedQuery
-        }
-
-        pairs.push(...passedPairs)
-
-        continue
-      }
-
+    for (const own of ownParams) {
       if (!own.isFilled) {
         pairs.push(own.pair)
 
         continue
       }
 
-      const valueText = encodeQueryText(fillPlaceholders(own.value))
-
-      // `composeQuery` writes no pair for an empty value, `URLSearchParams` writes `name=`.
-      if (valueText || queryEncoding === 'form') {
-        pairs.push(appendValue(own.pair, valueText))
-      }
+      pairs.push(appendValue(own.pair, encodeText(fillPlaceholders(own.value))))
     }
 
     // A host reads in any case, so a value that fills a host label is written in lowercase.
@@ -1283,7 +1178,6 @@ const compileTemplate = (
     rowIndex,
     isAlias,
     ownNames,
-    passedQueryNames,
     hostNames: [...host.matchAll(placeholderRegex)].map(([, name]) => name),
     fixedQuery: fixedParams.map((param) => [param.name, param.value]),
     valueNames: ownParams.filter((param) => param.value.includes('{')).map((param) => param.name),
@@ -1293,9 +1187,6 @@ const compileTemplate = (
     optionalWwwRegex,
     readParams,
     readRawParams,
-    isSlashRespelled,
-    takesSlashedHostPath,
-    isAmpersandEntityRead,
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
@@ -1318,14 +1209,12 @@ export const defineUrls = <const Row extends UrlRow>(
   // The given rows are copied and never written to.
   const rows = givenRows.map((row) => copyRow<Row>(row))
 
-  const getLenient = (row: Row): UrlLenient => {
-    const marks: UrlLenient = { ...options.lenient, ...row.lenient }
-
-    // A case mark in another form than a list, as `case: true` past the types, is no mark.
-    return { ...marks, case: Array.isArray(marks.case) ? [...marks.case] : undefined }
+  // A case mark in another form than a list, as `case: true` past the types, is no mark.
+  const lenient: UrlLenient = {
+    ...options.lenient,
+    case: Array.isArray(options.lenient?.case) ? [...options.lenient.case] : undefined,
   }
-  const lenients = rows.map(getLenient)
-  const hasAmpersandMark = lenients.some((lenient) => lenient.ampersandEntity === true)
+  const hasAmpersandMark = lenient.ampersandEntity === true
   const checks = toCheckFunctions(options.checks)
   const rowChecks = rows.map((row) => toCheckFunctions(row.checks))
   const compiledRows = rows.map((row, rowIndex) => {
@@ -1338,21 +1227,13 @@ export const defineUrls = <const Row extends UrlRow>(
         options,
         checks,
         rowChecks[rowIndex],
-        lenients[rowIndex],
+        lenient,
         hasAmpersandMark,
       )
     })
   })
   const compiled = compiledRows.flat()
 
-  for (const [rowIndex, row] of rows.entries()) {
-    const ownNames = compiledRows[rowIndex].flatMap((template) => template.ownNames)
-    const name = row.keptParams?.find((keptParam) => isAnyOf(keptParam, ownNames))
-
-    if (name !== undefined) {
-      throw new Error(t(locales.errors.keptParamInTemplate, { key: row.key, name }))
-    }
-  }
   // A template without an open tail is read before one with it, and of two with one the deeper
   // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes
   // after the rows its paths overlap.
@@ -1386,29 +1267,19 @@ export const defineUrls = <const Row extends UrlRow>(
     for (const candidate of getRowTemplates(key, select).flat()) {
       const url = candidate.getUrl(params)
 
-      // A template without the passed query is another feed than the one the values name.
-      if (url === refusedQuery) {
-        return
-      }
-
       if (url) {
         return url
       }
     }
   }
 
-  // Every URL the values fill of the first row of the key that builds one, up to a template
-  // whose passed query cannot be written.
+  // Every URL the values fill of the first row of the key that builds one.
   const buildAll: UrlTable<Key, Row>['buildAll'] = (key, params, select) => {
     for (const templates of getRowTemplates(key, select)) {
       const urls: Array<string> = []
 
       for (const candidate of templates) {
         const url = candidate.getUrl(params)
-
-        if (url === refusedQuery) {
-          return urls
-        }
 
         if (url) {
           urls.push(url)
@@ -1478,15 +1349,14 @@ export const defineUrls = <const Row extends UrlRow>(
       ...getPathSelectorNames(template, tableUrl.hostPath, isWwwOptional),
     ]
 
-    // A row that passes the page's query on takes any parameter.
-    if (names.length === 0 || template.passedQueryNames.length > 0) {
+    if (names.length === 0) {
       return false
     }
 
     const rowFixedQuery = compiledRows[template.rowIndex].flatMap(
       (candidate) => candidate.fixedQuery,
     )
-    const openNames = [...template.valueNames, ...(row.keptParams ?? options.keptParams ?? [])]
+    const openNames = [...template.valueNames, ...(options.keptParams ?? [])]
 
     return [...readQuery(tableUrl).searchParams].some(([name, value]) => {
       if (!isAnyOf(name, names) || isAnyOf(name, openNames)) {
@@ -1548,29 +1418,19 @@ export const defineUrls = <const Row extends UrlRow>(
     return refused
   }
 
-  // A trailing slash another row writes, as `/{user}/` beside `/{user}`, is what picks that row,
-  // so the trailing slash mark does not cover it.
   const readRawParams = ({
     template,
     params,
     tableUrl,
     isWwwOptional,
   }: FoundTemplate): RawRead | undefined => {
-    const isOtherRowSlash =
-      template.isSlashRespelled(tableUrl.url.pathname) &&
-      compiled.some((other) => {
-        return (
-          other.rowIndex !== template.rowIndex &&
-          other.takesSlashedHostPath(tableUrl.slashedHostPath, isWwwOptional)
-        )
-      })
     // An entity left after `&amp;` is read as `&`, as in `&amp;amp;`, or a pair that starts with
     // `amp;`, is written back as `&amp;`, which the mark reads as another query.
     const hasEntityLeft =
-      template.isAmpersandEntityRead &&
+      hasAmpersandMark &&
       readQuery(tableUrl).pairs.some((pair) => pair.text.startsWith(entityPrefix))
 
-    if (isOtherRowSlash || hasEntityLeft) {
+    if (hasEntityLeft) {
       return
     }
 
@@ -1593,8 +1453,8 @@ export const defineUrls = <const Row extends UrlRow>(
     }
   }
 
-  // The template a URL is read by. Where the ampersand mark covers it, the pairs are the ones of
-  // the query with `&amp;` read as `&`.
+  // The template a URL is read by. Under the ampersand mark the server sees the query with `&`, so
+  // the pairs are the ones of the query with `&amp;` read as `&`.
   const readTemplate = (url: string): FoundTemplate | undefined => {
     const tableUrl = readTableUrl(url)
 
@@ -1602,24 +1462,18 @@ export const defineUrls = <const Row extends UrlRow>(
       return
     }
 
-    let found = readTableTemplate(tableUrl)
     const takesHostPath = (): boolean => {
       return [asGivenRegex, optionalWwwRegex].some((regex) => regex.test(tableUrl.hostPath))
     }
+    let readUrl = tableUrl
 
     if (hasAmpersandMark && takesHostPath() && readQuery(tableUrl).pairs.some(isEntityPair)) {
       const { pairs, hash } = readQuery(tableUrl)
-      const query = toUrlQuery(readAmpersandEntities(pairs), hash)
-      const ampersandFound = readTableTemplate({ ...tableUrl, query })
 
-      // The server of a row under the mark sees the query with `&`, so only that reading of the
-      // URL names such a row, and a refusal of it stands.
-      if (ampersandFound?.template.isAmpersandEntityRead) {
-        found = ampersandFound
-      } else if (found?.template.isAmpersandEntityRead) {
-        return
-      }
+      readUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
     }
+
+    const found = readTableTemplate(readUrl)
 
     if (!found?.params) {
       return
@@ -1795,8 +1649,7 @@ export const defineUrls = <const Row extends UrlRow>(
   ): string | undefined => {
     const { url } = tableUrl
     const [main] = compiledRows[template.rowIndex]
-    const row = rows[template.rowIndex]
-    const keptParams = row.keptParams ?? options.keptParams
+    const { keptParams } = options
     const pairs = rawRead.pairs.filter((pair) => pair.text)
     // A parameter no template names stays, and with a list only when the list names it.
     const isKept = (pair: QueryPair): boolean => !keptParams || isNamed(pair, keptParams)
@@ -1890,8 +1743,7 @@ export const defineUrls = <const Row extends UrlRow>(
       return
     }
 
-    // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`,
-    // and so can a sorted query, as `a=1&amp;b=2` from `amp;b=2&a=1` beside a row under the mark.
+    // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`.
     const readBack = readTemplate(mainUrl)
 
     if (readBack?.template.rowIndex !== found.template.rowIndex) {
@@ -1900,10 +1752,7 @@ export const defineUrls = <const Row extends UrlRow>(
 
     // A value moved into the main URL can hold its fixed text, as `Alice_by_Bob` written into
     // `{board}_by_{user}`, so the main URL reads under other values.
-    const caseNames = [
-      ...(lenients[found.template.rowIndex]?.case ?? []),
-      ...readBack.template.hostNames,
-    ]
+    const caseNames = [...(lenient.case ?? []), ...readBack.template.hostNames]
     const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
       const sourceValue = found.params[name]
 

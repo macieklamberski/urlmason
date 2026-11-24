@@ -1,5 +1,4 @@
 import { composeQuery, decodePercent, getQueryParam } from 'trousse'
-import type { UrlRow } from '../types.js'
 
 // One pair of a query: the text between two `&`, written back as it is.
 export type QueryPair = {
@@ -51,12 +50,10 @@ export const cutHref = (url: URL): HrefParts => {
   }
 }
 
-// The only escaper of what a row writes itself in a query, a name or the text of a value:
-// `minimal` escapes what would change the URL's structure, `form` as `URLSearchParams` does.
-export const encodeText = (text: string, encoding: UrlRow['queryEncoding']): string => {
-  // biome-ignore lint/plugin/useComposeQuery: The form option asks for what URLSearchParams writes.
-  const writeFormPair = (): string => new URLSearchParams([['', text]]).toString()
-  const pair = encoding === 'form' ? writeFormPair() : composeQuery({ '': text })
+// The only escaper of what a row writes itself in a query, a name or the text of a value. It
+// escapes what would change the URL's structure.
+export const encodeText = (text: string): string => {
+  const pair = composeQuery({ '': text })
 
   // Pages link a query value percent-encoded, as `?tag=%E6%8A%80%E8%A1%93` for `技術`.
   return pair.slice(pair.indexOf('=') + 1).replace(nonAsciiRegex, encodeURIComponent)

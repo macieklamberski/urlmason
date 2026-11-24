@@ -51,11 +51,6 @@ const spellings = defineUrls([
     aliases: ['https://{blog}.example.org/rss.xml'],
   },
   {
-    key: 'search',
-    main: 'https://www.example.com/search.rss?{query}',
-    aliases: ['https://old.example.com/search.rss?{query}'],
-  },
-  {
     key: 'tag',
     main: 'https://feeds.example.com/tags.rss?tag={tag}',
     aliases: ['https://example.com/tags.rss?tag={tag}', 'https://example.com/tag/{tag}/rss.xml'],
@@ -120,7 +115,6 @@ const paged = defineUrls(
       key: 'search',
       main: 'https://feeds.example.com/search.xml?q={query}',
       aliases: ['https://example.com/search.xml?q={query}'],
-      keptParams: ['sort'],
     },
   ],
   { keptParams: ['max-results', 'start-index'] },
@@ -134,12 +128,9 @@ const formats = defineUrls(
       main: 'https://example.com/feed?alt=rss',
       aliases: ['https://example.com/rss.xml'],
     },
-    { key: 'search', main: 'https://example.com/search.xml?q={query}&types=page&types=post' },
   ],
   { keptParams: ['max-results'] },
 )
-
-const parserRemovedQueries = ['Mode=1&I\tD=9', 'Mode=1&I\nD=9', 'Mode=1&I\rD=9']
 
 const unsorted = defineUrls([
   {
@@ -147,9 +138,7 @@ const unsorted = defineUrls([
     main: 'https://example.com/feed?type=RSS&q={query}',
     aliases: ['https://old.example.com/feed?type=RSS&q={query}'],
   },
-  { key: 'tagged', main: 'https://example.com/tags.rss?tag=news&id={id}&tag=art' },
   { key: 'cased', main: 'https://example.com/list.rss?b=2&B=1&a={id}' },
-  { key: 'filtered', main: 'https://example.com/filter.rss?view=rss&{query}' },
   { key: 'site', main: '{root}/index.php?type=rss&format=feed' },
 ])
 
@@ -177,11 +166,6 @@ const keptFormats = defineUrls(
   ],
   { keptParams: ['alt'] },
 )
-
-const passedFormats = defineUrls([
-  { key: 'posts', main: 'https://example.com/feed?alt=rss' },
-  { key: 'posts', main: 'https://example.com/feed?{query}' },
-])
 
 const bare = defineUrls(
   [
@@ -218,14 +202,8 @@ const marked = defineUrls(
       aliases: ['https://example.com/{name}/feed/', 'https://example.com/feed.php?name={name}'],
     },
     { key: 'search', main: 'https://feeds.example.com/search.rss?q={query}' },
-    { key: 'tag', main: 'https://feeds.example.com/tags.rss?tag={query}', lenient: { case: [] } },
-    {
-      key: 'archive',
-      main: 'https://feeds.example.com/archive/{name}/feed',
-      lenient: { trailingSlash: false },
-    },
   ],
-  { lenient: { case: ['name', 'query'], trailingSlash: true } },
+  { lenient: { case: ['name', 'query'] } },
 )
 
 const localized = defineUrls(
@@ -246,39 +224,14 @@ const localized = defineUrls(
   },
 )
 
-const slashed = defineUrls([
-  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
-  { key: 'page', main: 'https://example.com/{user}/' },
-  { key: 'blog', main: 'https://example.com/blog/{user}/', lenient: { trailingSlash: true } },
-  { key: 'posts', main: 'https://example.com/blog/{user}' },
-])
+const listed = defineUrls([{ key: 'list', main: 'https://example.com/lists/{user}/{list}' }], {
+  lenient: { case: ['user'] },
+})
 
-const profiles = defineUrls([
-  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
-  { key: 'page', main: 'https://example.com/@{user}/' },
-  { key: 'about', main: 'https://example.com/about/' },
-])
-
-const listed = defineUrls([
-  {
-    key: 'list',
-    main: 'https://example.com/lists/{user}/{list}',
-    lenient: { case: ['user'] },
-  },
-])
-
-const ampersands = defineUrls([
-  {
-    key: 'agenda',
-    main: 'https://example.com/Feed.ashx?M=LD&ID={id}&GUID={guid}',
-    lenient: { ampersandEntity: true },
-  },
-  {
-    key: 'calendar',
-    main: 'https://example.com/Calendar.ashx?M=CL&ID={id}&GUID={guid}',
-    lenient: { ampersandEntity: false },
-  },
-])
+const ampersands = defineUrls(
+  [{ key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD&ID={id}&GUID={guid}' }],
+  { lenient: { ampersandEntity: true } },
+)
 
 const unmarkedAmpersands = defineUrls([
   { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD&ID={id}&GUID={guid}' },
@@ -300,16 +253,6 @@ const ampersandPairs = defineUrls(
   { lenient: { ampersandEntity: true } },
 )
 
-const ampersandPair = defineUrls([
-  { key: 'one', main: 'https://example.com/feed?a={a}' },
-  { key: 'two', main: 'https://example.com/feed?a={a}&b={b}', lenient: { ampersandEntity: true } },
-])
-
-const ampersandFixed = defineUrls([
-  { key: 'one', main: 'https://example.com/feed?a={a}' },
-  { key: 'two', main: 'https://example.com/feed?a={a}&b=2', lenient: { ampersandEntity: true } },
-])
-
 const ampersandTags = defineUrls(
   [
     { key: 'posts', main: 'https://example.com/feed' },
@@ -322,37 +265,13 @@ const ampersandTags = defineUrls(
 const ampersandItems = defineUrls(
   [
     { key: 'list', main: 'https://example.com/list' },
-    { key: 'item', main: 'https://example.com/list?id={id}', lenient: { ampersandEntity: true } },
+    { key: 'item', main: 'https://example.com/list?id={id}' },
   ],
-  { checks: { id: (value) => digitsRegex.test(value) } },
+  {
+    checks: { id: (value) => digitsRegex.test(value) },
+    lenient: { ampersandEntity: true },
+  },
 )
-
-const ampersandPassed = defineUrls(
-  [{ key: 'agenda', main: 'https://example.com/Feed.ashx?{query}' }],
-  { lenient: { ampersandEntity: true } },
-)
-const ampersandFallback = defineUrls(
-  [
-    { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD&{query}' },
-    { key: 'agenda', main: 'https://example.com/Feed.ashx?M=LD' },
-  ],
-  { lenient: { ampersandEntity: true } },
-)
-const ampersandSpellings = defineUrls(
-  [
-    {
-      key: 'agenda',
-      main: 'https://example.com/Feed.ashx?M=LD&{query}',
-      aliases: ['https://example.com/feed.aspx'],
-    },
-  ],
-  { lenient: { ampersandEntity: true } },
-)
-const ampersandMixed = defineUrls([
-  { key: 'list', main: 'https://example.com/feed?{query}' },
-  { key: 'item', main: 'https://example.com/feed?a={a}&b={b}', lenient: { ampersandEntity: true } },
-])
-
 const movedBoards = defineUrls([
   {
     key: 'plain',
@@ -369,28 +288,16 @@ const tenantBlogs = defineUrls([
   },
 ])
 
-const builtSlash = defineUrls([
-  { key: 'user', main: 'https://example.com/u/{user}', lenient: { trailingSlash: true } },
-  { key: 'page', main: 'https://example.com/u/{user}/', isBuildOnly: true },
-])
-
-const aliasSlash = defineUrls([
-  { key: 'user', main: 'https://example.com/{user}', lenient: { trailingSlash: true } },
-  {
-    key: 'page',
-    main: 'https://example.com/p/{page}',
-    aliases: ['https://example.com/{page}/'],
-  },
-])
-
-const ampersandAlias = defineUrls([
-  {
-    key: 'feed',
-    main: 'https://example.com/feed.rss?a={a}',
-    aliases: ['https://example.com/old.rss?a={a}'],
-    lenient: { ampersandEntity: true },
-  },
-])
+const ampersandAlias = defineUrls(
+  [
+    {
+      key: 'feed',
+      main: 'https://example.com/feed.rss?a={a}',
+      aliases: ['https://example.com/old.rss?a={a}'],
+    },
+  ],
+  { lenient: { ampersandEntity: true } },
+)
 
 const escapedName = defineUrls([
   {
@@ -400,14 +307,7 @@ const escapedName = defineUrls([
   },
 ])
 
-const formName = defineUrls([
-  { key: 'item', main: 'https://example.com/items?item:id={id}', queryEncoding: 'form' },
-])
-
-const joined = defineUrls([
-  { key: 'plain', main: 'https://example.com/search?q={first}{second}' },
-  { key: 'form', main: 'https://example.com/find?q={first}{second}', queryEncoding: 'form' },
-])
+const joined = defineUrls([{ key: 'plain', main: 'https://example.com/search?q={first}{second}' }])
 
 const escapedFlag = defineUrls([
   {
@@ -415,11 +315,6 @@ const escapedFlag = defineUrls([
     main: 'https://example.com/list?my%20flag',
     aliases: ['https://old.example.com/list'],
   },
-])
-
-const formFlag = defineUrls([
-  { key: 'list', main: 'https://example.com/list?my:flag', queryEncoding: 'form' },
-  { key: 'page', main: 'https://example.com/page?{query}&x={query}', queryEncoding: 'form' },
 ])
 
 const brokenName = defineUrls([{ key: 'item', main: 'https://example.com/items?id%FF={id}' }])
@@ -501,14 +396,6 @@ const checkedNameCase = defineUrls(
   { checks: { atomFormat: (value) => isAnyOf(value, 'atom') } },
 )
 
-const checkedRepeat = defineUrls(
-  [
-    { key: 'repeated', main: 'https://example.com/search?types=a&types={count}' },
-    { key: 'other', main: 'https://example.com/search?types={type}&other=b' },
-  ],
-  { checks: { count: (value) => digitsRegex.test(value) } },
-)
-
 const checkedByRegex = defineUrls(
   [
     {
@@ -533,15 +420,6 @@ const movedFormat = defineUrls([
     key: 'posts',
     main: 'https://example.com/feed?alt=rss',
     aliases: ['https://old.example.com/feed'],
-  },
-])
-
-const formAlias = defineUrls([
-  {
-    key: 'item',
-    main: 'https://example.com/items?item:id={id}',
-    aliases: ['https://old.example.com/item/{id}'],
-    queryEncoding: 'form',
   },
 ])
 
@@ -577,15 +455,6 @@ const percentFlag = defineUrls([
   },
 ])
 
-const formSecondName = defineUrls([
-  {
-    key: 'item',
-    main: 'https://example.com/items?v=2&item:id={id}',
-    aliases: ['https://old.example.com/item/{id}'],
-    queryEncoding: 'form',
-  },
-])
-
 const renamed = defineUrls([
   {
     key: 'item',
@@ -600,10 +469,6 @@ const movedVersion = defineUrls([
     main: 'https://example.com/feed?v=2',
     aliases: ['https://old.example.com/feed'],
   },
-])
-
-const passedTwice = defineUrls([
-  { key: 'page', main: 'https://example.com/page?{query}&x={query}' },
 ])
 
 const sharedPages = defineUrls([
@@ -678,10 +543,12 @@ const rowChecked = defineUrls(
       key: 'docs',
       main: 'https://example.com/{locale}/docs',
       checks: { locale: regionLocaleRegex },
-      lenient: { case: ['locale'] },
     },
   ],
-  { checks: { hash: hexRegex } },
+  {
+    checks: { hash: hexRegex },
+    lenient: { case: ['locale'] },
+  },
 )
 
 const reservedHosts = ['api.example.com', 'open.example.com']
@@ -777,11 +644,7 @@ const fallThroughRowChecked = defineUrls(
       main: 'https://example.com/{username}/{channel}',
       checks: { channel: isChannel },
     },
-    {
-      key: 'view',
-      main: 'https://example.com/{username}/{view*}',
-      lenient: { trailingSlash: true },
-    },
+    { key: 'view', main: 'https://example.com/{username}/{view*}' },
   ],
   { isFallThrough: true },
 )
@@ -811,10 +674,7 @@ const selectedRows: Array<UrlRow> = [
   { key: 'feed', main: 'https://example.com/feed?alt=rss' },
   { key: 'feed', main: 'https://example.com/feed' },
   { key: 'site', main: 'https://example.com/{*}' },
-  { key: 'page', main: 'https://example.com/{page}?{query}' },
 ]
-
-const fallThroughSelected = defineUrls(selectedRows, { isFallThrough: true })
 
 const sameShapeSelected = defineUrls(selectedRows)
 
@@ -927,92 +787,6 @@ describe('defineUrls', () => {
       const match = table.read(value)
 
       expect(match?.key).toBe(expected)
-    })
-
-    it('should keep the listed parameters after the list of a returned row is edited', () => {
-      const table = defineUrls<UrlRow>([
-        {
-          key: 'posts',
-          main: 'https://example.com/feed',
-          aliases: ['https://example.com/rss'],
-          keptParams: ['page'],
-        },
-      ])
-      const value = 'https://example.com/rss?page=2&ref=home'
-      const expected = 'https://example.com/feed?page=2'
-
-      table.rows[0].keptParams?.push('ref')
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should keep the listed parameters after the list of a row it was given is edited', () => {
-      const rows: Array<UrlRow> = [
-        {
-          key: 'posts',
-          main: 'https://example.com/feed',
-          aliases: ['https://example.com/rss'],
-          keptParams: ['page'],
-        },
-      ]
-      const table = defineUrls(rows)
-      const value = 'https://example.com/rss?page=2&ref=home'
-      const expected = 'https://example.com/feed?page=2'
-
-      rows[0].keptParams?.push('ref')
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should keep the listed parameters after the list of a row it read is edited', () => {
-      const table = defineUrls<UrlRow>([
-        {
-          key: 'posts',
-          main: 'https://example.com/feed',
-          aliases: ['https://example.com/rss'],
-          keptParams: ['page'],
-        },
-      ])
-      const value = 'https://example.com/rss?page=2&ref=home'
-      const expected = 'https://example.com/feed?page=2'
-      const match = table.read(value)
-
-      match?.row.keptParams?.push('ref')
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should lowercase a value after the case list of a returned row is emptied', () => {
-      const table = defineUrls([
-        {
-          key: 'posts',
-          main: 'https://example.com/{user}/feed',
-          lenient: { case: ['user'] },
-        },
-      ])
-      const value = 'https://example.com/Alice/feed'
-      const expected = 'https://example.com/alice/feed'
-
-      table.rows[0].lenient?.case?.pop()
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should keep a value as written after the case list of a row it was given is edited', () => {
-      const rows: Array<UrlRow> = [
-        {
-          key: 'posts',
-          main: 'https://example.com/{user}/feed',
-          aliases: ['https://example.com/{user}/rss'],
-          lenient: { case: ['none'] },
-        },
-      ]
-      const table = defineUrls(rows)
-      const value = 'https://example.com/Alice/feed'
-
-      rows[0].lenient?.case?.push('user')
-
-      expect(table.getMainUrl(value)).toBeUndefined()
     })
 
     it('should lowercase a value after the case list of the table options is emptied', () => {
@@ -1288,13 +1062,6 @@ describe('defineUrls', () => {
       expect(unsorted.build('search', value)).toBe(expected)
     })
 
-    it('should keep the order of parameters under one name', () => {
-      const value = { id: '7' }
-      const expected = 'https://example.com/tags.rss?id=7&tag=news&tag=art'
-
-      expect(unsorted.build('tagged', value)).toBe(expected)
-    })
-
     it('should keep the order of one name in two cases', () => {
       const value = { id: '7' }
       const expected = 'https://example.com/list.rss?a=7&b=2&B=1'
@@ -1302,82 +1069,14 @@ describe('defineUrls', () => {
       expect(unsorted.build('cased', value)).toBe(expected)
     })
 
-    it('should sort a passed query together with the parameters of the row', () => {
-      const value = { query: 'year=2024&author=alice' }
-      const expected = 'https://example.com/filter.rss?author=alice&view=rss&year=2024'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should sort a percent-encoded name of a passed query as the name it decodes to', () => {
-      const value = { query: '%7Aone=1&b=2' }
-      const expected = 'https://example.com/filter.rss?b=2&view=rss&%7Aone=1'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should end a passed query at its fragment', () => {
-      const value = { query: 'author=alice#top' }
-      const expected = 'https://example.com/filter.rss?author=alice&view=rss'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should end a passed query at the first of two fragment marks', () => {
-      const value = { query: 'author=alice#top&year=2024#end' }
-      const expected = 'https://example.com/filter.rss?author=alice&view=rss'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should keep the order of one name written with + and with %20', () => {
-      const value = { query: 'q+x=first&q%20x=second' }
-      const expected = 'https://example.com/filter.rss?q+x=first&q%20x=second&view=rss'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should sort a name with two + as the name with two %20', () => {
-      const value = { query: 'q+x+y=first&q%20x%20y=second' }
-      const expected = 'https://example.com/filter.rss?q+x+y=first&q%20x%20y=second&view=rss'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should sort a name with an escape that is no UTF-8 as written', () => {
-      const value = { query: 'z=2&%FF=1' }
-      const expected = 'https://example.com/filter.rss?%FF=1&view=rss&z=2'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should sort a digit in a name before an underscore', () => {
-      const value = { query: 'a_=2&a1=1' }
-      const expected = 'https://example.com/filter.rss?a1=1&a_=2&view=rss'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it.each(parserRemovedQueries)('should build nothing from the passed query %j', (query) => {
-      const table = defineUrls([
-        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
-      ])
-      const value = {
-        id: '7',
-        query,
-      }
-
-      expect(table.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should throw for a passed query whose braces the row escapes', () => {
-      const value = [{ key: 'list', main: 'https://example.com/list?%7Bquery%7D' }]
+    it('should throw for a placeholder as a parameter name', () => {
+      const value = [{ key: 'list', main: 'https://example.com/list?{query}' }]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow('Not a feed URL template: https://example.com/list?%7Bquery%7D')
+      expect(throwing).toThrow('Not a feed URL template: https://example.com/list?{query}')
     })
 
-    it('should throw for a passed query whose braces the row escapes beside a path value', () => {
+    it('should throw for a placeholder as a parameter name whose braces the row escapes', () => {
       const value = [{ key: 'list', main: 'https://example.com/{user}/list?%7Bquery%7D' }]
       const throwing = () => defineUrls(value)
 
@@ -1386,90 +1085,13 @@ describe('defineUrls', () => {
       )
     })
 
-    it('should build nothing from a passed query of null', () => {
-      const table = defineUrls([
-        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
-      ])
-      const value = {
-        id: '7',
-        query: null,
-      }
+    it('should throw for a parameter the row names twice', () => {
+      const value = [{ key: 'search', main: 'https://example.com/search?types=page&types=post' }]
+      const throwing = () => defineUrls(value)
 
-      // @ts-expect-error: This is for testing purposes.
-      expect(table.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should build nothing from a passed query that is no text', () => {
-      const table = defineUrls([
-        { key: 'agenda', main: 'https://example.com/Feed.ashx?ID={id}&{query}' },
-      ])
-      const value = {
-        id: '7',
-        query: 5,
-      }
-
-      // @ts-expect-error: This is for testing purposes.
-      expect(table.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should build a name the row gives as a flag and with a value as the flag twice', () => {
-      const table = defineUrls([{ key: 'entry', main: 'https://example.com/feed?rss&rss={id}' }])
-      const value = { id: '7' }
-      const expected = 'https://example.com/feed?rss&rss'
-
-      expect(table.build('entry', value)).toBe(expected)
-    })
-
-    it('should build a placeholder name with a value as a parameter of the row', () => {
-      const table = defineUrls([{ key: 'list', main: 'https://example.com/list?{query}=5' }])
-      const value = { query: 'page=2' }
-      const expected = 'https://example.com/list?{query}=5'
-
-      expect(table.build('list', value)).toBe(expected)
-    })
-
-    it('should build a placeholder name with a value beside a passed query of that name', () => {
-      const table = defineUrls([
-        { key: 'list', main: 'https://example.com/list?{query}&{query}=5' },
-      ])
-      const value = { query: 'page=2' }
-      const expected = 'https://example.com/list?page=2&{query}=5'
-
-      expect(table.build('list', value)).toBe(expected)
-    })
-
-    it('should drop a passed parameter the row sets, its name written with +', () => {
-      const table = defineUrls([
-        { key: 'filtered', main: 'https://example.com/filter.rss?{query}&sort%20by=date' },
-      ])
-      const value = { query: 'sort+by=title&year=2024' }
-      const expected = 'https://example.com/filter.rss?sort%20by=date&year=2024'
-
-      expect(table.build('filtered', value)).toBe(expected)
-    })
-
-    it('should drop a passed parameter the row sets, its name an escape that is no UTF-8', () => {
-      const table = defineUrls([
-        { key: 'filtered', main: 'https://example.com/filter.rss?{query}&id%FF=1' },
-      ])
-      const value = { query: 'id%FF=2&year=2024' }
-      const expected = 'https://example.com/filter.rss?id%EF%BF%BD=1&year=2024'
-
-      expect(table.build('filtered', value)).toBe(expected)
-    })
-
-    it('should write &amp; in a passed query as given on a row without the ampersand mark', () => {
-      const value = { query: 'year=2024&amp;author=alice' }
-      const expected = 'https://example.com/filter.rss?amp;author=alice&view=rss&year=2024'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should build a passed pair that starts with amp; on a row without the ampersand mark', () => {
-      const value = { query: 'amp;author=alice&year=2024' }
-      const expected = 'https://example.com/filter.rss?amp;author=alice&view=rss&year=2024'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
+      expect(throwing).toThrow(
+        'Not a feed URL template: https://example.com/search?types=page&types=post',
+      )
     })
 
     it('should write a URL the main URL of its row leaves alone', () => {
@@ -1488,59 +1110,12 @@ describe('defineUrls', () => {
       expect(joined.build('plain', value)).toBe(expected)
     })
 
-    it('should escape a character split across two values under the form encoding', () => {
-      const value = {
-        first: '\ud83d',
-        second: '\ude00',
-      }
-      const expected = 'https://example.com/find?q=%F0%9F%98%80'
-
-      expect(joined.build('form', value)).toBe(expected)
-    })
-
     it('should write a value that is no text as its text', () => {
       const value = { id: true }
       const expected = 'https://example.com/items?id=true'
 
       // @ts-expect-error: This is for testing purposes.
       expect(moved.build('item', value)).toBe(expected)
-    })
-
-    it('should write a flag as the row spells it under the form encoding', () => {
-      const value = {}
-      const expected = 'https://example.com/list?my:flag'
-
-      expect(formFlag.build('list', value)).toBe(expected)
-    })
-
-    it('should write an empty value under the form encoding', () => {
-      const value = { query: '' }
-      const expected = 'https://example.com/page?x='
-
-      expect(formFlag.build('page', value)).toBe(expected)
-    })
-
-    it('should write no pair for an empty value under the default encoding', () => {
-      const value = { query: '' }
-      const expected = 'https://example.com/page'
-
-      expect(passedTwice.build('page', value)).toBe(expected)
-    })
-
-    it('should drop a passed pair without a name', () => {
-      const value = { query: '=1&year=2024' }
-      const expected = 'https://example.com/filter.rss?view=rss&year=2024'
-
-      expect(unsorted.build('filtered', value)).toBe(expected)
-    })
-
-    it('should sort 200 kB of a passed query within a second', () => {
-      const value = { query: 'b=1&a=1&'.repeat(25000) }
-      const startedAt = performance.now()
-
-      unsorted.build('filtered', value)
-
-      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 
@@ -1631,13 +1206,6 @@ describe('defineUrls', () => {
     it('should keep a parameter after the query the main URL sets itself', () => {
       const value = 'https://alice.example.org/rss.xml?max-results=5'
       const expected = 'https://alice.example.org/feeds/posts/default?alt=rss&max-results=5'
-
-      expect(spellings.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should hand a passed query to the main URL', () => {
-      const value = 'https://old.example.com/search.rss?q=feeds&sort=new'
-      const expected = 'https://www.example.com/search.rss?q=feeds&sort=new'
 
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
@@ -2011,19 +1579,6 @@ describe('defineUrls', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for a URL that gives a repeated parameter once', () => {
-      const repeated = defineUrls([
-        {
-          key: 'pair',
-          main: 'https://feeds.example.com/pair.xml?id={id}',
-          aliases: ['https://example.com/pair.xml?id={id}&id={id}'],
-        },
-      ])
-      const value = 'https://example.com/pair.xml?id=7'
-
-      expect(repeated.getMainUrl(value)).toBeUndefined()
-    })
-
     it('should return undefined for an alias value that holds the fixed text of the main URL', () => {
       const value = 'https://example.com/plain/Art/Alice_by_Bob'
 
@@ -2114,15 +1669,6 @@ describe('defineUrls', () => {
       expect(main).toBe(expected)
     })
 
-    it('should read another value of a parameter every template of the key sets alike', () => {
-      const value = 'https://example.com/search.xml?q=feeds&types=page&types=post&types=comment'
-      const expected = 'search'
-
-      const key = formats.read(value)?.key
-
-      expect(key).toBe(expected)
-    })
-
     it('should return undefined for a value only a row of another key on the path sets', () => {
       const value = 'https://example.com/feed?type=other'
 
@@ -2147,14 +1693,6 @@ describe('defineUrls', () => {
       const value = 'https://example.com/feed?alt=rss2'
       const expected = 'https://example.com/feed'
       const main = keptFormats.read(value)?.row.main
-
-      expect(main).toBe(expected)
-    })
-
-    it('should read any value on a row that passes the query on', () => {
-      const value = 'https://example.com/feed?alt=rss2'
-      const expected = 'https://example.com/feed?{query}'
-      const main = passedFormats.read(value)?.row.main
 
       expect(main).toBe(expected)
     })
@@ -2321,12 +1859,6 @@ describe('defineUrls', () => {
       expect(listed.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep a value as written on a row that turns the mark off', () => {
-      const value = 'https://feeds.example.com/tags.rss?tag=News'
-
-      expect(marked.getMainUrl(value)).toBeUndefined()
-    })
-
     it('should write a query value of an alias in lowercase', () => {
       const value = 'https://example.com/feed.php?name=Alice'
       const expected = 'https://feeds.example.com/alice'
@@ -2356,44 +1888,26 @@ describe('defineUrls', () => {
     })
 
     it('should not read true as the case mark', () => {
-      const table = defineUrls([
-        {
-          key: 'user',
-          main: 'https://example.com/users/{user}',
-          // @ts-expect-error: The case mark takes a list of placeholder names.
-          lenient: { case: true },
-        },
-      ])
+      const table = defineUrls([{ key: 'user', main: 'https://example.com/users/{user}' }], {
+        // @ts-expect-error: The case mark takes a list of placeholder names.
+        lenient: { case: true },
+      })
       const value = 'https://example.com/users/Alice'
 
       expect(table.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should throw for a marked value that shares a path segment with another value', () => {
-      const throwing = () => {
-        return defineUrls([
-          {
-            key: 'board',
-            main: 'https://example.com/{board}_by_{user}',
-            lenient: { case: ['user'] },
-          },
-        ])
-      }
-
-      expect(throwing).toThrow(
-        'The board row marks the case of user, which shares a part of its URL with another value',
-      )
-    })
-
     it('should throw for a marked value that shares a host label with another value', () => {
       const throwing = () => {
-        return defineUrls([
-          {
-            key: 'blog',
-            main: 'https://{blog}-{user}.example.com/feed',
-            lenient: { case: ['blog'] },
-          },
-        ])
+        return defineUrls(
+          [
+            {
+              key: 'blog',
+              main: 'https://{blog}-{user}.example.com/feed',
+            },
+          ],
+          { lenient: { case: ['blog'] } },
+        )
       }
 
       expect(throwing).toThrow(
@@ -2403,13 +1917,15 @@ describe('defineUrls', () => {
 
     it('should throw for a marked value that shares a query value with another value', () => {
       const throwing = () => {
-        return defineUrls([
-          {
-            key: 'range',
-            main: 'https://example.com/range.rss?r={from}-{to}',
-            lenient: { case: ['to'] },
-          },
-        ])
+        return defineUrls(
+          [
+            {
+              key: 'range',
+              main: 'https://example.com/range.rss?r={from}-{to}',
+            },
+          ],
+          { lenient: { case: ['to'] } },
+        )
       }
 
       expect(throwing).toThrow(
@@ -2419,14 +1935,16 @@ describe('defineUrls', () => {
 
     it('should throw for a marked value that shares a path segment of an alias', () => {
       const throwing = () => {
-        return defineUrls([
-          {
-            key: 'board',
-            main: 'https://example.com/boards/{board}/{user}',
-            aliases: ['https://example.com/{board}_by_{user}'],
-            lenient: { case: ['user'] },
-          },
-        ])
+        return defineUrls(
+          [
+            {
+              key: 'board',
+              main: 'https://example.com/boards/{board}/{user}',
+              aliases: ['https://example.com/{board}_by_{user}'],
+            },
+          ],
+          { lenient: { case: ['user'] } },
+        )
       }
 
       expect(throwing).toThrow(
@@ -2448,35 +1966,20 @@ describe('defineUrls', () => {
 
     it('should throw for a marked value in a template with two values of several segments', () => {
       const throwing = () => {
-        return defineUrls([
-          {
-            key: 'thread',
-            main: 'https://example.com/{board*}/feed/{thread*}',
-            lenient: { case: ['thread'] },
-          },
-        ])
+        return defineUrls(
+          [
+            {
+              key: 'thread',
+              main: 'https://example.com/{board*}/feed/{thread*}',
+            },
+          ],
+          { lenient: { case: ['thread'] } },
+        )
       }
 
       expect(throwing).toThrow(
         'The thread row marks the case of thread, which shares a part of its URL with another value',
       )
-    })
-
-    it('should not throw for a row that turns the mark of the table off', () => {
-      const defining = () => {
-        return defineUrls(
-          [
-            {
-              key: 'board',
-              main: 'https://example.com/{board}_by_{user}',
-              lenient: { case: [] },
-            },
-          ],
-          { lenient: { case: ['user'] } },
-        )
-      }
-
-      expect(defining).not.toThrow()
     })
 
     it('should write 200 kB of a value in lowercase within a second', () => {
@@ -2486,164 +1989,6 @@ describe('defineUrls', () => {
       marked.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
-    })
-
-    it('should not write a value in lowercase on a row that sets the mark to undefined', () => {
-      const table = defineUrls(
-        [
-          {
-            key: 'user',
-            main: 'https://example.com/users/{user}',
-            aliases: ['https://example.com/u/{user}'],
-            lenient: { case: undefined },
-          },
-        ],
-        { lenient: { case: ['user'] } },
-      )
-      const value = 'https://example.com/u/Alice'
-      const expected = 'https://example.com/users/Alice'
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-  })
-
-  describe('with the trailing slash mark', () => {
-    it('should mark a URL with a trailing slash the row does not write as exact', () => {
-      const value = 'https://feeds.example.com/alice/'
-      const match = marked.read(value)
-
-      expect(match?.isExact).toBe(true)
-    })
-
-    it('should drop a trailing slash the main URL does not write', () => {
-      const value = 'https://feeds.example.com/alice/'
-      const expected = 'https://feeds.example.com/alice'
-
-      expect(marked.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should write an alias without the trailing slash it writes as the main URL', () => {
-      const value = 'https://example.com/alice/feed'
-      const expected = 'https://feeds.example.com/alice'
-
-      expect(marked.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should return undefined for a trailing slash another row writes', () => {
-      const value = 'https://example.com/alice/'
-
-      expect(slashed.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return undefined for a trailing slash the alias of another row writes', () => {
-      const value = 'https://example.com/alice/'
-
-      expect(aliasSlash.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return undefined for a trailing slash another row writes on the www host', () => {
-      const value = 'https://www.example.com/alice/'
-
-      expect(slashed.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return undefined for a missing trailing slash another row writes without', () => {
-      const value = 'https://example.com/blog/alice'
-
-      expect(slashed.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return undefined for a trailing slash another row writes after fixed text given as an escape', () => {
-      const value = 'https://example.com/%40alice/'
-
-      expect(profiles.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return undefined for a trailing slash another row writes after fixed text in another case', () => {
-      const value = 'https://example.com/About/'
-
-      expect(profiles.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should not mark a trailing slash another row writes after an escape as exact', () => {
-      const value = 'https://example.com/%61bout/'
-      const match = profiles.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should not mark a trailing slash as exact on a row that turns the mark off', () => {
-      const value = 'https://feeds.example.com/archive/alice/feed/'
-      const match = marked.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should not mark a trailing slash as exact on a row that sets the mark to undefined', () => {
-      const table = defineUrls(
-        [
-          {
-            key: 'user',
-            main: 'https://example.com/users/{user}',
-            lenient: { trailingSlash: undefined },
-          },
-        ],
-        { lenient: { trailingSlash: true } },
-      )
-      const value = 'https://example.com/users/alice/'
-      const match = table.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should not read a list as the trailing slash mark', () => {
-      const table = defineUrls([
-        {
-          key: 'user',
-          main: 'https://example.com/{user}',
-          // @ts-expect-error: The trailing slash mark is a boolean.
-          lenient: { trailingSlash: ['user'] },
-        },
-      ])
-      const value = 'https://example.com/alice/'
-      const match = table.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should not read a misspelled key as the trailing slash mark', () => {
-      const table = defineUrls([
-        {
-          key: 'user',
-          main: 'https://example.com/{user}',
-          // @ts-expect-error: A key that is no mark fails the typecheck.
-          lenient: { trailingslash: true },
-        },
-      ])
-      const value = 'https://example.com/alice/'
-      const match = table.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should not mark a trailing slash another row writes as exact', () => {
-      const value = 'https://example.com/alice/'
-      const match = slashed.read(value)
-
-      expect(match?.isExact).toBe(false)
-    })
-
-    it('should return undefined for a trailing slash a row that is only built writes', () => {
-      const value = 'https://example.com/u/alice/'
-
-      expect(builtSlash.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should mark a trailing slash as exact on a row that turns another mark off', () => {
-      const value = 'https://feeds.example.com/tags.rss/?tag=news'
-      const match = marked.read(value)
-
-      expect(match?.isExact).toBe(true)
     })
   })
 
@@ -2675,108 +2020,10 @@ describe('defineUrls', () => {
       expect(ampersands.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for &amp; on a row that turns the mark off', () => {
-      const value = 'https://example.com/Calendar.ashx?M=CL&amp;ID=7&amp;GUID=a1b2'
-
-      expect(ampersands.read(value)).toBeUndefined()
-    })
-
     it('should return undefined for &amp; on a row without the mark', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
 
       expect(unmarkedAmpersands.read(value)).toBeUndefined()
-    })
-
-    it('should build a passed query with &amp; between its pairs as one with &', () => {
-      const value = { query: 'M=LD&amp;ID=7' }
-      const expected = 'https://example.com/Feed.ashx?ID=7&M=LD'
-
-      expect(ampersandPassed.build('agenda', value)).toBe(expected)
-    })
-
-    it('should build nothing from a passed query with a pair that starts with amp;', () => {
-      const value = { query: 'amp;ID=7&M=LD' }
-
-      expect(ampersandPassed.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should build nothing from a passed query with a doubled &amp; behind another pair', () => {
-      const value = { query: 'M=LD&amp;amp;ID=7' }
-
-      expect(ampersandPassed.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should end a passed query at its fragment', () => {
-      const value = { query: 'ID=7#top' }
-      const expected = 'https://example.com/Feed.ashx?ID=7'
-
-      expect(ampersandPassed.build('agenda', value)).toBe(expected)
-    })
-
-    it('should build nothing from a refused passed query beside a row without one', () => {
-      const value = { query: 'cat=5&amp;amp;paged=2' }
-
-      expect(ampersandFallback.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should build nothing from a refused passed query beside an alias without one', () => {
-      const value = { query: 'cat=5&amp;amp;paged=2' }
-
-      expect(ampersandSpellings.build('agenda', value)).toBeUndefined()
-    })
-
-    it('should list no URL for a refused passed query beside a row without one', () => {
-      const value = { query: 'cat=5&amp;amp;paged=2' }
-
-      expect(ampersandFallback.buildAll('agenda', value)).toEqual([])
-    })
-
-    it('should list no URL for a refused passed query beside an alias without one', () => {
-      const value = { query: 'cat=5&amp;amp;paged=2' }
-
-      expect(ampersandSpellings.buildAll('agenda', value)).toEqual([])
-    })
-
-    it('should build nothing from a passed pair that starts with amp; beside a marked row', () => {
-      const value = { query: 'amp;b=2&a=1' }
-
-      expect(ampersandMixed.build('list', value)).toBeUndefined()
-    })
-
-    it('should build nothing from a passed pair with a tab inside amp; beside a marked row', () => {
-      const value = { query: 'a\tmp;b=2&a=1' }
-
-      expect(ampersandMixed.build('list', value)).toBeUndefined()
-    })
-
-    it('should build a passed query that holds amp; behind other text', () => {
-      const value = { query: 'a=amp;x&stamp;y=1' }
-      const expected = 'https://example.com/Feed.ashx?a=amp;x&stamp;y=1'
-
-      expect(ampersandPassed.build('agenda', value)).toBe(expected)
-    })
-
-    it('should list the main URL alone for a refused passed query on an alias', () => {
-      const table = defineUrls(
-        [
-          {
-            key: 'agenda',
-            main: 'https://example.com/Feed.ashx?M=LD',
-            aliases: ['https://example.com/feed.aspx?{query}'],
-          },
-        ],
-        { lenient: { ampersandEntity: true } },
-      )
-      const value = { query: 'cat=5&amp;amp;paged=2' }
-      const expected = ['https://example.com/Feed.ashx?M=LD']
-
-      expect(table.buildAll('agenda', value)).toEqual(expected)
-    })
-
-    it('should build nothing from a passed query with &amp; beside a marked row', () => {
-      const value = { query: 'b=2&amp;a=1' }
-
-      expect(ampersandMixed.build('list', value)).toBeUndefined()
     })
 
     it('should throw for a name that starts with amp; behind another parameter', () => {
@@ -2784,23 +2031,6 @@ describe('defineUrls', () => {
         return defineUrls([{ key: 'list', main: 'https://example.com/list.rss?a=1&amp;x=1' }], {
           lenient: { ampersandEntity: true },
         })
-      }
-
-      expect(throwing).toThrow(
-        'The list row sets amp;x, which the ampersand mark reads as another parameter',
-      )
-    })
-
-    it('should throw for such a name on a row without the mark beside a row under it', () => {
-      const throwing = () => {
-        return defineUrls([
-          { key: 'list', main: 'https://example.com/feed?amp;x=1&a=1' },
-          {
-            key: 'item',
-            main: 'https://example.com/feed?a=1&x=1',
-            lenient: { ampersandEntity: true },
-          },
-        ])
       }
 
       expect(throwing).toThrow(
@@ -2825,22 +2055,6 @@ describe('defineUrls', () => {
         return defineUrls([{ key: 'list', main: 'https://example.com/list.rss?amp;x=1&a=1' }], {
           lenient: { ampersandEntity: true },
         })
-      }
-
-      expect(throwing).toThrow(
-        'The list row sets amp;x, which the ampersand mark reads as another parameter',
-      )
-    })
-
-    it('should throw for such a name beside a passed query with the mark on the row', () => {
-      const throwing = () => {
-        return defineUrls([
-          {
-            key: 'list',
-            main: 'https://example.com/list.rss?amp;x=1&{query}',
-            lenient: { ampersandEntity: true },
-          },
-        ])
       }
 
       expect(throwing).toThrow(
@@ -2905,24 +2119,6 @@ describe('defineUrls', () => {
       expect(match?.isExact).toBe(false)
     })
 
-    it('should return no main URL where the sorted query reads as a row under the mark', () => {
-      const value = 'https://example.com/feed?amp;b=2&a=1'
-
-      expect(ampersandPair.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return no main URL where the sorted query reads as a row with a fixed pair', () => {
-      const value = 'https://example.com/feed?amp;b=2&a=1'
-
-      expect(ampersandFixed.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should return no main URL for &amp; on a row without the mark beside a row under it', () => {
-      const value = 'https://example.com/feed?a=1&amp;x=2'
-
-      expect(ampersandPair.getMainUrl(value)).toBeUndefined()
-    })
-
     it('should mark a URL with &amp; on a row without the mark as exact', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&ID=7&GUID=a1b2&amp;x=3'
       const match = unmarkedAmpersands.read(value)
@@ -2958,14 +2154,6 @@ describe('defineUrls', () => {
       expect(ampersandTags.getMainUrl(value)).toBe(expected)
     })
 
-    it('should read a URL with &amp; as a row without the mark beside a row under it', () => {
-      const value = 'https://example.com/feed?amp;b=2&a=1&amp;z=1'
-      const expected = 'one'
-      const match = ampersandFixed.read(value)
-
-      expect(match?.key).toBe(expected)
-    })
-
     it('should not read an entity in capitals as &', () => {
       const value = 'https://example.com/feed?tag=a&AMP;type=posts&amp;z=1'
       const expected = 'posts'
@@ -2975,14 +2163,10 @@ describe('defineUrls', () => {
     })
 
     it('should not read a string as the ampersand entity mark', () => {
-      const table = defineUrls([
-        {
-          key: 'feed',
-          main: 'https://example.com/feed?a={a}&b={b}',
-          // @ts-expect-error: The ampersand entity mark is a boolean.
-          lenient: { ampersandEntity: 'yes' },
-        },
-      ])
+      const table = defineUrls([{ key: 'feed', main: 'https://example.com/feed?a={a}&b={b}' }], {
+        // @ts-expect-error: The ampersand entity mark is a boolean.
+        lenient: { ampersandEntity: 'yes' },
+      })
       const value = 'https://example.com/feed?a=1&amp;b=2'
 
       expect(table.read(value)).toBeUndefined()
@@ -3034,13 +2218,9 @@ describe('defineUrls', () => {
     })
 
     it('should keep a listed parameter whose name is written with +', () => {
-      const table = defineUrls([
-        {
-          key: 'posts',
-          main: 'https://example.com/posts.xml?id={id}',
-          keptParams: ['max results'],
-        },
-      ])
+      const table = defineUrls([{ key: 'posts', main: 'https://example.com/posts.xml?id={id}' }], {
+        keptParams: ['max results'],
+      })
       const value = 'https://example.com/posts.xml?ref=home&max+results=5&id=7'
       const expected = 'https://example.com/posts.xml?id=7&max+results=5'
 
@@ -3048,23 +2228,12 @@ describe('defineUrls', () => {
     })
 
     it('should return undefined for a main URL with an own parameter given again with +', () => {
-      const table = defineUrls([
-        {
-          key: 'posts',
-          main: 'https://example.com/posts.xml?id={id}',
-          keptParams: ['page'],
-        },
-      ])
+      const table = defineUrls([{ key: 'posts', main: 'https://example.com/posts.xml?id={id}' }], {
+        keptParams: ['page'],
+      })
       const value = 'https://example.com/posts.xml?id=7&id+=8&ref=home'
 
       expect(table.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should take the list of the row over the list of the table', () => {
-      const value = 'https://example.com/search.xml?q=feeds&sort=new&max-results=5'
-      const expected = 'https://feeds.example.com/search.xml?q=feeds&sort=new'
-
-      expect(paged.getMainUrl(value)).toBe(expected)
     })
 
     it('should drop every parameter for an empty list', () => {
@@ -3079,16 +2248,6 @@ describe('defineUrls', () => {
       const expected = 'http://feeds.example.com/alice'
 
       expect(bare.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should throw for a kept parameter the URL of the row already sets', () => {
-      const throwing = () => {
-        return defineUrls([
-          { key: 'search', main: 'https://example.com/search.xml?q={query}', keptParams: ['q'] },
-        ])
-      }
-
-      expect(throwing).toThrow('The search row keeps q, which its URL already sets')
     })
   })
 
@@ -3126,27 +2285,6 @@ describe('defineUrls', () => {
       const expected = 'https://example.com/list?my%20flag'
 
       expect(escapedFlag.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should mark the name as the form encoding writes it as exact', () => {
-      const value = 'https://example.com/items?item%3Aid=5'
-      const match = formName.read(value)
-
-      expect(match?.isExact).toBe(true)
-    })
-
-    it('should mark the name as the row spells it as exact', () => {
-      const value = 'https://example.com/items?item:id=5'
-      const match = formName.read(value)
-
-      expect(match?.isExact).toBe(true)
-    })
-
-    it('should keep the name as the URL spells it', () => {
-      const value = 'http://example.com/items?item:id=5'
-      const expected = 'https://example.com/items?item:id=5'
-
-      expect(formName.getMainUrl(value)).toBe(expected)
     })
 
     it('should not mark a name with an escape that is no UTF-8 as exact', () => {
@@ -3188,20 +2326,6 @@ describe('defineUrls', () => {
       expect(keptEscape.getMainUrl(value)).toBe(expected)
     })
 
-    it('should write an alias that gives the parameter of the main URL as the row spells it', () => {
-      const value = 'https://old.example.com/item/5?item:id=5'
-      const expected = 'https://example.com/items?item%3Aid=5'
-
-      expect(formAlias.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should write an alias that gives the parameter of the main URL as the row builds it', () => {
-      const value = 'https://old.example.com/item/5?item%3Aid=5'
-      const expected = 'https://example.com/items?item%3Aid=5'
-
-      expect(formAlias.getMainUrl(value)).toBe(expected)
-    })
-
     it('should write an alias that gives a name with a percent sign as the row names it', () => {
       const value = 'https://old.example.com/entry/5?rate%=5'
       const expected = 'https://example.com/entries?rate%25=5'
@@ -3209,30 +2333,11 @@ describe('defineUrls', () => {
       expect(percentName.getMainUrl(value)).toBe(expected)
     })
 
-    it('should leave an alias that gives the parameter as the row spells it another value', () => {
-      const value = 'https://old.example.com/item/5?item:id=6'
-
-      expect(formAlias.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should leave an alias that gives the parameter in a third spelling', () => {
-      const value = 'https://old.example.com/item/5?item%3aid=5'
-
-      expect(formAlias.getMainUrl(value)).toBeUndefined()
-    })
-
     it('should write an alias that gives a flag with a percent sign as the row names it', () => {
       const value = 'https://old.example.com/list?rate%'
       const expected = 'https://example.com/list?rate%25'
 
       expect(percentFlag.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should write an alias that gives the second parameter as the row spells it', () => {
-      const value = 'https://old.example.com/item/5?item:id=5'
-      const expected = 'https://example.com/items?item%3Aid=5&v=2'
-
-      expect(formSecondName.getMainUrl(value)).toBe(expected)
     })
 
     it('should leave an alias with a name read as one parameter and spelled as another', () => {
@@ -3254,15 +2359,6 @@ describe('defineUrls', () => {
       const throwing = () => defineUrls(value)
 
       expect(throwing).toThrow('Not a feed URL template: https://example.com/items??id={id}')
-    })
-
-    it('should throw for a passed query behind a second question mark', () => {
-      const value = [{ key: 'list', main: 'https://example.com/list??{query}&type=rss' }]
-      const throwing = () => defineUrls(value)
-
-      expect(throwing).toThrow(
-        'Not a feed URL template: https://example.com/list??{query}&type=rss',
-      )
     })
 
     it('should throw for an alias whose query opens with a second question mark', () => {
@@ -3307,8 +2403,8 @@ describe('defineUrls', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
-    it('should keep a bare question mark of a URL it drops the trailing slash of', () => {
-      const value = 'https://feeds.example.com/alice/?'
+    it('should keep a bare question mark of a URL it writes a value of in lowercase', () => {
+      const value = 'https://feeds.example.com/Alice?'
       const expected = 'https://feeds.example.com/alice?'
 
       expect(marked.getMainUrl(value)).toBe(expected)
@@ -3438,12 +2534,6 @@ describe('defineUrls', () => {
       const match = checkedNameCase.read(value)
 
       expect(match?.key).toBe('rss')
-    })
-
-    it('should return undefined beside a row with another parameter', () => {
-      const value = 'https://example.com/search?types=a&types=bad&other=b'
-
-      expect(checkedRepeat.read(value)).toBeUndefined()
     })
   })
 
@@ -4852,14 +3942,6 @@ describe('defineUrls', () => {
       expect(fallThroughIssues.read(value)).toBeUndefined()
     })
 
-    it('should pass a URL with a parameter value no row of the key lists to a later row', () => {
-      const value = 'https://example.com/feed?alt=json'
-      const expected: Record<string, string> = { page: 'feed' }
-      const match = fallThroughSelected.read(value)
-
-      expect(match?.params).toEqual(expected)
-    })
-
     it('should return undefined where the parameter refuses every later row too', () => {
       const value = 'https://example.com/feed?alt=json'
 
@@ -4867,14 +3949,14 @@ describe('defineUrls', () => {
     })
 
     it('should say whether the URL is written as the row that took it writes it', () => {
-      const value = 'https://example.com/alice/followers/'
+      const value = 'https://example.com/alice/followers'
       const match = fallThroughRowChecked.read(value)
 
       expect(match?.isExact).toBe(true)
     })
 
     it('should write the main URL of the row that took the URL', () => {
-      const value = 'http://example.com/alice/followers/'
+      const value = 'http://example.com/alice/followers'
       const expected = 'https://example.com/alice/followers'
 
       expect(fallThroughRowChecked.getMainUrl(value)).toBe(expected)

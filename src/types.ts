@@ -15,9 +15,6 @@ export type UrlLenient = {
   // The placeholders whose value is read in any letter case. The main URL writes it in lowercase.
   // A table throws for one that shares a host label, path segment or query value with another.
   case?: Array<string>
-  // A URL with or without a trailing slash. A slash another row writes on the same path is not
-  // covered: such a URL is not exact and not rewritten.
-  trailingSlash?: boolean
   // `&amp;` between query pairs read as `&`.
   ampersandEntity?: boolean
 }
@@ -26,7 +23,7 @@ export type UrlRow<Key extends string = string> = {
   key: Key
   // The row's URL. `{name}` is one host label, path segment or query value, `{scheme}` the page's
   // scheme, `{root}` its scheme, host and base path, `{name*}` one or more path segments, `/{*}`
-  // at the end of the path zero or more, and a parameter such as `?{query}` a passed query.
+  // at the end of the path zero or more.
   main: string
   // Other URLs that serve the same thing, such as a legacy host, written as `main` is.
   aliases?: Array<string>
@@ -36,17 +33,6 @@ export type UrlRow<Key extends string = string> = {
   // A name that tells the row from another of its key with the same placeholders, which the
   // values cannot tell apart. A build given a variant takes only the rows of that variant.
   variant?: string
-  // How the row's query values are written: `minimal`, the default, escapes only what would
-  // change the URL's structure, and `form` encodes as `URLSearchParams` does, `:` as `%3A` and a
-  // space as `+`.
-  queryEncoding?: 'minimal' | 'form'
-  // The query parameters the row takes beside the ones its URLs set, as `max-results`: names as
-  // the platform writes them, never placeholder names. With a list, a rewrite to the main URL
-  // drops every other parameter. Without one it keeps them all.
-  keptParams?: Array<string>
-  // The row's marks over the table's, key by key, so `{ case: [] }` or `{ trailingSlash: false }`
-  // turns the table's mark off.
-  lenient?: UrlLenient
   // The row's own checks beside the table's, in the same forms: a value passes both. A function
   // also gets every value the row read or is built from, as `(date, { host }) => …`. A check
   // left undefined is no check: a list of rows that check different names types each name a row
@@ -96,9 +82,11 @@ export type UrlTableOptions = {
   // both ends with no `g` or `y` flag, as `{ id: /^\d+$/ }`. A URL whose value fails its check is
   // neither built nor read.
   checks?: Record<string, UrlCheck>
-  // The `keptParams` of every row that names none of its own.
+  // The query parameters every row takes beside the ones its URLs set, as `max-results`: names as
+  // the platform writes them, never placeholder names. With a list, a rewrite to the main URL
+  // drops every other parameter. Without one it keeps them all.
   keptParams?: Array<string>
-  // The marks of every row, which a row's own `lenient` overrides key by key.
+  // The marks of every row.
   lenient?: UrlLenient
   // Whether a row that refuses a URL, by a check or by a parameter that tells rows apart, passes
   // it to the next row that fits in the order rows are read, of any shape. For page tables: a
@@ -106,11 +94,9 @@ export type UrlTableOptions = {
   isFallThrough?: boolean
 }
 
-// A feed table takes no `isFallThrough`: a looser row would claim a feed another row refused.
-export type FeedUrlTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
-
-// A page table always passes a refused URL on, so it takes no `isFallThrough` either.
-export type PageUrlTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
+// A feed table takes no `isFallThrough`, since a looser row would claim a feed another row
+// refused. A page table always passes a refused URL on.
+export type PlatformTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
 
 // How the rows that open with `{root}` read a URL on any host. With either option only those rows
 // are read, `hosts` is left aside, the URL is never exact, and `root` is among the values read.
@@ -123,11 +109,9 @@ export type UrlReadOptions = {
   isAnyHost?: boolean
 }
 
-// The names of a template's placeholders, but a passed query's, which names no value.
+// The names of a template's placeholders.
 type TemplateNames<Template extends string> =
-  Template extends `${infer Before}{${infer Name}}${infer Rest}`
-    ? (Before extends `${string}${'?' | '&'}` ? never : Name) | TemplateNames<Rest>
-    : never
+  Template extends `${string}{${infer Name}}${infer Rest}` ? Name | TemplateNames<Rest> : never
 
 // The templates of a row: its main URL and its aliases.
 type RowTemplates<Row> = Row extends { main: infer Main extends string }

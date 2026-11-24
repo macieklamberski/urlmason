@@ -5,8 +5,8 @@ import type {
   FeedHint,
   FeedUrlRow,
   FeedUrlTable,
-  FeedUrlTableOptions,
   Platform,
+  PlatformTableOptions,
 } from '../types.js'
 import { defineUrls } from './tables.js'
 
@@ -20,7 +20,7 @@ type FeedPage<Key extends string> = Pick<
 export const defineFeedUrls = <const Row extends FeedUrlRow>(
   platform: string,
   rows: Array<Row>,
-  options: FeedUrlTableOptions = {},
+  options: PlatformTableOptions = {},
 ): FeedUrlTable<Row['key'], Row> => {
   type Key = Row['key']
 
