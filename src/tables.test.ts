@@ -1211,6 +1211,14 @@ describe('defineUrls', () => {
       expect(table.build('item', value, select)).toBeUndefined()
     })
 
+    it('should write a host label in lowercase', () => {
+      const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
+      const value = { journal: 'Alice' }
+      const expected = 'https://alice.example.com/feed'
+
+      expect(table.build('journal', value)).toBe(expected)
+    })
+
     it('should build nothing from a host label with a space', () => {
       const table = defineUrls([{ key: 'journal', main: 'https://{journal}.example.com/feed' }])
       const value = { journal: 'a b' }

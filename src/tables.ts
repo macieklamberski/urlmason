@@ -1224,15 +1224,17 @@ const compileTemplate = (
       }
     }
 
+    // A host reads in any case, so a value that fills a host label is written in lowercase.
+    const filledHost = isRootTemplate ? '' : fillPlaceholders(host).toLowerCase()
     // A root is written as given, without the trailing slash the path brings.
     const origin = isRootTemplate
       ? fillPlaceholders(rootPlaceholder).replace(trailingSlashRegex, '')
-      : `${fillPlaceholders(scheme)}://${fillPlaceholders(host)}`
+      : `${fillPlaceholders(scheme)}://${filledHost}`
     // A value carried into a host or a root from a path, as `a/b`, would move the URL to another
     // host that still parses, so a delimiter there builds nothing.
     const isMoved = isRootTemplate
       ? rootDelimiterRegex.test(origin)
-      : hostDelimiterRegex.test(fillPlaceholders(host))
+      : hostDelimiterRegex.test(filledHost)
 
     if (isMoved) {
       return
