@@ -244,4 +244,9 @@ export type Platform = {
   sites?: Pick<UrlTable<string, UrlRow>, 'getMainUrl'>
   // The page URLs of the platform, a table with no rows until the platform gets its page rows.
   pages: Pick<UrlTable<string, UrlRow>, 'read'>
+  // The player URLs of the platform's embed code, each row one kind of player. A table takes only
+  // its own keys, so only a table of no keys stands for every table.
+  players?: Pick<UrlTable<never, UrlRow>, 'build' | 'getMainUrl'> & {
+    read: (url: string) => UrlMatch<string, UrlRow> | undefined
+  }
 }
