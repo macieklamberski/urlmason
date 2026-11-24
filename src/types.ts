@@ -22,8 +22,9 @@ export type UrlLenient = {
 export type UrlRow<Key extends string = string> = {
   key: Key
   // The row's URL. `{name}` is one host label, path segment or query value, `{scheme}` the page's
-  // scheme, `{root}` its scheme, host and base path, `{name*}` one or more path segments, `/{*}`
-  // at the end of the path zero or more.
+  // scheme, `{/name*}` one or more path segments, `{/base*}` behind the host the folder the site
+  // sits in, and `{/tail*}` at the end of the path any segments. The base and the tail may be
+  // empty. A `{host}` row of a table without hosts reads only on any host.
   main: string
   // Other URLs that serve the same thing, such as a legacy host, written as `main` is.
   aliases?: Array<string>
@@ -98,14 +99,15 @@ export type UrlTableOptions = {
 // refused. A page table always passes a refused URL on.
 export type PlatformTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
 
-// How the rows that open with `{root}` read a URL on any host. With either option only those rows
-// are read, `hosts` is left aside, the URL is never exact, and `root` is among the values read.
+// How the `{host}` rows read a URL on any host. With either option only those rows are read,
+// `hosts` is left aside, the URL is never exact, and `scheme`, `host` and a `base` that is not
+// empty are among the values read. A row without `{/base*}` reads only an empty base.
 export type UrlReadOptions = {
-  // The root the page lives under, as `https://example.com/forum`. The URL is under it on the same
-  // host and port, in any scheme, `www`, letter case and trailing slash. It wins over `isAnyHost`.
-  root?: string
-  // Whether the URL shows the root: the shortest one under which a row with fixed text in its path
-  // reads the URL, then the shortest under which any row does, up to eight segments of base path.
+  // The folder the page lives under, as `/forum`. The URL's path starts with it, in any letter
+  // case and trailing slash. It wins over `isAnyHost`.
+  base?: UrlValue
+  // Whether the URL shows the base: the shortest one under which a row with fixed text in its path
+  // reads the URL, then the shortest under which any row does, up to eight segments.
   isAnyHost?: boolean
 }
 
@@ -127,7 +129,11 @@ type CommonNames<Template extends string> = (
   ? Names
   : never
 
-type ValueName<Name> = Name extends `${infer Bare extends string}*`
+// The open tail is no value, and the base is absent where it is empty.
+type TailName = '/tail*'
+type BaseName = '/base*'
+
+type ValueName<Name> = Name extends `/${infer Bare extends string}*`
   ? Bare
   : Name extends string
     ? Name
@@ -135,17 +141,20 @@ type ValueName<Name> = Name extends `${infer Bare extends string}*`
 
 type NameValue<Name> = Name extends `${string}*` ? Array<string> : string
 
-// The values the templates of a key read: a `{name*}` value a list, every other name a string,
+// The values the templates of a key read: a `{/name*}` value a list, every other name a string,
 // and the open tail none. A name only some templates hold may be absent. A template the type does
 // not spell out reads any value.
 type TemplateValues<Template extends string> = string extends Template
   ? Record<string, UrlValue | undefined>
   : {
-      [Name in Exclude<CommonNames<Template>, '*'> as ValueName<Name>]: NameValue<Name>
+      [Name in Exclude<
+        CommonNames<Template>,
+        TailName | BaseName
+      > as ValueName<Name>]: NameValue<Name>
     } & {
       [Name in Exclude<
         TemplateNames<Template>,
-        '*' | CommonNames<Template>
+        TailName | Exclude<CommonNames<Template>, BaseName>
       > as ValueName<Name>]?: NameValue<Name>
     }
 
@@ -160,8 +169,8 @@ export type UrlMatch<Key extends string, Row> = Key extends Key ? UrlKeyMatch<Ke
 
 export type UrlKeyMatch<Key extends string, Row> = {
   key: Key
-  // The values read, decoded. The segments a row's `/{*}` took are no value: only the checks see
-  // them, as `tail`. A URL with a tail is not exact and has no main URL.
+  // The values read, decoded. The segments a row's `{/tail*}` took are no value: only the checks
+  // see them, as `tail`. A URL with a tail is not exact and has no main URL.
   params: KeyValues<Key, Row>
   row: Row
   isAlias: boolean

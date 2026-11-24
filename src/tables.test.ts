@@ -21,7 +21,7 @@ const playerRows: Array<PlayerRow> = [
     ratio: '16/9',
   },
   { key: 'playlist', main: 'https://www.example.com/embed/playlist/{playlistId}' },
-  { key: 'docs', main: 'https://www.example.com/{locale}/docs/{path*}' },
+  { key: 'docs', main: 'https://www.example.com/{locale}/docs{/path*}' },
   { key: 'blog', main: 'https://{username}.example.org/feed' },
   { key: 'search', main: 'https://www.example.com/search?q={query}' },
 ]
@@ -87,9 +87,18 @@ const spellings = defineUrls([
   },
 ])
 
-const rooted = defineUrls([{ key: 'site', main: '{root}/feed.xml', aliases: ['{root}/rss.xml'] }], {
-  hosts: { tenants: ['example.net'] },
-})
+const rooted = defineUrls(
+  [
+    {
+      key: 'site',
+      main: '{scheme}://{host}{/base*}/feed.xml',
+      aliases: ['{scheme}://{host}{/base*}/rss.xml'],
+    },
+  ],
+  {
+    hosts: { tenants: ['example.net'] },
+  },
+)
 
 const wwwTenants = defineUrls(
   [
@@ -139,7 +148,7 @@ const unsorted = defineUrls([
     aliases: ['https://old.example.com/feed?type=RSS&q={query}'],
   },
   { key: 'cased', main: 'https://example.com/list.rss?b=2&B=1&a={id}' },
-  { key: 'site', main: '{root}/index.php?type=rss&format=feed' },
+  { key: 'site', main: '{scheme}://{host}{/base*}/index.php?type=rss&format=feed' },
 ])
 
 const routes = defineUrls([
@@ -378,7 +387,7 @@ const checkedPaths = defineUrls(
   [
     { key: 'user', main: 'https://example.com/{user}/feed' },
     { key: 'tag', main: 'https://example.com/{tag}/feed' },
-    { key: 'page', main: 'https://example.com/{path*}' },
+    { key: 'page', main: 'https://example.com{/path*}' },
   ],
   {
     checks: {
@@ -477,51 +486,62 @@ const sharedPages = defineUrls([
 ])
 
 const openPages = defineUrls([
-  { key: 'user', main: 'https://example.com/{owner}/{*}' },
-  { key: 'repo', main: 'https://example.com/{owner}/{repo}/{*}' },
+  { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
+  { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
   { key: 'releases', main: 'https://example.com/{owner}/{repo}/releases' },
 ])
 
 const checkedOpenPages = defineUrls(
-  [{ key: 'issue', main: 'https://example.com/issues/{id}/{*}' }],
+  [{ key: 'issue', main: 'https://example.com/issues/{id}{/tail*}' }],
   { checks: { id: digitsRegex } },
 )
 
 const tailCheckedPages = defineUrls([
   {
     key: 'issue',
-    main: 'https://example.com/issues/{id}/{*}',
+    main: 'https://example.com/issues/{id}{/tail*}',
     checks: { tail: /^(?:comments\/5|café)$/ },
   },
 ])
 
 const boards = defineUrls(
   [
-    { key: 'topic', main: '{root}/viewtopic.php?t={topicId}', aliases: ['{root}/topic/{topicId}'] },
-    { key: 'tag', main: '{root}/tag/{*}' },
-    { key: 'explore', main: '{root}/explore' },
-    { key: 'member', main: '{root}/{group}/{member}' },
+    {
+      key: 'topic',
+      main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}',
+      aliases: ['{scheme}://{host}{/base*}/topic/{topicId}'],
+    },
+    { key: 'tag', main: '{scheme}://{host}{/base*}/tag{/tail*}' },
+    { key: 'explore', main: '{scheme}://{host}{/base*}/explore' },
+    { key: 'member', main: '{scheme}://{host}{/base*}/{group}/{member}' },
   ],
   { checks: { topicId: digitsRegex } },
 )
 
 type BoardMatch = NonNullable<ReturnType<typeof boards.read>>
 
-const topicBoards = defineUrls([{ key: 'topic', main: '{root}/viewtopic.php?t={topicId}' }], {
-  checks: { topicId: digitsRegex },
-})
+const topicBoards = defineUrls(
+  [{ key: 'topic', main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}' }],
+  {
+    checks: { topicId: digitsRegex },
+  },
+)
 
 const openBoards = defineUrls([
-  { key: 'page', main: '{root}/{*}' },
-  { key: 'topic', main: '{root}/viewtopic.php?t={topicId}' },
+  { key: 'page', main: '{scheme}://{host}{/base*}{/tail*}' },
+  { key: 'topic', main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}' },
 ])
 
 const mixedBoards = defineUrls([
-  { key: 'board', main: 'https://example.com/boards/{board}', aliases: ['{root}/board/{board}'] },
-  { key: 'topic', main: '{root}/viewtopic.php?t={topicId}' },
+  {
+    key: 'board',
+    main: 'https://example.com/boards/{board}',
+    aliases: ['{scheme}://{host}{/base*}/board/{board}'],
+  },
+  { key: 'topic', main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}' },
 ])
 
-const fileFeeds = defineUrls([{ key: 'file', main: '{root}/{path*}.atom' }])
+const fileFeeds = defineUrls([{ key: 'file', main: '{scheme}://{host}{/base*}{/path*}.atom' }])
 
 const sevenCharactersRegex = /^.{7}$/
 const yearRegex = /^\d{4}$/
@@ -593,12 +613,12 @@ const archives = defineUrls(
   [
     {
       key: 'date-archive',
-      main: '{scheme}://{host}/{date*}/feed',
+      main: '{scheme}://{host}{/date*}/feed',
       checks: {
         date: (date, { host }) => !(yearRegex.test(date) && endsWithAnyOf(host, '.example.org')),
       },
     },
-    { key: 'post-comments', main: '{scheme}://{host}/{post*}/feed' },
+    { key: 'post-comments', main: '{scheme}://{host}{/post*}/feed' },
   ],
   { hosts: { tenants: ['example.com', 'example.org'] }, checks: { date: dateRegex } },
 )
@@ -606,13 +626,13 @@ const archives = defineUrls(
 const rootChecked = defineUrls([
   {
     key: 'topic',
-    main: '{root}/topic/{topicId}',
-    checks: { root: (root) => !endsWithAnyOf(root, '/archive') },
+    main: '{scheme}://{host}{/base*}/topic/{topicId}',
+    checks: { base: (base) => !endsWithAnyOf(base, 'archive') },
   },
   {
     key: 'post',
-    main: '{root}/post/{postId}',
-    checks: { postId: (postId, { root }) => endsWithAnyOf(root, `/${postId}`) },
+    main: '{scheme}://{host}{/base*}/post/{postId}',
+    checks: { postId: (postId, { base }) => endsWithAnyOf(base, `/${postId}`) },
   },
 ])
 
@@ -623,9 +643,9 @@ const isChannel = (value: string): boolean => {
 }
 
 const profileRows: Array<UrlRow> = [
-  { key: 'editorial', main: 'https://example.com/editorial/{*}' },
-  { key: 'channel', main: 'https://example.com/{username}/{channel}/{*}' },
-  { key: 'profile', main: 'https://example.com/{username}/{*}' },
+  { key: 'editorial', main: 'https://example.com/editorial{/tail*}' },
+  { key: 'channel', main: 'https://example.com/{username}/{channel}{/tail*}' },
+  { key: 'profile', main: 'https://example.com/{username}{/tail*}' },
 ]
 
 const profileChecks = {
@@ -644,14 +664,14 @@ const fallThroughRowChecked = defineUrls(
       main: 'https://example.com/{username}/{channel}',
       checks: { channel: isChannel },
     },
-    { key: 'view', main: 'https://example.com/{username}/{view*}' },
+    { key: 'view', main: 'https://example.com/{username}{/view*}' },
   ],
   { isFallThrough: true },
 )
 
 const fallThroughIssues = defineUrls(
   [
-    { key: 'issue', main: 'https://example.com/issues/{id}/{*}' },
+    { key: 'issue', main: 'https://example.com/issues/{id}{/tail*}' },
     { key: 'home', main: 'https://example.com' },
   ],
   { checks: { id: digitsRegex }, isFallThrough: true },
@@ -659,8 +679,8 @@ const fallThroughIssues = defineUrls(
 
 const fallThroughBlocks = defineUrls(
   [
-    { key: 'profile', main: 'https://example.com/{username}/{*}' },
-    { key: 'channel', main: 'https://example.com/{username}/{channel}/{*}' },
+    { key: 'profile', main: 'https://example.com/{username}{/tail*}' },
+    { key: 'channel', main: 'https://example.com/{username}/{channel}{/tail*}' },
     {
       key: 'block',
       main: 'https://example.com/{username}/{channel}/{block}',
@@ -673,7 +693,7 @@ const fallThroughBlocks = defineUrls(
 const selectedRows: Array<UrlRow> = [
   { key: 'feed', main: 'https://example.com/feed?alt=rss' },
   { key: 'feed', main: 'https://example.com/feed' },
-  { key: 'site', main: 'https://example.com/{*}' },
+  { key: 'site', main: 'https://example.com{/tail*}' },
 ]
 
 const sameShapeSelected = defineUrls(selectedRows)
@@ -681,8 +701,12 @@ const sameShapeSelected = defineUrls(selectedRows)
 const fallThroughSites = defineUrls(selectedRows.slice(0, 3), { isFallThrough: true })
 
 const rootProfileRows: Array<UrlRow> = [
-  { key: 'channel', main: '{root}/{username}/{channel}/{*}', checks: { channel: isChannel } },
-  { key: 'profile', main: '{root}/{username}/{*}' },
+  {
+    key: 'channel',
+    main: '{scheme}://{host}{/base*}/{username}/{channel}{/tail*}',
+    checks: { channel: isChannel },
+  },
+  { key: 'profile', main: '{scheme}://{host}{/base*}/{username}{/tail*}' },
 ]
 
 const fallThroughRootProfiles = defineUrls(rootProfileRows, { isFallThrough: true })
@@ -1041,9 +1065,12 @@ describe('defineUrls', () => {
       expect(table.build('journal', value)).toBeUndefined()
     })
 
-    it('should build nothing from a root holding a query', () => {
-      const table = defineUrls([{ key: 'site', main: '{root}/feed' }])
-      const value = { root: 'https://attacker.example?x=https://example.com' }
+    it('should build nothing from a host holding a query', () => {
+      const table = defineUrls([{ key: 'site', main: '{scheme}://{host}{/base*}/feed' }])
+      const value = {
+        scheme: 'https',
+        host: 'attacker.example?x=https://example.com',
+      }
 
       expect(table.build('site', value)).toBeUndefined()
     })
@@ -1070,10 +1097,10 @@ describe('defineUrls', () => {
     })
 
     it('should throw for a placeholder as a parameter name', () => {
-      const value = [{ key: 'list', main: 'https://example.com/list?{query}' }]
+      const value = [{ key: 'list', main: 'https://example.com/list{?query*}' }]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow('Not a feed URL template: https://example.com/list?{query}')
+      expect(throwing).toThrow('Not a feed URL template: https://example.com/list{?query*}')
     })
 
     it('should throw for a placeholder as a parameter name whose braces the row escapes', () => {
@@ -1547,15 +1574,8 @@ describe('defineUrls', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should write an alias on a root', () => {
+    it('should write an alias on a host the table lists', () => {
       const value = 'https://alice.example.net/rss.xml'
-      const expected = 'https://alice.example.net/feed.xml'
-
-      expect(rooted.getMainUrl(value)).toBe(expected)
-    })
-
-    it('should write a main URL on a root under http as https', () => {
-      const value = 'http://alice.example.net/feed.xml'
       const expected = 'https://alice.example.net/feed.xml'
 
       expect(rooted.getMainUrl(value)).toBe(expected)
@@ -1563,7 +1583,13 @@ describe('defineUrls', () => {
 
     it('should write a slash before the query of a main URL with no path', () => {
       const table = defineUrls(
-        [{ key: 'site', main: '{root}?format=feed', aliases: ['{root}/index.php?format=feed'] }],
+        [
+          {
+            key: 'site',
+            main: '{scheme}://{host}{/base*}?format=feed',
+            aliases: ['{scheme}://{host}{/base*}/index.php?format=feed'],
+          },
+        ],
         { hosts: { exact: ['example.com'] } },
       )
       const value = 'https://example.com/index.php?format=feed'
@@ -1970,7 +1996,7 @@ describe('defineUrls', () => {
           [
             {
               key: 'thread',
-              main: 'https://example.com/{board*}/feed/{thread*}',
+              main: 'https://example.com{/board*}/feed{/thread*}',
             },
           ],
           { lenient: { case: ['thread'] } },
@@ -2688,7 +2714,7 @@ describe('defineUrls', () => {
     const tags = defineUrls([
       { key: 'tag', main: 'https://example.com/tag/{tag}' },
       { key: 'tag-feed', main: 'https://example.com/data/rss?tag={tag}' },
-      { key: 'docs', main: 'https://example.com/docs/{path*}' },
+      { key: 'docs', main: 'https://example.com/docs{/path*}' },
     ])
 
     it('should read an escaped percent sign in a path value decoded', () => {
@@ -2952,70 +2978,44 @@ describe('defineUrls', () => {
 
     it('should throw for an open tail in front of another segment', () => {
       const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{*}/issues' }])
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}{/tail*}/issues' }])
       }
 
-      expect(throwing).toThrow(
-        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
-      )
-    })
-
-    it('should throw for an open tail with no slash in front of it', () => {
-      const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{repo}{*}' }])
-      }
-
-      expect(throwing).toThrow(
-        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
-      )
-    })
-
-    it('should throw for an open tail in the host', () => {
-      const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://{*}.example.com/{owner}' }])
-      }
-
-      expect(throwing).toThrow(
-        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
-      )
+      expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
     })
 
     it('should throw for an open tail in the query', () => {
       const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}?tab={*}' }])
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}?tab={/tail*}' }])
       }
 
-      expect(throwing).toThrow(
-        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
-      )
+      expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
     })
 
     it('should throw for two open tails in one path', () => {
       const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}/{*}/{*}' }])
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{owner}{/tail*}{/tail*}' }])
       }
 
-      expect(throwing).toThrow(
-        'The repo row writes {*} elsewhere than at the end of its path, behind a slash',
-      )
+      expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
     })
 
     it('should throw for an open tail in a path with a value of several segments', () => {
       const throwing = () => {
-        return defineUrls([{ key: 'docs', main: 'https://example.com/docs/{page*}/edit/{*}' }])
+        return defineUrls([{ key: 'docs', main: 'https://example.com/docs{/page*}/edit{/tail*}' }])
       }
 
       expect(throwing).toThrow(
-        'The docs row writes {*} in a path with page, which takes several segments, so the two are split by a guess',
+        'The docs row writes {/tail*} in a path with page, which takes several segments, so the two are split by a guess',
       )
     })
 
     it('should throw for a value named tail beside an open tail', () => {
       const throwing = () => {
-        return defineUrls([{ key: 'repo', main: 'https://example.com/{tail}/{*}' }])
+        return defineUrls([{ key: 'repo', main: 'https://example.com/{tail}{/tail*}' }])
       }
 
-      expect(throwing).toThrow('The repo row names a value tail, which {*} is read as')
+      expect(throwing).toThrow('The repo row names a value tail, which {/tail*} is read as')
     })
 
     it('should read a path of 20,000 segments within a second', () => {
@@ -3037,20 +3037,21 @@ describe('defineUrls', () => {
     })
   })
 
-  describe('with a root given', () => {
-    it('should read a URL under a root with no base path', () => {
+  describe('with a base given', () => {
+    it('should read a URL under a base with no base path', () => {
       const value = 'https://example.org/viewtopic.php?t=5'
-      const options = { root: 'https://example.org' }
+      const options = { base: [] }
       const expected: BoardMatch = {
         key: 'topic',
         params: {
           topicId: '5',
-          root: 'https://example.org',
+          scheme: 'https',
+          host: 'example.org',
         },
         row: {
           key: 'topic',
-          main: '{root}/viewtopic.php?t={topicId}',
-          aliases: ['{root}/topic/{topicId}'],
+          main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}',
+          aliases: ['{scheme}://{host}{/base*}/topic/{topicId}'],
         },
         isAlias: false,
         isExact: false,
@@ -3059,41 +3060,49 @@ describe('defineUrls', () => {
       expect(boards.read(value, options)).toEqual(expected)
     })
 
-    it('should read a URL under a root with a base path', () => {
+    it('should read a URL under a base with a base path', () => {
       const value = 'https://example.org/community/explore'
-      const options = { root: 'https://example.org/community' }
-      const expected = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
+      }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read a query value under a root', () => {
+    it('should read a query value under a base', () => {
       const value = 'https://example.org/community/viewtopic.php?t=5'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
       const expected = {
         topicId: '5',
-        root: 'https://example.org/community',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read an open tail under a root', () => {
+    it('should read an open tail under a base', () => {
       const value = 'https://example.org/community/tag/news/2024'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
       const expected = {
-        root: 'https://example.org/community',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should mark a URL an alias reads under a root as an alias', () => {
+    it('should mark a URL an alias reads under a base as an alias', () => {
       const value = 'https://example.org/community/topic/5'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
       const match = boards.read(value, options)
 
       expect(match?.isAlias).toBe(true)
@@ -3101,79 +3110,46 @@ describe('defineUrls', () => {
 
     it('should mark a root alias of a row whose main URL names a host as an alias', () => {
       const value = 'https://example.org/community/board/news'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
       const match = mixedBoards.read(value, options)
 
       expect(match?.isAlias).toBe(true)
     })
 
-    it('should read a URL under http under a root under https', () => {
-      const value = 'http://example.org/community/explore'
-      const options = { root: 'https://example.org/community' }
-      const expected = { root: 'https://example.org/community' }
-      const match = boards.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read a URL on www under a root without it', () => {
-      const value = 'https://www.example.org/community/explore'
-      const options = { root: 'https://example.org/community' }
-      const expected = { root: 'https://example.org/community' }
-      const match = boards.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read a URL without www under a root on www', () => {
-      const value = 'https://example.org/community/explore'
-      const options = { root: 'https://www.example.org/community' }
-      const expected = { root: 'https://www.example.org/community' }
-      const match = boards.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read a URL under a root on the same port', () => {
-      const value = 'https://example.org:8080/community/explore'
-      const options = { root: 'https://example.org:8080/community' }
-      const expected = { root: 'https://example.org:8080/community' }
-      const match = boards.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should return the host of a root in lowercase', () => {
-      const value = 'https://example.org/community/explore'
-      const options = { root: 'https://EXAMPLE.org/community' }
-      const expected = { root: 'https://example.org/community' }
-      const match = boards.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read a base path in another letter case than the root has', () => {
+    it('should read a base in another letter case than the URL has', () => {
       const value = 'https://example.org/Community/explore'
-      const options = { root: 'https://example.org/community' }
-      const expected = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['Community'],
+      }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read a base path the root writes with an escape', () => {
+    it('should read a base written with an escape', () => {
       const value = 'https://example.org/~alice/explore'
-      const options = { root: 'https://example.org/%7Ealice' }
-      const expected = { root: 'https://example.org/%7Ealice' }
+      const options = { base: '/%7Ealice' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['~alice'],
+      }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should return a root given with a trailing slash without it', () => {
+    it('should read a base given with a trailing slash', () => {
       const value = 'https://example.org/community/explore'
-      const options = { root: 'https://example.org/community/' }
-      const expected = { root: 'https://example.org/community' }
+      const options = { base: '/community/' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
+      }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3181,7 +3157,7 @@ describe('defineUrls', () => {
 
     it('should build a URL under the root from the values read', () => {
       const value = 'https://example.org/community/topic/5'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
       const expected = 'https://example.org/community/viewtopic.php?t=5'
       const match = boards.read(value, options)
       const topicUrl = boards.forUrl(value)?.build('topic', match?.params)
@@ -3191,67 +3167,50 @@ describe('defineUrls', () => {
 
     it('should return undefined for a URL under another base path', () => {
       const value = 'https://example.org/forum/explore'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
 
       expect(boards.read(value, options)).toBeUndefined()
     })
 
     it('should return undefined for a base path that only starts a longer segment', () => {
       const value = 'https://example.org/forums/explore'
-      const options = { root: 'https://example.org/forum' }
+      const options = { base: '/forum' }
 
       expect(boards.read(value, options)).toBeUndefined()
     })
 
-    it('should return undefined for a URL on another host', () => {
-      const value = 'https://example.org/community/explore'
-      const options = { root: 'https://example.net/community' }
-
-      expect(boards.read(value, options)).toBeUndefined()
-    })
-
-    it('should return undefined for a URL on another port', () => {
-      const value = 'https://example.org:8080/community/explore'
-      const options = { root: 'https://example.org/community' }
-
-      expect(boards.read(value, options)).toBeUndefined()
-    })
-
-    it('should return undefined for a value its check refuses under a root', () => {
+    it('should return undefined for a value its check refuses under a base', () => {
       const value = 'https://example.org/community/viewtopic.php?t=latest'
-      const options = { root: 'https://example.org/community' }
+      const options = { base: '/community' }
 
       expect(boards.read(value, options)).toBeUndefined()
     })
 
-    it('should return undefined for a root that is no URL', () => {
-      const value = 'https://example.org/community/explore'
-      const options = { root: '/community' }
-
-      expect(boards.read(value, options)).toBeUndefined()
-    })
-
-    it('should read under the root given and not under the one the URL shows', () => {
+    it('should read under the base given and not under the one the URL shows', () => {
       const value = 'https://example.org/community/viewtopic.php?t=5'
       const options = {
-        root: 'https://example.org',
+        base: [],
         isAnyHost: true,
       }
 
       expect(topicBoards.read(value, options)).toBeUndefined()
     })
 
-    it('should not read a row on a fixed host under a root', () => {
+    it('should not read a row on a fixed host under a base', () => {
       const value = 'https://example.com/boards/news'
-      const options = { root: 'https://example.com' }
+      const options = { base: [] }
 
       expect(mixedBoards.read(value, options)).toBeUndefined()
     })
 
     it('should read a URL on a host the table does not list', () => {
       const value = 'https://example.org/blog/feed.xml'
-      const options = { root: 'https://example.org/blog' }
-      const expected = { root: 'https://example.org/blog' }
+      const options = { base: '/blog' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['blog'],
+      }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3259,28 +3218,44 @@ describe('defineUrls', () => {
 
     it('should read a URL on a host the table lists without the host as a value', () => {
       const value = 'https://alice.example.net/blog/feed.xml'
-      const options = { root: 'https://alice.example.net/blog' }
-      const expected = { root: 'https://alice.example.net/blog' }
+      const options = { base: '/blog' }
+      const expected = {
+        scheme: 'https',
+        host: 'alice.example.net',
+        base: ['blog'],
+      }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
   })
 
-  describe('with a root the URL shows', () => {
-    it('should find a root with no base path', () => {
+  describe('with a base the URL shows', () => {
+    it('should read a row without a base only at the top of the host', () => {
+      const table = defineUrls([{ key: 'profile', main: '{scheme}://{host}/@{user}' }])
+      const options = { isAnyHost: true }
+
+      const topMatch = table.read('https://example.org/@alice', options)
+      const folderMatch = table.read('https://example.org/social/@alice', options)
+
+      expect(topMatch?.key).toBe('profile')
+      expect(folderMatch).toBeUndefined()
+    })
+
+    it('should find a base with no base path', () => {
       const value = 'https://example.org/viewtopic.php?t=5'
       const options = { isAnyHost: true }
       const expected: BoardMatch = {
         key: 'topic',
         params: {
           topicId: '5',
-          root: 'https://example.org',
+          scheme: 'https',
+          host: 'example.org',
         },
         row: {
           key: 'topic',
-          main: '{root}/viewtopic.php?t={topicId}',
-          aliases: ['{root}/topic/{topicId}'],
+          main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}',
+          aliases: ['{scheme}://{host}{/base*}/topic/{topicId}'],
         },
         isAlias: false,
         isExact: false,
@@ -3289,55 +3264,63 @@ describe('defineUrls', () => {
       expect(boards.read(value, options)).toEqual(expected)
     })
 
-    it('should find a root with one segment of base path', () => {
+    it('should find a base with one segment of base path', () => {
       const value = 'https://example.org/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
       const expected = {
         topicId: '5',
-        root: 'https://example.org/community',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should find a root with two segments of base path', () => {
+    it('should find a base with two segments of base path', () => {
       const value = 'https://example.org/sites/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
       const expected = {
         topicId: '5',
-        root: 'https://example.org/sites/community',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['sites', 'community'],
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should find a root with eight segments of base path', () => {
+    it('should find a base with eight segments of base path', () => {
       const value = 'https://example.org/a/b/c/d/e/f/g/h/viewtopic.php?t=5'
       const options = { isAnyHost: true }
       const expected = {
         topicId: '5',
-        root: 'https://example.org/a/b/c/d/e/f/g/h',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
       }
       const match = topicBoards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should return undefined for a root with nine segments of base path', () => {
+    it('should return undefined for a base of nine segments', () => {
       const value = 'https://example.org/a/b/c/d/e/f/g/h/i/viewtopic.php?t=5'
       const options = { isAnyHost: true }
 
       expect(topicBoards.read(value, options)).toBeUndefined()
     })
 
-    it('should find a root with a port', () => {
+    it('should find a base with a port', () => {
       const value = 'https://example.org:8080/community/viewtopic.php?t=5'
       const options = { isAnyHost: true }
       const expected = {
         topicId: '5',
-        root: 'https://example.org:8080/community',
+        scheme: 'https',
+        host: 'example.org:8080',
+        base: ['community'],
       }
       const match = boards.read(value, options)
 
@@ -3349,29 +3332,34 @@ describe('defineUrls', () => {
       const options = { isAnyHost: true }
       const expected = {
         topicId: '5',
-        root: 'https://example.org/%7Ealice',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['~alice'],
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should take the shortest root a row reads the URL under', () => {
+    it('should take the shortest base a row reads the URL under', () => {
       const value = 'https://example.org/tag/tag/news'
       const options = { isAnyHost: true }
       const expected = {
-        root: 'https://example.org',
+        scheme: 'https',
+        host: 'example.org',
       }
       const match = boards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should read an open tail under the root it finds', () => {
+    it('should read an open tail under the base it finds', () => {
       const value = 'https://example.org/community/tag/news/2024'
       const options = { isAnyHost: true }
       const expected = {
-        root: 'https://example.org/community',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['community'],
       }
       const match = boards.read(value, options)
 
@@ -3402,7 +3390,8 @@ describe('defineUrls', () => {
       const expected = {
         group: 'staff',
         member: 'alice',
-        root: 'https://example.org',
+        scheme: 'https',
+        host: 'example.org',
       }
       const match = boards.read(value, options)
 
@@ -3413,14 +3402,15 @@ describe('defineUrls', () => {
       const value = 'https://example.org/community/about'
       const options = { isAnyHost: true }
       const expected = {
-        root: 'https://example.org',
+        scheme: 'https',
+        host: 'example.org',
       }
       const match = openBoards.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should build a URL under the root it finds from the values read', () => {
+    it('should build a URL under the base it finds from the values read', () => {
       const value = 'https://example.org/community/topic/5'
       const options = { isAnyHost: true }
       const expected = 'https://example.org/community/viewtopic.php?t=5'
@@ -3430,7 +3420,7 @@ describe('defineUrls', () => {
       expect(topicUrl).toBe(expected)
     })
 
-    it('should return undefined for a value its check refuses under every root', () => {
+    it('should return undefined for a value its check refuses under every base', () => {
       const value = 'https://example.org/community/viewtopic.php?t=latest'
       const options = { isAnyHost: true }
 
@@ -3447,7 +3437,11 @@ describe('defineUrls', () => {
     it('should find a root on a host the table does not list', () => {
       const value = 'https://example.org/blog/feed.xml'
       const options = { isAnyHost: true }
-      const expected = { root: 'https://example.org/blog' }
+      const expected = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['blog'],
+      }
       const match = rooted.read(value, options)
 
       expect(match?.params).toEqual(expected)
@@ -3466,24 +3460,30 @@ describe('defineUrls', () => {
       expect(boards.read(value, options)).toBeUndefined()
     })
 
+    it('should return undefined for a URL in a folder of a host the table lists', () => {
+      const value = 'https://alice.example.net/blog/feed.xml'
+
+      expect(rooted.read(value)).toBeUndefined()
+    })
+
     it('should read the host as a value on a table with hosts read with no option', () => {
       const value = 'https://alice.example.net/feed.xml'
       const expected = {
+        scheme: 'https',
         host: 'alice.example.net',
-        root: 'https://alice.example.net',
       }
       const match = rooted.read(value)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should return no main URL for a URL only a read under a root takes', () => {
+    it('should return no main URL for a URL only a read under a base takes', () => {
       const value = 'http://example.org/community/topic/5'
 
       expect(boards.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should try the roots of a path of 20,000 segments within a second', () => {
+    it('should try the bases of a path of 20,000 segments within a second', () => {
       const value = `https://example.org${'/segment'.repeat(20000)}/viewtopic.php?t=5`
       const options = { isAnyHost: true }
       const startedAt = performance.now()
@@ -3503,7 +3503,7 @@ describe('defineUrls', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
-    it('should try the roots of 200 kB of slashes within a second', () => {
+    it('should try the bases of 200 kB of slashes within a second', () => {
       const value = `https://example.org/community${'/'.repeat(200000)}`
       const options = { isAnyHost: true }
       const startedAt = performance.now()
@@ -3655,9 +3655,11 @@ describe('defineUrls', () => {
       )
     })
 
-    it('should not let an edit of the checks of a row given change a read under a root', () => {
+    it('should not let an edit of the checks of a row given change a read under a base', () => {
       const checks: Record<string, RegExp> = { topicId: digitsRegex }
-      const table = defineUrls([{ key: 'topic', main: '{root}/topic/{topicId}', checks }])
+      const table = defineUrls([
+        { key: 'topic', main: '{scheme}://{host}{/base*}/topic/{topicId}', checks },
+      ])
       const value = 'https://example.org/topic/5f3a'
       const options = { isAnyHost: true }
 
@@ -3784,41 +3786,45 @@ describe('defineUrls', () => {
       })
     })
 
-    describe('under a root', () => {
-      it('should return undefined for a root the check of the row refuses', () => {
+    describe('under a base', () => {
+      it('should return undefined for a base the check of the row refuses', () => {
         const value = 'https://example.org/archive/topic/5'
         const options = { isAnyHost: true }
 
         expect(rootChecked.read(value, options)).toBeUndefined()
       })
 
-      it('should read a row under a root its check takes', () => {
+      it('should read a row under a base its check takes', () => {
         const value = 'https://example.org/forum/topic/5'
         const options = { isAnyHost: true }
         const expected = {
           topicId: '5',
-          root: 'https://example.org/forum',
+          scheme: 'https',
+          host: 'example.org',
+          base: ['forum'],
         }
         const match = rootChecked.read(value, options)
 
         expect(match?.params).toEqual(expected)
       })
 
-      it('should hand the root to a check beside the values read', () => {
+      it('should hand the base to a check beside the values read', () => {
         const value = 'https://example.org/forum/5/post/5'
-        const options = { root: 'https://example.org/forum/5' }
+        const options = { base: '/forum/5' }
         const expected = {
           postId: '5',
-          root: 'https://example.org/forum/5',
+          scheme: 'https',
+          host: 'example.org',
+          base: ['forum', '5'],
         }
         const match = rootChecked.read(value, options)
 
         expect(match?.params).toEqual(expected)
       })
 
-      it('should return undefined for a value the check refuses under the root given', () => {
+      it('should return undefined for a value the check refuses under the base given', () => {
         const value = 'https://example.org/forum/5/post/7'
-        const options = { root: 'https://example.org/forum/5' }
+        const options = { base: '/forum/5' }
 
         expect(rootChecked.read(value, options)).toBeUndefined()
       })
@@ -3835,7 +3841,7 @@ describe('defineUrls', () => {
         },
         row: {
           key: 'profile',
-          main: 'https://example.com/{username}/{*}',
+          main: 'https://example.com/{username}{/tail*}',
         },
         isAlias: false,
         isExact: true,
@@ -3854,7 +3860,7 @@ describe('defineUrls', () => {
         },
         row: {
           key: 'channel',
-          main: 'https://example.com/{username}/{channel}/{*}',
+          main: 'https://example.com/{username}/{channel}{/tail*}',
         },
         isAlias: false,
         isExact: true,
@@ -3872,7 +3878,7 @@ describe('defineUrls', () => {
         },
         row: {
           key: 'profile',
-          main: 'https://example.com/{username}/{*}',
+          main: 'https://example.com/{username}{/tail*}',
         },
         isAlias: false,
         isExact: false,
@@ -3890,7 +3896,7 @@ describe('defineUrls', () => {
         },
         row: {
           key: 'profile',
-          main: 'https://example.com/{username}/{*}',
+          main: 'https://example.com/{username}{/tail*}',
         },
         isAlias: false,
         isExact: false,
@@ -3906,7 +3912,7 @@ describe('defineUrls', () => {
         params: {},
         row: {
           key: 'editorial',
-          main: 'https://example.com/editorial/{*}',
+          main: 'https://example.com/editorial{/tail*}',
         },
         isAlias: false,
         isExact: false,
@@ -4164,7 +4170,7 @@ describe('defineUrls', () => {
       })
     })
 
-    describe('under a root', () => {
+    describe('under a base', () => {
       it('should pass a refused URL to the next row under the root before a longer root', () => {
         const value = 'https://example.org/alice/followers/x'
         const options = { isAnyHost: true }
@@ -4172,11 +4178,12 @@ describe('defineUrls', () => {
           key: 'profile',
           params: {
             username: 'alice',
-            root: 'https://example.org',
+            scheme: 'https',
+            host: 'example.org',
           },
           row: {
             key: 'profile',
-            main: '{root}/{username}/{*}',
+            main: '{scheme}://{host}{/base*}/{username}{/tail*}',
           },
           isAlias: false,
           isExact: false,
@@ -4185,12 +4192,14 @@ describe('defineUrls', () => {
         expect(fallThroughRootProfiles.read(value, options)).toEqual(expected)
       })
 
-      it('should pass a refused URL to the next row under the root given', () => {
+      it('should pass a refused URL to the next row under the base given', () => {
         const value = 'https://example.org/forum/alice/followers'
-        const options = { root: 'https://example.org/forum' }
+        const options = { base: '/forum' }
         const expected: Record<string, UrlValue> = {
           username: 'alice',
-          root: 'https://example.org/forum',
+          scheme: 'https',
+          host: 'example.org',
+          base: ['forum'],
         }
         const match = fallThroughRootProfiles.read(value, options)
 
@@ -4223,22 +4232,24 @@ describe('defineUrls', () => {
         expect(sameShapeSelected.read(value)).toBeUndefined()
       })
 
-      it('should read a URL refused under one root under a longer root', () => {
+      it('should read a URL refused under one base under a longer base', () => {
         const value = 'https://example.org/alice/followers/x'
         const options = { isAnyHost: true }
-        const expected: Record<string, string> = {
+        const expected: Record<string, UrlValue> = {
           username: 'followers',
           channel: 'x',
-          root: 'https://example.org/alice',
+          scheme: 'https',
+          host: 'example.org',
+          base: ['alice'],
         }
         const match = sameShapeRootProfiles.read(value, options)
 
         expect(match?.params).toEqual(expected)
       })
 
-      it('should return undefined for a URL refused under the root given', () => {
+      it('should return undefined for a URL refused under the base given', () => {
         const value = 'https://example.org/forum/alice/followers'
-        const options = { root: 'https://example.org/forum' }
+        const options = { base: '/forum' }
 
         expect(sameShapeRootProfiles.read(value, options)).toBeUndefined()
       })

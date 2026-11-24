@@ -7,9 +7,12 @@
     "ampersandEntityName": "The {{key}} row sets {{name}}, which the ampersand mark reads as another parameter",
     "statefulCheckRegex": "The check of {{name}} is a pattern with a g or y flag, which answers differently on a second call",
     "unanchoredCheckRegex": "The check of {{name}} is a pattern without ^ at its start and $ at its end",
-    "misplacedOpenTail": "The {{key}} row writes {*} elsewhere than at the end of its path, behind a slash",
-    "openTailBesideMultiSegment": "The {{key}} row writes {*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
-    "openTailName": "The {{key}} row names a value tail, which {*} is read as",
-    "feedFallThrough": "The {{platform}} feed table sets isFallThrough, which only a page table takes"
+    "misplacedOpenTail": "The {{key}} row writes {/tail*} elsewhere than at the end of its path",
+    "openTailBesideMultiSegment": "The {{key}} row writes {/tail*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
+    "openTailName": "The {{key}} row names a value tail, which {/tail*} is read as",
+    "feedFallThrough": "The {{platform}} feed table sets isFallThrough, which only a page table takes",
+    "unsupportedTemplateExpression": "The template {{template}} writes {{expression}}, an operator or modifier no template takes",
+    "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes yet",
+    "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}"
   }
 }

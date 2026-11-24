@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import { includesAnyOf, isLocale } from 'trousse'
-import type { FeedEntry, FeedHint, FeedUrlRow, Platform, UrlTableOptions } from '../types.js'
+import type {
+  FeedEntry,
+  FeedHint,
+  FeedUrlRow,
+  Platform,
+  UrlTableOptions,
+  UrlValue,
+} from '../types.js'
 import { defineFeedUrls, getMainFeedUrl } from './feeds.js'
 import { defineUrls } from './tables.js'
 
@@ -37,8 +44,8 @@ const encodedFeeds = defineFeedUrls('example', [
 ])
 
 const variantFeeds = defineFeedUrls('example', [
-  { key: 'site', main: '{root}/feed', format: 'rss' },
-  { key: 'site', main: '{root}/api/feed', format: 'rss', variant: 'api' },
+  { key: 'site', main: '{scheme}://{host}{/base*}/feed', format: 'rss' },
+  { key: 'site', main: '{scheme}://{host}{/base*}/api/feed', format: 'rss', variant: 'api' },
 ])
 
 const hintFeeds = defineFeedUrls('example', [
@@ -86,8 +93,8 @@ const hostPatternFeeds = defineFeedUrls(
 )
 
 const rootTemplates = [
-  { key: 'latest', main: '{root}/latest.rss' },
-  { key: 'search', main: '{root}/search.rss?q={query}' },
+  { key: 'latest', main: '{scheme}://{host}{/base*}/latest.rss' },
+  { key: 'search', main: '{scheme}://{host}{/base*}/search.rss?q={query}' },
 ]
 
 const rootFeeds = defineFeedUrls('example', rootTemplates, {
@@ -99,7 +106,7 @@ const selfHostedRootFeeds = defineFeedUrls('example', rootTemplates)
 const pathlessFeeds = defineFeedUrls(
   'example',
   [
-    { key: 'view', main: '{root}?format=feed&type=rss' },
+    { key: 'view', main: '{scheme}://{host}{/base*}?format=feed&type=rss' },
     { key: 'site', main: 'https://example.org?feed=rss' },
   ],
   { hosts: { exact: ['example.com'] } },
@@ -114,17 +121,17 @@ const pathFeeds = defineFeedUrls(
   'example',
   [
     { key: 'tag', main: 'https://www.example.com/t/{tag}/feed' },
-    { key: 'folder', main: 'https://www.example.com/{path*}/feed' },
-    { key: 'category', main: 'https://www.example.com/c/{path*}.rss' },
-    { key: 'search', main: 'https://www.example.com/c/{path*}.rss?q={query}' },
-    { key: 'site', main: '{root}/site/{path*}.rss' },
+    { key: 'folder', main: 'https://www.example.com{/path*}/feed' },
+    { key: 'category', main: 'https://www.example.com/c{/path*}.rss' },
+    { key: 'search', main: 'https://www.example.com/c{/path*}.rss?q={query}' },
+    { key: 'site', main: '{scheme}://{host}{/base*}/site{/path*}.rss' },
   ],
   { hosts: { exact: ['example.com', 'www.example.com'] } },
 )
 
 const directoryFeeds = defineFeedUrls('example', [
-  { key: 'page', main: 'https://www.example.com/feed/{directory*}/' },
-  { key: 'page', main: 'https://www.example.com/feed/{path*}' },
+  { key: 'page', main: 'https://www.example.com/feed{/directory*}/' },
+  { key: 'page', main: 'https://www.example.com/feed{/path*}' },
 ])
 
 const isShortLabel = (value: string): boolean => value.length === 2
@@ -137,7 +144,7 @@ const checkedFeeds = defineFeedUrls(
     { key: 'collection', main: 'https://www.example.com/collections/{handle}.atom' },
     { key: 'community', main: 'https://www.example.com/community.atom?lang={locale}' },
     { key: 'community', main: 'https://www.example.com/community.atom' },
-    { key: 'docs', main: 'https://www.example.com/{locale}/docs/{path*}.rss' },
+    { key: 'docs', main: 'https://www.example.com/{locale}/docs{/path*}.rss' },
     { key: 'country', main: 'https://{country}.example.net/{username}.rss' },
     { key: 'site', main: 'https://{host}/site.rss' },
   ],
@@ -159,10 +166,15 @@ describe('defineFeedUrls', () => {
     expect(throwing).toThrow('Not a feed URL template: example.com/feed')
   })
 
-  it('should throw for a host placeholder without hosts', () => {
-    const throwing = () => defineFeedUrls('example', [{ key: 'site', main: 'https://{host}/feed' }])
+  it('should read a host placeholder without hosts only on any host', () => {
+    const feeds = defineFeedUrls('example', [{ key: 'site', main: 'https://{host}/feed' }])
+    const value = 'https://example.com/feed'
 
-    expect(throwing).toThrow('No hosts for the site feed')
+    const plainMatch = feeds.read(value)
+    const anyHostMatch = feeds.read(value, { isAnyHost: true })
+
+    expect(plainMatch).toBeUndefined()
+    expect(anyHostMatch?.key).toBe('site')
   })
 
   it('should throw for a domain placeholder without tenant domains', () => {
@@ -183,8 +195,8 @@ describe('defineFeedUrls', () => {
   describe('rows', () => {
     it('should return the rows it was given', () => {
       const expected: Array<FeedUrlRow<'page'>> = [
-        { key: 'page', main: 'https://www.example.com/feed/{directory*}/' },
-        { key: 'page', main: 'https://www.example.com/feed/{path*}' },
+        { key: 'page', main: 'https://www.example.com/feed{/directory*}/' },
+        { key: 'page', main: 'https://www.example.com/feed{/path*}' },
       ]
 
       expect(directoryFeeds.rows).toEqual(expected)
@@ -349,21 +361,30 @@ describe('defineFeedUrls', () => {
     })
 
     it('should pick the row of the variant among rows with the same placeholders', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/api/feed'
 
       expect(variantFeeds.getFeedUrl('site', value, 'rss', 'api')).toBe(expected)
     })
 
     it('should build the first row of the key without a variant', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/feed'
 
       expect(variantFeeds.getFeedUrl('site', value, 'rss')).toBe(expected)
     })
 
     it('should return undefined for a variant no row of the key has', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
 
       expect(variantFeeds.getFeedUrl('site', value, undefined, 'legacy')).toBeUndefined()
     })
@@ -397,21 +418,32 @@ describe('defineFeedUrls', () => {
     })
 
     it('should write a root as given', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/latest.rss'
 
       expect(rootFeeds.getFeedUrl('latest', value)).toBe(expected)
     })
 
     it('should write a root with a base path unencoded', () => {
-      const value = { root: 'https://example.com/forum' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['forum'],
+      }
       const expected = 'https://example.com/forum/latest.rss'
 
       expect(rootFeeds.getFeedUrl('latest', value)).toBe(expected)
     })
 
     it('should drop the trailing slash of a root', () => {
-      const value = { root: 'https://example.com/forum/' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['forum'],
+      }
       const expected = 'https://example.com/forum/latest.rss'
 
       expect(rootFeeds.getFeedUrl('latest', value)).toBe(expected)
@@ -424,35 +456,52 @@ describe('defineFeedUrls', () => {
     })
 
     it('should write a slash before the query of a root with no path', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/?format=feed&type=rss'
 
       expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
     })
 
     it('should write one slash before the query of a root that ends in the slash', () => {
-      const value = { root: 'https://example.com/' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/?format=feed&type=rss'
 
       expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
     })
 
     it('should write one slash before the query of a root that ends in two slashes', () => {
-      const value = { root: 'https://example.com//' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected = 'https://example.com/?format=feed&type=rss'
 
       expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
     })
 
     it('should write the query after the base path of a root', () => {
-      const value = { root: 'https://example.com/wiki' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['wiki'],
+      }
       const expected = 'https://example.com/wiki?format=feed&type=rss'
 
       expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
     })
 
     it('should drop the trailing slash of a base path before the query', () => {
-      const value = { root: 'https://example.com/wiki/' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['wiki'],
+      }
       const expected = 'https://example.com/wiki?format=feed&type=rss'
 
       expect(pathlessFeeds.getFeedUrl('view', value)).toBe(expected)
@@ -555,31 +604,45 @@ describe('defineFeedUrls', () => {
     const spellingFeeds = defineFeedUrls('example', [
       {
         key: 'posts',
-        main: '{root}/feed/',
-        aliases: ['{root}/?feed=rss', '{root}/feed/rss2/', '{root}/?feed=rss2'],
+        main: '{scheme}://{host}{/base*}/feed/',
+        aliases: [
+          '{scheme}://{host}{/base*}/?feed=rss',
+          '{scheme}://{host}{/base*}/feed/rss2/',
+          '{scheme}://{host}{/base*}/?feed=rss2',
+        ],
       },
       {
         key: 'posts',
-        main: '{root}/feed/atom/',
+        main: '{scheme}://{host}{/base*}/feed/atom/',
         format: 'atom',
-        aliases: ['{root}/?feed=atom'],
+        aliases: ['{scheme}://{host}{/base*}/?feed=atom'],
       },
       {
         key: 'forum',
-        main: '{root}/forums/{forum}/index.rss',
-        aliases: ['{root}/f/{forum}/index.rss'],
+        main: '{scheme}://{host}{/base*}/forums/{forum}/index.rss',
+        aliases: ['{scheme}://{host}{/base*}/f/{forum}/index.rss'],
       },
-      { key: 'forum', main: '{root}/forums/index.rss', aliases: ['{root}/f/index.rss'] },
+      {
+        key: 'forum',
+        main: '{scheme}://{host}{/base*}/forums/index.rss',
+        aliases: ['{scheme}://{host}{/base*}/f/index.rss'],
+      },
       {
         key: 'archive',
-        main: '{root}/feed/{id}/',
-        aliases: ['{root}/index.php/feed/', '{root}/index.php/feed/{id}/'],
+        main: '{scheme}://{host}{/base*}/feed/{id}/',
+        aliases: [
+          '{scheme}://{host}{/base*}/index.php/feed/',
+          '{scheme}://{host}{/base*}/index.php/feed/{id}/',
+        ],
       },
-      { key: 'page', main: '{root}/feed/{path*}/' },
+      { key: 'page', main: '{scheme}://{host}{/base*}/feed{/path*}/' },
     ])
 
     it('should return the main URL and its aliases in order', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected: FeedEntry = {
         uri: [
           'https://example.com/feed/',
@@ -594,7 +657,10 @@ describe('defineFeedUrls', () => {
     })
 
     it('should return the rows of the format with the format in its hint', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected: FeedEntry = {
         uri: ['https://example.com/feed/atom/', 'https://example.com/?feed=atom'],
         hint: { key: 'example:posts', format: 'atom' },
@@ -605,7 +671,8 @@ describe('defineFeedUrls', () => {
 
     it('should stop at the next feed of the key', () => {
       const value = {
-        root: 'https://example.com',
+        scheme: 'https',
+        host: 'example.com',
         forum: 'news.2',
       }
       const expected: FeedEntry = {
@@ -620,7 +687,10 @@ describe('defineFeedUrls', () => {
     })
 
     it('should return the next feed when the values fill no row of the first', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected: FeedEntry = {
         uri: ['https://example.com/forums/index.rss', 'https://example.com/f/index.rss'],
         hint: { key: 'example:forum' },
@@ -630,7 +700,10 @@ describe('defineFeedUrls', () => {
     })
 
     it('should start at an alias when the values do not fill the main URL', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
       const expected: FeedEntry = {
         uri: 'https://example.com/index.php/feed/',
         hint: { key: 'example:archive' },
@@ -641,7 +714,8 @@ describe('defineFeedUrls', () => {
 
     it('should list every alias the values fill', () => {
       const value = {
-        root: 'https://example.com',
+        scheme: 'https',
+        host: 'example.com',
         id: '13',
       }
       const expected: FeedEntry = {
@@ -658,7 +732,8 @@ describe('defineFeedUrls', () => {
 
     it('should return one spelling as a string', () => {
       const value = {
-        root: 'https://example.com',
+        scheme: 'https',
+        host: 'example.com',
         path: 'archives/13',
       }
       const expected: FeedEntry = {
@@ -670,13 +745,19 @@ describe('defineFeedUrls', () => {
     })
 
     it('should return undefined when the values fill no row of the key', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
 
       expect(spellingFeeds.getFeedSpellings('page', value)).toBeUndefined()
     })
 
     it('should return undefined for a format no row of the key has', () => {
-      const value = { root: 'https://example.com' }
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+      }
 
       expect(spellingFeeds.getFeedSpellings('posts', value, 'json')).toBeUndefined()
     })
@@ -1341,7 +1422,7 @@ describe('defineFeedUrls', () => {
       })
     })
 
-    describe('with a root', () => {
+    describe('with a base', () => {
       it('should return the key of a feed on a listed host', () => {
         const value = 'https://example.com/latest.rss'
         const expected = 'example:latest'
@@ -1550,7 +1631,11 @@ describe('defineFeedUrls', () => {
 
     it('should return every spelling of the feed with its hint', () => {
       const spellingFeeds = defineFeedUrls('example', [
-        { key: 'posts', main: '{root}/feed/', aliases: ['{root}/index.php/feed/'] },
+        {
+          key: 'posts',
+          main: '{scheme}://{host}{/base*}/feed/',
+          aliases: ['{scheme}://{host}{/base*}/index.php/feed/'],
+        },
       ])
       const value = 'https://example.com/archives/13/'
       const expected: FeedEntry = {
@@ -1580,7 +1665,11 @@ describe('defineFeedUrls', () => {
 
     it('should write a root with a base path the handler passes', () => {
       const value = 'https://example.com/forum/t/1'
-      const params = { root: 'https://example.com/forum' }
+      const params = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['forum'],
+      }
       const expected = 'https://example.com/forum/latest.rss'
       const pageFeeds = rootFeeds.forUrl(value)
 
@@ -2076,31 +2165,37 @@ describe('defineFeedUrls', () => {
     it('should read the feed under the root the URL shows', () => {
       const value = 'https://example.org/forum/latest.rss'
       const options = { isAnyHost: true }
-      const expected: Record<string, string> = { root: 'https://example.org/forum' }
-      const match = selfHostedRootFeeds.read(value, options)
-
-      expect(match?.params).toEqual(expected)
-    })
-
-    it('should read the feed under the root given', () => {
-      const value = 'https://example.org/forum/search.rss?q=cats'
-      const options = { root: 'https://example.org/forum' }
-      const expected: Record<string, string> = {
-        query: 'cats',
-        root: 'https://example.org/forum',
+      const expected: Record<string, UrlValue> = {
+        scheme: 'https',
+        host: 'example.org',
+        base: ['forum'],
       }
       const match = selfHostedRootFeeds.read(value, options)
 
       expect(match?.params).toEqual(expected)
     })
 
-    it('should return no hint for a feed only a read under a root takes', () => {
+    it('should read the feed under the base given', () => {
+      const value = 'https://example.org/forum/search.rss?q=cats'
+      const options = { base: '/forum' }
+      const expected: Record<string, UrlValue> = {
+        query: 'cats',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['forum'],
+      }
+      const match = selfHostedRootFeeds.read(value, options)
+
+      expect(match?.params).toEqual(expected)
+    })
+
+    it('should return no hint for a feed only a read under a base takes', () => {
       const value = 'https://example.org/forum/latest.rss'
 
       expect(selfHostedRootFeeds.getFeedHint(value)).toBeUndefined()
     })
 
-    it('should return no main URL for a feed only a read under a root takes', () => {
+    it('should return no main URL for a feed only a read under a base takes', () => {
       const value = 'http://example.org/forum/latest.rss'
 
       expect(selfHostedRootFeeds.getMainFeedUrl(value)).toBeUndefined()
