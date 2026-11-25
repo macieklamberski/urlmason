@@ -15,4 +15,5 @@ export type {
   UrlTableOptions,
   UrlValue,
   UrlValues,
+  UrlWriteOptions,
 } from './types.js'

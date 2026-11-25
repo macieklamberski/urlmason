@@ -218,6 +218,40 @@ const encodeStrictValue = (value: string): string => {
   return encodeURIComponent(value).replace(subDelimiterRegex, toPercentEscape)
 }
 
+// A URL in its parts: the origin, the path, the query with its `?` and the fragment with its `#`.
+const urlPartsRegex = /^([^:/?#]+:\/\/[^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/
+
+// A query name or value spelled strictly. A `+` stays, since a server may read it as a space.
+const encodeStrictQueryText = (text: string): string => {
+  return text
+    .split('+')
+    .map((piece) => encodeStrictValue(decodePercent(piece)))
+    .join('+')
+}
+
+// A URL with every path segment and query name and value spelled as RFC 6570 writes a value, so
+// any spelling of one URL gives one string. The origin and the fragment stay as given.
+export const toStrictUrl = (url: string): string => {
+  const match = urlPartsRegex.exec(url)
+
+  if (!match) {
+    return url
+  }
+
+  const [, origin, path, query = '', fragment = ''] = match
+  const strictPath = path
+    .split('/')
+    .map((segment) => encodeStrictValue(decodePercent(segment)))
+    .join('/')
+  const strictQuery = query
+    .slice(1)
+    .split('&')
+    .map((pair) => pair.split('=').map(encodeStrictQueryText).join('='))
+    .join('&')
+
+  return `${origin}${strictPath}${query ? `?${strictQuery}` : ''}${fragment}`
+}
+
 const encodeStrict = (value: UrlValue): string => {
   return Array.isArray(value) ? value.map(encodeStrictValue).join('/') : encodeStrictValue(value)
 }
