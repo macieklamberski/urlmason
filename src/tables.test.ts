@@ -1881,6 +1881,37 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with non-ASCII fixed text in the path', () => {
+    const menus = defineTable([
+      {
+        key: 'menu',
+        main: 'https://example.com/café/{id}',
+        aliases: ['https://old.example.com/café/{id}'],
+      },
+    ])
+
+    it('should build the fixed text percent-encoded', () => {
+      const value = { id: 'lunch' }
+      const expected = 'https://example.com/caf%C3%A9/lunch'
+
+      expect(menus.buildUrl('menu', value)).toBe(expected)
+    })
+
+    it('should read a URL with the fixed text percent-encoded as exact', () => {
+      const value = 'https://example.com/caf%C3%A9/lunch'
+      const match = menus.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should write the main URL of an alias with the fixed text percent-encoded', () => {
+      const value = 'https://old.example.com/caf%C3%A9/lunch'
+      const expected = 'https://example.com/caf%C3%A9/lunch'
+
+      expect(menus.getMainUrl(value)).toBe(expected)
+    })
+  })
+
   describe('with a list in a slot of one value', () => {
     const items = defineTable([
       { key: 'item', main: 'https://example.com/items/{ids}' },
