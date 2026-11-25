@@ -1853,6 +1853,66 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with strict encoding', () => {
+    const strict = { encoding: 'strict' } as const
+    const notes = defineTable([
+      { key: 'note', main: 'https://example.com/notes/{title}' },
+      { key: 'search', main: 'https://example.com/search?q=tag-{query}' },
+      { key: 'docs', main: 'https://example.com/docs{/path*}' },
+      { key: 'site', main: '{scheme}://{host}/notes/{title}' },
+    ])
+
+    it('should keep the characters a path segment allows when left out', () => {
+      const value = { title: "Hello World! (it's *new*)" }
+      const expected = "https://example.com/notes/Hello%20World!%20(it's%20*new*)"
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should encode every character outside the unreserved set in a path value', () => {
+      const value = { title: "Hello World! (it's *new*)" }
+      const expected = 'https://example.com/notes/Hello%20World%21%20%28it%27s%20%2Anew%2A%29'
+
+      expect(notes.buildUrl('note', value, strict)).toBe(expected)
+    })
+
+    it('should encode a percent sign in a value, so the value reads back as given', () => {
+      const value = { title: 'admin%2F' }
+      const expected = 'https://example.com/notes/admin%252F'
+
+      expect(notes.buildUrl('note', value, strict)).toBe(expected)
+    })
+
+    it('should encode a query value and keep the fixed text around it', () => {
+      const value = { query: 'a,b!' }
+      const expected = 'https://example.com/search?q=tag-a%2Cb%21'
+
+      expect(notes.buildUrl('search', value, strict)).toBe(expected)
+    })
+
+    it('should encode each segment of a list', () => {
+      const value = { path: ['guide', 'first steps!'] }
+      const expected = 'https://example.com/docs/guide/first%20steps%21'
+
+      expect(notes.buildUrl('docs', value, strict)).toBe(expected)
+    })
+
+    it('should encode every spelling it builds', () => {
+      const value = { title: 'Hello!' }
+      const expected = ['https://example.com/notes/Hello%21']
+
+      expect(notes.buildUrls('note', value, strict)).toEqual(expected)
+    })
+
+    it('should encode a URL built for a page', () => {
+      const value = { title: 'Hello!' }
+      const expected = 'https://example.org/notes/Hello%21'
+      const site = notes.forSite('https://example.org/about')
+
+      expect(site?.buildUrl('site', value, strict)).toBe(expected)
+    })
+  })
+
   describe('with the case mark', () => {
     it('should read a host value under the mark as exact', () => {
       const table = defineTable([{ key: 'user', main: 'https://{user}.example.com/feed' }], {

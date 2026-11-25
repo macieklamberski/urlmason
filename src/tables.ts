@@ -54,6 +54,7 @@ import {
   writeBase,
 } from './templates.js'
 import type {
+  UrlEncoding,
   UrlHostCheck,
   UrlKeyMatch,
   UrlLenient,
@@ -111,7 +112,7 @@ type RowTemplate = {
   shape: string
   // The path segments in front of an open tail, and infinity for a template without one.
   openDepth: number
-  getUrl: (params?: UrlValues) => string | undefined
+  getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
 type HostEntry = string | RegExp | UrlHostCheck
@@ -792,7 +793,7 @@ const compileRowTemplate = (
   }
 
   // A template whose placeholders the values do not all fill builds no URL.
-  const getUrl: RowTemplate['getUrl'] = (params = {}) => {
+  const getUrl: RowTemplate['getUrl'] = (params = {}, encoding = 'pretty') => {
     const values = builtCompiled.getValues(params)
 
     if (!values) {
@@ -828,7 +829,7 @@ const compileRowTemplate = (
       }
     }
 
-    return builtCompiled.fill(values)
+    return builtCompiled.fill(values, encoding)
   }
 
   const getWrittenText: RowTemplate['getWrittenText'] = (pair) => {
@@ -930,7 +931,7 @@ const createTable = <const Row extends UrlRow>(
   const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, buildOptions) => {
     // A key with several shapes builds the first one whose placeholders the values fill.
     for (const candidate of getRowTemplates(key, buildOptions?.select).flat()) {
-      const url = candidate.getUrl(params)
+      const url = candidate.getUrl(params, buildOptions?.encoding)
 
       if (url) {
         return url
@@ -944,7 +945,7 @@ const createTable = <const Row extends UrlRow>(
       const urls: Array<string> = []
 
       for (const candidate of templates) {
-        const url = candidate.getUrl(params)
+        const url = candidate.getUrl(params, buildOptions?.encoding)
 
         if (url) {
           urls.push(url)
