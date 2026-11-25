@@ -14,7 +14,22 @@ import {
   t,
   trimObject,
 } from 'trousse'
-import locales from '../locales.json' with { type: 'json' }
+import locales from './locales.json' with { type: 'json' }
+import {
+  appendValue,
+  decodeQueryValue,
+  encodeText,
+  entityPrefix,
+  isEntityPair,
+  type QueryPair,
+  readAmpersandEntities,
+  readUrlQuery,
+  sortPairs,
+  toPair,
+  toUrlQuery,
+  type UrlQuery,
+  writeQuery,
+} from './queries.js'
 import {
   basePlaceholder,
   type CompiledTemplate,
@@ -37,7 +52,7 @@ import {
   toValueText,
   trailingSlashRegex,
   writeBase,
-} from '../templates.js'
+} from './templates.js'
 import type {
   UrlHostCheck,
   UrlKeyMatch,
@@ -49,22 +64,7 @@ import type {
   UrlTable,
   UrlTableOptions,
   UrlValue,
-} from '../types.js'
-import {
-  appendValue,
-  decodeQueryValue,
-  encodeText,
-  entityPrefix,
-  isEntityPair,
-  type QueryPair,
-  readAmpersandEntities,
-  readUrlQuery,
-  sortPairs,
-  toPair,
-  toUrlQuery,
-  type UrlQuery,
-  writeQuery,
-} from './queries.js'
+} from './types.js'
 
 // One URL of a row: its main one or an alias.
 type RowTemplate = {

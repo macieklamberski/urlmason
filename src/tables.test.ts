@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
-import type { UrlMatch, UrlRow, UrlValue } from '../types.js'
 import { defineUrls } from './tables.js'
+import type { UrlMatch, UrlRow, UrlValue } from './types.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 

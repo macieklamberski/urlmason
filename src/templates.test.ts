@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import { defineUrls } from './tables.js'
 import { buildUrl, compileTemplate, parseTemplate, readUrl } from './templates.js'
 import type { UrlValue } from './types.js'
-import { defineUrls } from './utils/tables.js'
 
 const unsupportedExpressions = [
   '{+path}',

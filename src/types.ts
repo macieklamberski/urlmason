@@ -1,15 +1,3 @@
-export type FeedFormat = 'rss' | 'atom' | 'rdf' | 'json'
-
-export type FeedHint = {
-  key: string
-  format?: FeedFormat
-}
-
-export type FeedEntry = {
-  uri: string | Array<string>
-  hint: FeedHint
-}
-
 // The other spellings a platform reads as the same URL, each mark resting on a fetch.
 export type UrlLenient = {
   // The placeholders whose value is read in any letter case. The main URL writes it in lowercase.
@@ -39,10 +27,6 @@ export type UrlRow<Key extends string = string> = {
   // left undefined is no check: a list of rows that check different names types each name a row
   // does not check as undefined.
   checks?: Record<string, UrlRowCheck | undefined>
-}
-
-export type FeedUrlRow<Key extends string = string> = UrlRow<Key> & {
-  format?: FeedFormat
 }
 
 // A value of one path segment, host label or query value is a string. A `{name*}` value spans
@@ -94,10 +78,6 @@ export type UrlTableOptions = {
   // feed table tries only rows of the same shape.
   isFallThrough?: boolean
 }
-
-// A feed table takes no `isFallThrough`, since a looser row would claim a feed another row
-// refused. A page table always passes a refused URL on.
-export type PlatformTableOptions = Omit<UrlTableOptions, 'isFallThrough'>
 
 // How the `{host}` rows read a URL on any host. With either option only those rows are read,
 // `hosts` is left aside, the URL is never exact, and `scheme`, `host` and a `base` that is not
@@ -191,50 +171,4 @@ export type UrlTable<Key extends string, Row> = {
   read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
   getMainUrl: (url: string) => string | undefined
   forUrl: (url: string) => Pick<UrlTable<Key, Row>, 'build' | 'buildAll'> | undefined
-}
-
-export type FeedUrlTable<Key extends string = string, Row = FeedUrlRow<Key>> = {
-  // The platform's name, the part of a hint key before the colon.
-  platform: string
-  rows: Array<FeedUrlRow<Key>>
-  getFeedUrl: (
-    key: Key,
-    params?: UrlParams,
-    format?: FeedFormat,
-    variant?: string,
-  ) => string | undefined
-  getFeedEntry: (
-    key: Key,
-    params?: UrlParams,
-    format?: FeedFormat,
-    variant?: string,
-  ) => FeedEntry | undefined
-  getFeedSpellings: (
-    key: Key,
-    params?: UrlParams,
-    format?: FeedFormat,
-    variant?: string,
-  ) => FeedEntry | undefined
-  getFeedHint: (url: string) => FeedHint | undefined
-  getMainFeedUrl: (url: string) => string | undefined
-  // A feed on a host no row names gets no hint and no main URL: only `read` takes the options.
-  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
-  forUrl: (
-    url: string,
-  ) => Pick<FeedUrlTable<Key, Row>, 'getFeedUrl' | 'getFeedEntry' | 'getFeedSpellings'> | undefined
-}
-
-export type Platform = {
-  hosts?: UrlHosts
-  // A table takes only its own keys, so only a table of no keys stands for every table. What a
-  // table reads comes back under any key.
-  feeds: Omit<FeedUrlTable<never>, 'rows' | 'read'> & {
-    rows: Array<FeedUrlRow>
-    read: (url: string, options?: UrlReadOptions) => UrlMatch<string, FeedUrlRow> | undefined
-  }
-  // The sites of the platform, each row an origin with no path, for the host and scheme facts
-  // that hold on every page and not only on a feed.
-  sites?: Pick<UrlTable<string, UrlRow>, 'getMainUrl'>
-  // The page URLs of the platform, a table with no rows until the platform gets its page rows.
-  pages: Pick<UrlTable<string, UrlRow>, 'read'>
 }

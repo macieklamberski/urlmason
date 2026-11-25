@@ -8,7 +8,6 @@ import {
   t,
 } from 'trousse'
 import locales from './locales.json' with { type: 'json' }
-import type { UrlParams, UrlValue } from './types.js'
 import {
   appendValue,
   encodeText,
@@ -19,7 +18,8 @@ import {
   toPair,
   toSearchParams,
   writeQuery,
-} from './utils/queries.js'
+} from './queries.js'
+import type { UrlParams, UrlValue } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query'
 
