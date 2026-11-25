@@ -63,7 +63,7 @@ feeds.readUrl('https://old.example.com/alice/feed')
 // }
 ```
 
-A URL no row takes, or one whose value fails a check, reads as nothing:
+A URL that matches no row, or whose value fails a check, returns `undefined`:
 
 ```typescript
 feeds.readUrl('https://example.com/@alice/abc/comments.xml')
@@ -79,7 +79,7 @@ feeds.buildUrl('user', { user: 'alice', page: '2' })
 // 'https://example.com/@alice/feed.xml?page=2'
 ```
 
-Values that don't fill a row build nothing:
+Missing values return `undefined`:
 
 ```typescript
 feeds.buildUrl('post', { user: 'alice' })
@@ -107,7 +107,7 @@ feeds.getMainUrl('http://old.example.com/alice/feed?utm_source=newsletter')
 // 'https://example.com/@alice/feed.xml'
 ```
 
-The row writes `{?page}`, so the rewrite keeps `page` and drops every other query parameter. A URL that's already the main URL rewrites to nothing:
+The row writes `{?page}`, so the rewrite keeps `page` and drops every other query parameter. A URL that's already the main URL returns `undefined`:
 
 ```typescript
 feeds.getMainUrl('https://example.com/@alice/feed.xml')
@@ -195,7 +195,7 @@ const pages = defineTable(
 )
 ```
 
-Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as an Atom and an RSS spelling of one feed, and a build takes the first one the values fill.
+Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as an Atom and an RSS spelling of one feed, and a build uses the first one the values fill.
 
 ### Hosts
 
@@ -253,7 +253,7 @@ Returns the row a URL is and its values, or `undefined`. `isAlias` says the URL 
 
 ### `table.buildUrl(key, values, options?)`
 
-Builds the first URL of the key's rows that the values fill, or `undefined`. A value that would move the URL to another path, scheme or host builds nothing. `{ select }` limits the rows to the ones a function picks, and `{ encoding }` picks the spelling.
+Builds the first URL of the key's rows that the values fill, or `undefined`. A value that would move the URL to another path, scheme or host returns `undefined`. `{ select }` limits the rows to the ones a function picks, and `{ encoding }` picks the spelling.
 
 ### `table.buildUrls(key, values, options?)`
 
