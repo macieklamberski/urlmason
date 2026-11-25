@@ -1,6 +1,6 @@
 {
   "name": "urlmason",
-  "description": "Turn URLs into values and values back into URLs, from one table of URL templates.",
+  "description": "Turn URLs into values and values back into URLs, from one list of URL patterns. Based on URI Templates.",
   "repository": {
     "type": "git",
     "url": "https://github.com/macieklamberski/urlmason.git"
