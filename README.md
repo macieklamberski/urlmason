@@ -53,7 +53,7 @@ const feeds = defineTable(
 
 ```typescript
 feeds.readUrl('https://old.example.com/alice/feed')
-// { key: 'user', values: { user: 'alice' }, isAlias: true, isExact: true, row: {...} }
+// { key: 'user', values: { user: 'alice' }, isAlias: true, isExact: true, row: {…} }
 
 // No row matches, or a value fails its check:
 feeds.readUrl('https://example.com/@alice/abc/comments.xml')
@@ -112,7 +112,7 @@ const forums = defineTable([
 ])
 
 forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', { isAnyHost: true })
-// { key: 'topic', values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] }, ... }
+// { key: 'topic', values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] }, … }
 
 forums.forSite('https://board.example.org/community/')?.buildUrl('forum', { base: ['community'] })
 // 'https://board.example.org/community/feed.php'
