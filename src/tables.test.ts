@@ -515,6 +515,20 @@ const atHandles = defineTable([
   { key: 'feed', main: 'https://listed.example/@{username}/feed.rss' },
 ])
 
+const searchNotes = defineTable([{ key: 'search', main: 'https://example.com/search?q={q}' }])
+
+const casedNames = defineTable([{ key: 'page', main: 'https://example.com/{name}-{id}.xml' }], {
+  checks: { name: /^[a-z]+$/i, id: /^\d+$/ },
+})
+
+const looseChecks = defineTable([{ key: 'item', main: 'https://example.com/items/{id}.xml' }], {
+  checks: { id: /^\d+|x$/ },
+})
+
+const threeValuePages = defineTable([
+  { key: 'page', main: 'https://example.com/y/{a}-{b}-{c}/feed' },
+])
+
 const builtFeeds = defineTable([
   { key: 'feed', main: '{scheme}://{host}/u/{id}/feed' },
   { key: 'search', main: 'https://example.com/search?q={q}' },
@@ -3082,6 +3096,40 @@ describe('defineTable', () => {
       const expected = 'HTTPS://example.com/u/5/feed'
 
       expect(builtFeeds.buildUrl('feed', value)).toBe(expected)
+    })
+  })
+
+  describe('with the audit fixes for reading', () => {
+    it('should read a query value holding a line break', () => {
+      const value = 'https://example.com/search?q=a%0Ab'
+      const expected = { q: 'a\nb' }
+      const match = searchNotes.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL as written when a check of any case takes its value', () => {
+      const value = 'https://example.com/Alice-5.xml'
+      const match = casedNames.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should hold a check to the whole value when its pattern has a bar', () => {
+      const value = 'https://example.com/items/12abc.xml'
+
+      expect(looseChecks.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read 1,000 characters of three values in a segment 20 times within 200 ms', () => {
+      const value = `https://example.com/y/${'a-'.repeat(499)}a/b/feed`
+      const startedAt = performance.now()
+
+      for (let read = 0; read < 20; read++) {
+        threeValuePages.readUrl(`${value}?read=${read}`)
+      }
+
+      expect(performance.now() - startedAt).toBeLessThan(200)
     })
   })
 
