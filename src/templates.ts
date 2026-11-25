@@ -6,6 +6,7 @@ import {
   isHttpUrl,
   isPlainObject,
   isString,
+  omitEmpty,
   parseUrl,
   t,
 } from 'trousse'
@@ -211,10 +212,10 @@ const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue |
     return value
   }
 
-  // A list in a slot of one value is written as its items joined by commas, and no item, or only
-  // empty ones, as none.
+  // A list in a slot of one value is written as its items joined by commas, without empty ones, as
+  // a list slot drops them, and no item left is no value.
   if (!isMultiSegment(placeholder)) {
-    return Array.isArray(value) && value.every((item) => !item) ? undefined : value
+    return Array.isArray(value) ? omitEmpty(value) : value
   }
 
   const segments = toSegments(value)

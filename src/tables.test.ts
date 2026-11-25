@@ -1961,6 +1961,13 @@ describe('defineTable', () => {
       expect(items.buildUrl('item', value)).toBe(expected)
     })
 
+    it('should leave the empty items of a list out', () => {
+      const value = { ids: ['a', '', 'b'] }
+      const expected = 'https://example.com/items/a,b'
+
+      expect(items.buildUrl('item', value)).toBe(expected)
+    })
+
     it('should write a list in a query value as its items joined by commas', () => {
       const value = { ids: ['a,b', 'c'] }
       const expected = 'https://example.com/search?ids=a%2Cb,c'
