@@ -53,21 +53,10 @@ const feeds = defineTable(
 
 ```typescript
 feeds.readUrl('https://old.example.com/alice/feed')
+// { key: 'user', values: { user: 'alice' }, isAlias: true, isExact: true, row: {...} }
 
-// {
-//   key: 'user',
-//   values: { user: 'alice' },
-//   row: { key: 'user', main: 'https://example.com/@{user}/feed.xml{?page}', aliases: [...] },
-//   isAlias: true,
-//   isExact: true,
-// }
-```
-
-A URL that matches no row, or whose value fails a check, returns `undefined`:
-
-```typescript
+// No row matches, or a value fails its check:
 feeds.readUrl('https://example.com/@alice/abc/comments.xml')
-
 // undefined
 ```
 
@@ -75,23 +64,14 @@ feeds.readUrl('https://example.com/@alice/abc/comments.xml')
 
 ```typescript
 feeds.buildUrl('user', { user: 'alice', page: '2' })
-
 // 'https://example.com/@alice/feed.xml?page=2'
-```
 
-Missing values return `undefined`:
-
-```typescript
+// A value is missing:
 feeds.buildUrl('post', { user: 'alice' })
-
 // undefined
-```
 
-Or every spelling of a row, its main URL first:
-
-```typescript
+// Every spelling of the row, its main URL first:
 feeds.buildUrls('user', { user: 'alice' })
-
 // [
 //   'https://example.com/@alice/feed.xml',
 //   'https://example.com/u/alice/rss',
@@ -102,16 +82,12 @@ feeds.buildUrls('user', { user: 'alice' })
 ### Rewrite a URL to its main URL
 
 ```typescript
+// The row writes {?page}, so `page` stays and every other query parameter goes:
 feeds.getMainUrl('http://old.example.com/alice/feed?utm_source=newsletter')
-
 // 'https://example.com/@alice/feed.xml'
-```
 
-The row writes `{?page}`, so the rewrite keeps `page` and drops every other query parameter. A URL that's already the main URL returns `undefined`:
-
-```typescript
+// Already the main URL:
 feeds.getMainUrl('https://example.com/@alice/feed.xml')
-
 // undefined
 ```
 
@@ -119,11 +95,9 @@ feeds.getMainUrl('https://example.com/@alice/feed.xml')
 
 ```typescript
 feeds.buildUrl('tag', { tags: ['C++', 'web dev'] })
-
 // 'https://example.com/tags/C++/web%20dev.xml'
 
 feeds.buildUrl('tag', { tags: ['C++', 'web dev'] }, { encoding: 'strict' })
-
 // 'https://example.com/tags/C%2B%2B/web%20dev.xml'
 ```
 
@@ -138,15 +112,9 @@ const forums = defineTable([
 ])
 
 forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', { isAnyHost: true })
-
-// {
-//   key: 'topic',
-//   values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] },
-//   ...
-// }
+// { key: 'topic', values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] }, ... }
 
 forums.forSite('https://board.example.org/community/')?.buildUrl('forum', { base: ['community'] })
-
 // 'https://board.example.org/community/feed.php'
 ```
 
@@ -158,7 +126,6 @@ const blogs = defineTable([{ key: 'blog', main: 'https://{blog}.{domain}/feed' }
 })
 
 blogs.readUrl('https://alice.example.co.uk/feed')?.values
-
 // { blog: 'alice', domain: 'example.co.uk' }
 ```
 
