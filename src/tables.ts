@@ -1458,6 +1458,38 @@ const createTable = <const Row extends UrlRow>(
 
   // A URL read by the table's own rows. A row on the stand-in host gets the scheme, host and base
   // the URL is read under.
+  // A value the case mark covers is read in lowercase, as its main URL writes it. A value whose
+  // check refuses the lowercase, as `en-US`, stays as written.
+  const lowercaseMarked = (
+    params: Record<string, UrlValue>,
+    rowIndex: number,
+  ): Record<string, UrlValue> => {
+    const values = { ...params }
+
+    for (const name of lenient.case ?? []) {
+      const value = values[name]
+
+      if (value === undefined) {
+        continue
+      }
+
+      const lowercase = toAsciiLowerCase(value)
+      const text = toValueText(lowercase)
+      const lowercaseValues = toCheckParams({ ...values, [name]: lowercase })
+
+      if (
+        checks[name]?.(text) === false ||
+        rowChecks[rowIndex][name]?.(text, lowercaseValues) === false
+      ) {
+        continue
+      }
+
+      values[name] = lowercase
+    }
+
+    return values
+  }
+
   const readOwn = (url: string, base?: UrlValues): UrlMatch<Key, Row> | undefined => {
     const found = readTemplate(url, base)
 
@@ -1473,7 +1505,7 @@ const createTable = <const Row extends UrlRow>(
 
     return toMatch({
       key: row.key,
-      values: params,
+      values: lowercaseMarked(params, found.template.rowIndex),
       row: copyRow(row),
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
