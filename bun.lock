@@ -9,6 +9,8 @@
         "kvalita": "^1.41.0",
         "trousse": "3.17.0",
         "tsdown": "0.23.7",
+        "uritemplate-test": "github:uri-templates/uritemplate-test#4171dac22aa6",
+        "url-template": "github:bramstein/url-template#e5edf15bfc86",
       },
     },
   },
@@ -729,7 +731,11 @@
 
     "universalify": ["universalify@2.0.1", "", {}, "sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw=="],
 
+    "uritemplate-test": ["uritemplate-test@github:uri-templates/uritemplate-test#4171dac", {}, "uri-templates-uritemplate-test-4171dac", "sha512-vjv9AudPxmRP0ECut4ry9iebgCznLT/RwIwG1Sp94cGtGCpD574cpX81cmBqhrbEOmaJWXv2+9F2MRRrO9SVvw=="],
+
     "url-join": ["url-join@5.2.0", "", {}, "sha512-/tMVQdp/2eE90fGb6npbd2nLHH8jamzLLeZhLEKTz4Rc38wO5AeEuIhoWroWWfQJS50ZzL4Xod9JER/pJWTTEQ=="],
+
+    "url-template": ["url-template@github:bramstein/url-template#e5edf15", {}, "bramstein-url-template-e5edf15", "sha512-C/bwChpAJT5IIiAvwcu7ocgc7emCCab0C7bz3HPtvxOuF2cik9tvi35gNswG248ILiFgYZw0X/6/1IFMGDcZGw=="],
 
     "util-deprecate": ["util-deprecate@1.0.2", "", {}, "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw=="],
 
