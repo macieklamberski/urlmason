@@ -485,6 +485,27 @@ const sharedPages = defineTable([
   { key: 'search', main: 'https://example.com/search?q={board}-{user}-{page}.xml' },
 ])
 
+const checkedSharedPages = defineTable(
+  [{ key: 'page', main: 'https://example.com/pages/{board}-c{category}-{user}-s{section}.xml' }],
+  { checks: { category: digitsRegex, section: digitsRegex } },
+)
+
+const atomFiles = defineTable([{ key: 'file', main: 'https://example.com/files{/path*}.atom' }])
+
+const labeledHosts = defineTable([{ key: 'feed', main: 'https://{a}-{b}-{c}.example.com/feed' }])
+
+const movedSharedPages = defineTable([
+  {
+    key: 'page',
+    main: 'https://example.com/{board}-{user}',
+    aliases: ['https://example.com/old/{board}-{user}'],
+  },
+])
+
+const commitFiles = defineTable([
+  { key: 'file', main: 'https://example.com{/project*}/-/commits/{branch}{/file*}' },
+])
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -2767,6 +2788,57 @@ describe('defineTable', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
+    it('should split a segment where the pattern of a value ends', () => {
+      const value = 'https://example.com/pages/art-deco-c12-alice-bob-s3.xml'
+      const expected = {
+        board: 'art-deco',
+        category: '12',
+        user: 'alice-bob',
+        section: '3',
+      }
+      const match = checkedSharedPages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read 100 kB of values with a pattern in a segment within a second', () => {
+      const value = `https://example.com/pages/${'-c1-s1'.repeat(16000)}-cx-sx.xml`
+      const startedAt = performance.now()
+
+      checkedSharedPages.readUrl(value)
+      checkedSharedPages.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read a segment of values 1,000 characters long', () => {
+      const value = `https://example.com/pages/${'a'.repeat(988)}-alice-2.xml`
+      const expected = 'page'
+      const match = sharedPages.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a segment of values over 1,000 characters', () => {
+      const value = `https://example.com/pages/${'a'.repeat(989)}-alice-2.xml`
+
+      expect(sharedPages.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a query value of two values over 1,000 characters', () => {
+      const value = `https://example.com/search?q=${'a'.repeat(989)}-alice-2.xml`
+
+      expect(sharedPages.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a long value alone in its segment', () => {
+      const value = `https://example.com/items/${'a'.repeat(5000)}`
+      const expected = 'item'
+      const match = keptEscape.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
     it('should read 200 kB of the fixed text in a query value within a second', () => {
       const value = `https://example.com/search?q=${'-'.repeat(200000)}.xm`
       const startedAt = performance.now()
@@ -2774,6 +2846,83 @@ describe('defineTable', () => {
       sharedPages.readUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with a list that ends inside its last segment', () => {
+    it('should read the segments with the fixed text cut from the last one', () => {
+      const value = 'https://example.com/files/docs/guide.atom'
+      const expected = { path: ['docs', 'guide'] }
+      const match = atomFiles.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build the URL with the fixed text behind the last segment', () => {
+      const value = { path: ['docs', 'guide'] }
+      const expected = 'https://example.com/files/docs/guide.atom'
+
+      expect(atomFiles.buildUrl('file', value)).toBe(expected)
+    })
+
+    it('should return undefined for a URL whose last segment is only the fixed text', () => {
+      const value = 'https://example.com/files/docs/.atom'
+
+      expect(atomFiles.readUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with several values in one host label', () => {
+    it('should read a host of 1,000 characters', () => {
+      const value = `https://${'a'.repeat(984)}-b-c.example.com/feed`
+      const expected = 'feed'
+      const match = labeledHosts.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a host over 1,000 characters', () => {
+      const value = `https://${'a'.repeat(985)}-b-c.example.com/feed`
+
+      expect(labeledHosts.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a crafted host of three values within a second', () => {
+      const value = `https://${'a-'.repeat(490)}x.example.com/feedx`
+      const startedAt = performance.now()
+
+      labeledHosts.readUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with non-ASCII text in a segment of several values', () => {
+    it('should read the URL as written up to its decoded length', () => {
+      const value = `https://example.com/old/${'ж'.repeat(400)}-b`
+      const match = movedSharedPages.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+  })
+
+  describe('with two lists in a path', () => {
+    it('should read a path of 1,000 characters', () => {
+      const value = `https://example.com/${'a'.repeat(970)}/-/commits/main/docs/guide.md`
+      const expected = {
+        project: ['a'.repeat(970)],
+        branch: 'main',
+        file: ['docs', 'guide.md'],
+      }
+      const match = commitFiles.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a path over 1,000 characters', () => {
+      const value = `https://example.com/${'a'.repeat(971)}/-/commits/main/docs/guide.md`
+
+      expect(commitFiles.readUrl(value)).toBeUndefined()
     })
   })
 

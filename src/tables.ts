@@ -46,9 +46,11 @@ import {
   parseTemplate,
   placeholderRegex,
   schemePlaceholder,
+  sharedPartMaxLength,
   splitPath,
   type TemplatePart,
   toBareName,
+  toLengthGuard,
   toRegexSource,
   toSegments,
   toStrictUrl,
@@ -532,10 +534,15 @@ const compileRowTemplate = (
     const hostSource = toRegexSource(
       normalize(host),
       compiled.captureIn('host'),
-      { source: tenantSource },
+      { source: tenantSource, unit: '[^./]' },
       hostCaptures,
     )
-    const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`
+    // A host label holding two values or more limits the host as a path segment does.
+    const hasSharedLabel = host.split('.').some((label) => {
+      return [...label.matchAll(placeholderRegex)].length > 1
+    })
+    const hostGuard = hasSharedLabel ? toLengthGuard(sharedPartMaxLength, '/') : ''
+    const prefixSource = `${hostGuard}${fixedPrefixSource}${tenantPrefixSource}`
 
     if (isPageFixedHost) {
       const forms = listedForms.length > 0 ? listedForms : [host]

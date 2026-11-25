@@ -30,6 +30,8 @@ export type MapText = (text: string) => string
 export type Capture = {
   source: string
   unit?: string
+  // The length a path segment holding two values or more is read up to.
+  segmentMaxLength?: number
 }
 
 // A placeholder a pattern captures, with the part of the URL it sits in, and whether its value
@@ -137,7 +139,32 @@ export const openTailSuffix = '{/tail*}'
 const emptyListNames = ['base*', `${openTailName}*`]
 const captureGroupPrefix = 'p'
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
-const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
+// Two values side by side make a pattern retry every split of the text they share, so a part of a
+// URL holding two or more is read only up to this length. No real path segment comes near it.
+export const sharedPartMaxLength = 1000
+// A URL read as written spells a character of its decoded text in up to nine, as `%E2%80%A8`.
+const writtenPartMaxLength = sharedPartMaxLength * 9
+
+// A part of at most `maxLength` characters up to the end, or up to the next of the stops.
+export const toLengthGuard = (maxLength: number, stops?: string): string => {
+  if (!stops) {
+    return `(?=[^]{0,${maxLength}}$)`
+  }
+
+  return `(?=[^${stops}]{0,${maxLength}}(?:[${stops}]|$))`
+}
+
+// A text split at its placeholders holds one between each two pieces of fixed text.
+const countValues = (pieces: Array<string>): number => {
+  return Math.floor(pieces.length / 2)
+}
+
+const pathCapture: Capture = {
+  source: '[^/]+',
+  unit: '[^/]',
+  segmentMaxLength: sharedPartMaxLength,
+}
+const writtenPathCapture: Capture = { ...pathCapture, segmentMaxLength: writtenPartMaxLength }
 const queryCapture: Capture = { source: '.+', unit: '.' }
 
 export const isMultiSegment = (placeholder: string): boolean => {
@@ -439,10 +466,28 @@ export const toRegexSource = (
     .split(placeholderRegex)
     .map((piece, index) => (index % 2 === 1 ? piece : mapLiteral(piece)))
 
+  // The values of the segment that starts in a piece of fixed text, up to the next slash or list.
+  const countSegmentValues = (index: number): number => {
+    const end = pieces.findIndex((piece, later) => {
+      return later > index && (later % 2 === 0 ? piece.includes('/') : isMultiSegment(piece))
+    })
+
+    return countValues(pieces.slice(index, end === -1 ? undefined : end))
+  }
+
   return pieces
     .map((piece, index) => {
       if (index % 2 === 0) {
-        return escapeRegex(piece)
+        const slash = piece.lastIndexOf('/')
+
+        if (!capture.segmentMaxLength || slash === -1 || countSegmentValues(index) < 2) {
+          return escapeRegex(piece)
+        }
+
+        const head = escapeRegex(piece.slice(0, slash + 1))
+        const tail = escapeRegex(piece.slice(slash + 1))
+
+        return `${head}${toLengthGuard(capture.segmentMaxLength, '/')}${tail}`
       }
 
       const frontPattern = index > 1 ? patterns[pieces[index - 2]] : undefined
@@ -598,16 +643,23 @@ export const compileTemplate = (
   const params = parsed.params.map((param): CompiledParam => {
     const source = toRegexSource(param.value, captureIn('query'), queryCapture)
     const rawSource = toRegexSource(param.value, captureIn('query'), queryCapture, {}, encodeText)
+    const isShared = countValues(param.value.split(placeholderRegex)) > 1
+    const guard = isShared ? toLengthGuard(sharedPartMaxLength) : ''
+    const rawGuard = isShared ? toLengthGuard(writtenPartMaxLength) : ''
 
     return {
       ...param,
-      regex: new RegExp(`^${source}$`, 'i'),
-      rawRegex: new RegExp(`^${rawSource}$`, 'd'),
+      regex: new RegExp(`^${guard}${source}$`, 'i'),
+      rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
     }
   })
   const multiSegmentCaptures = Object.fromEntries(
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
   )
+  // Two lists share the whole path.
+  const hasTwoLists = names.filter(isMultiSegment).length > 1
+  const pathGuard = hasTwoLists ? toLengthGuard(sharedPartMaxLength) : ''
+  const rawPathGuard = hasTwoLists ? toLengthGuard(writtenPartMaxLength) : ''
   const pathSource = toRegexSource(
     path.replace(trailingSlashRegex, ''),
     captureIn('path'),
@@ -621,7 +673,7 @@ export const compileTemplate = (
     ? toRegexSource(
         path,
         captureIn('path'),
-        pathCapture,
+        writtenPathCapture,
         multiSegmentCaptures,
         encodeLiteral,
         pathPatterns,
@@ -629,8 +681,8 @@ export const compileTemplate = (
     : '/?'
   // An open tail is every segment behind the path, an empty one included, as pages link them.
   const readPathSource = isOpen
-    ? `${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
-    : pathSource
+    ? `${pathGuard}${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
+    : `${pathGuard}${pathSource}`
 
   // A name the template holds twice keeps the first value read.
   const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
@@ -774,7 +826,7 @@ export const compileTemplate = (
     ...parsed,
     params,
     readPathSource,
-    rawPathSource,
+    rawPathSource: `${rawPathGuard}${rawPathSource}`,
     captureIn,
     getCaptured,
     read,
