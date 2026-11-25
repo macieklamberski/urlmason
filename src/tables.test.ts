@@ -502,6 +502,15 @@ const movedSharedPages = defineTable([
   },
 ])
 
+const domainFeeds = defineTable(
+  [
+    { key: 'site', main: '{scheme}://{domain}/feed' },
+    { key: 'blog', main: '{scheme}://{blog}.{domain}/blog/feed' },
+    { key: 'mirror', main: '{scheme}://{host}/mirror/feed' },
+  ],
+  { hosts: { exact: ['Example.org'], tenant: ['example.com'] }, isWwwTenantPrefix: true },
+)
+
 const commitFiles = defineTable([
   { key: 'file', main: 'https://example.com{/project*}/-/commits/{branch}{/file*}' },
 ])
@@ -2903,6 +2912,42 @@ describe('defineTable', () => {
       const match = movedSharedPages.readUrl(value)
 
       expect(match?.isExact).toBe(true)
+    })
+  })
+
+  describe('with hosts that rule a URL out', () => {
+    it('should read a URL on a tenant domain alone', () => {
+      const value = 'https://example.com/feed'
+      const expected = 'site'
+      const match = domainFeeds.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a tenant behind www', () => {
+      const value = 'https://www.alice.example.com/blog/feed'
+      const expected = {
+        scheme: 'https',
+        blog: 'alice',
+        domain: 'example.com',
+      }
+      const match = domainFeeds.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an exact host written in another case and behind www', () => {
+      const value = 'https://www.example.org/mirror/feed'
+      const expected = 'mirror'
+      const match = domainFeeds.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a host no row takes', () => {
+      const value = 'https://example.net/feed'
+
+      expect(domainFeeds.readUrl(value)).toBeUndefined()
     })
   })
 
