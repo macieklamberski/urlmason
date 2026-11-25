@@ -485,6 +485,13 @@ const sharedPages = defineTable([
   { key: 'search', main: 'https://example.com/search?q={board}-{user}-{page}.xml' },
 ])
 
+const checkedSharedPages = defineTable(
+  [{ key: 'page', main: 'https://example.com/pages/{board}-c{category}-{user}-s{section}.xml' }],
+  { checks: { category: digitsRegex, section: digitsRegex } },
+)
+
+const atomFiles = defineTable([{ key: 'file', main: 'https://example.com/files{/path*}.atom' }])
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -2767,6 +2774,29 @@ describe('defineTable', () => {
       expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
+    it('should split a segment where the pattern of a value ends', () => {
+      const value = 'https://example.com/pages/art-deco-c12-alice-bob-s3.xml'
+      const expected = {
+        board: 'art-deco',
+        category: '12',
+        user: 'alice-bob',
+        section: '3',
+      }
+      const match = checkedSharedPages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read 100 kB of values with a pattern in a segment within a second', () => {
+      const value = `https://example.com/pages/${'-c1-s1'.repeat(16000)}-cx-sx.xml`
+      const startedAt = performance.now()
+
+      checkedSharedPages.readUrl(value)
+      checkedSharedPages.getMainUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
     it('should read 200 kB of the fixed text in a query value within a second', () => {
       const value = `https://example.com/search?q=${'-'.repeat(200000)}.xm`
       const startedAt = performance.now()
@@ -2774,6 +2804,29 @@ describe('defineTable', () => {
       sharedPages.readUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with a list that ends inside its last segment', () => {
+    it('should read the segments with the fixed text cut from the last one', () => {
+      const value = 'https://example.com/files/docs/guide.atom'
+      const expected = { path: ['docs', 'guide'] }
+      const match = atomFiles.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build the URL with the fixed text behind the last segment', () => {
+      const value = { path: ['docs', 'guide'] }
+      const expected = 'https://example.com/files/docs/guide.atom'
+
+      expect(atomFiles.buildUrl('file', value)).toBe(expected)
+    })
+
+    it('should return undefined for a URL whose last segment is only the fixed text', () => {
+      const value = 'https://example.com/files/docs/.atom'
+
+      expect(atomFiles.readUrl(value)).toBeUndefined()
     })
   })
 

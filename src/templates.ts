@@ -1,7 +1,6 @@
 import {
   decodePercent,
   encodePathSegment,
-  escapeRegex,
   getQueryParamValues,
   isPlainObject,
   isString,
@@ -9,6 +8,13 @@ import {
   t,
 } from 'trousse'
 import locales from './locales.json' with { type: 'json' }
+import {
+  type MatchResult,
+  matchTokens,
+  type TextTest,
+  type Token,
+  toMatchResult,
+} from './matcher.js'
 import {
   appendValue,
   encodeText,
@@ -25,12 +31,6 @@ import type { UrlEncoding, UrlMap, UrlValue, UrlValues } from './types.js'
 export type TemplatePart = 'host' | 'path' | 'query'
 
 export type MapText = (text: string) => string
-
-// The pattern of a value, and of one character of it where a value can sit behind fixed text.
-export type Capture = {
-  source: string
-  unit?: string
-}
 
 // A placeholder a pattern captures, with the part of the URL it sits in, and whether its value
 // spans several path segments, as a list and the open tail do.
@@ -71,25 +71,34 @@ export type ParsedTemplate = {
 
 export type CompiledParam = TemplateParam & {
   // The values the template takes, decoded, and the ones of a URL in its own spelling.
-  regex: RegExp
-  rawRegex: RegExp
+  read: (value: string) => MatchResult | undefined
+  readRaw: (value: string) => MatchResult | undefined
 }
 
-export type CaptureIn = (part: TemplatePart) => (name: string, source: string) => string
+// The group a placeholder's value is read into.
+export type CaptureIn = (part: TemplatePart) => (name: string) => string
+
+// A check pattern that takes a value of two in one path segment, in any case or as written.
+export type PathPattern = {
+  test: TextTest
+  rawTest: TextTest
+  reach: (text: string, start: number) => number
+  rawReach: (text: string, start: number) => number
+}
 
 export type CompiledTemplate = Omit<ParsedTemplate, 'params'> & {
   params: Array<CompiledParam>
   // The path matched on the decoded path without its trailing slash, with the open tail behind it
   // read as `tail`, and the path as the template writes it, for a URL read in its own spelling.
-  readPathSource: string
-  rawPathSource: string
+  readPathTokens: Array<Token>
+  rawPathTokens: Array<Token>
   // Every placeholder is captured as `p{index}`, so a match is read back to its values.
   captureIn: CaptureIn
   getCaptured: (group: string) => Captured | undefined
   // The values of a match of the host and path, with the ones of the query, or undefined where the
   // query lacks a parameter the template sets.
   read: (
-    groups: Record<string, string> | undefined,
+    groups: Record<string, string | undefined> | undefined,
     getSearchParams: () => URLSearchParams,
   ) => Record<string, UrlValue> | undefined
   // The value of each placeholder, or undefined where one has none.
@@ -136,9 +145,9 @@ export const openTailSuffix = '{/tail*}'
 // The lists that may hold no segment: the folder and the open tail.
 const emptyListNames = ['base*', `${openTailName}*`]
 const captureGroupPrefix = 'p'
-const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
-const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
-const queryCapture: Capture = { source: '.+', unit: '.' }
+// A path value holds no slash, and a query value no line break, as a regex `.` takes none.
+const pathStops = '/'
+const queryStops = '\n\r\u2028\u2029'
 
 export const isMultiSegment = (placeholder: string): boolean => {
   return placeholder.endsWith('*')
@@ -412,59 +421,99 @@ export const mapTemplate = (
     .join('')
 }
 
-// A value behind another value and fixed text never holds that text with more of the value after
-// it: the value in front takes all it can. A pattern that says so reads a long run of the fixed
-// text once, where one that does not tries every split of it.
-const toLaterSource = ({ unit }: Capture, separator: string): string | undefined => {
-  // The value in front can only take fixed text it can hold, as text without a slash in a path.
-  if (!unit || !new RegExp(`^(?:${unit})+$`).test(separator)) {
+export type TokenOptions = {
+  stops: string
+  mapLiteral?: MapText
+  // Placeholders that take text of their own kind, as `{host}` takes a whole host.
+  wholes?: Record<string, TextTest>
+  patterns?: Record<string, Pick<Token & { kind: 'value' }, 'test' | 'reach'>>
+  isWwwRefused?: boolean
+}
+
+// A template text as the tokens a matcher reads: fixed text, a value, or a list holding the slash
+// in front of it, which a list that may be empty leaves out too.
+export const toTokens = (
+  text: string,
+  capture: (name: string) => string,
+  options: TokenOptions,
+): Array<Token> => {
+  const tokens: Array<Token> = []
+
+  for (const [index, piece] of text.split(placeholderRegex).entries()) {
+    if (index % 2 === 0) {
+      const literal = options.mapLiteral ? options.mapLiteral(piece) : piece
+
+      if (literal) {
+        tokens.push({ kind: 'literal', text: literal })
+      }
+
+      continue
+    }
+
+    if (isMultiSegment(piece)) {
+      tokens.push({ kind: 'list', group: capture(piece), isOptional: isEmptyList(piece) })
+
+      continue
+    }
+
+    const whole = options.wholes?.[piece]
+
+    if (whole) {
+      tokens.push({ kind: 'whole', group: capture(piece), test: whole })
+
+      continue
+    }
+
+    tokens.push({
+      kind: 'value',
+      group: capture(piece),
+      stops: options.stops,
+      ...options.patterns?.[piece],
+      isWwwRefused: options.isWwwRefused,
+    })
+  }
+
+  return tokens
+}
+
+// A check pattern as a path value's test and reach: it takes at most what it matches from where
+// the value starts, in any case for a decoded path and as written for a URL's own spelling.
+export const toPathPattern = (source: string): PathPattern => {
+  const toReach = (flags: string) => {
+    const stickyRegex = new RegExp(`(?:${source})`, `${flags}y`)
+
+    return (text: string, start: number): number => {
+      stickyRegex.lastIndex = start
+
+      const match = stickyRegex.exec(text)
+
+      return match ? start + match[0].length : start
+    }
+  }
+  const caselessRegex = new RegExp(`^(?:${source})$`, 'i')
+  const writtenRegex = new RegExp(`^(?:${source})$`)
+
+  return {
+    test: (text) => caselessRegex.test(text),
+    rawTest: (text) => writtenRegex.test(text),
+    reach: toReach('i'),
+    rawReach: toReach(''),
+  }
+}
+
+// The groups of the tokens on a whole text, or undefined where they do not take it.
+const matchText = (
+  tokens: Array<Token>,
+  text: string,
+  isCaseless: boolean,
+): MatchResult | undefined => {
+  const ranges = matchTokens(tokens, text, 0, text.length, isCaseless)
+
+  if (!ranges) {
     return
   }
 
-  // Text free of the fixed text, then an end no longer than it, which can be the fixed text.
-  return `(?:(?!${escapeRegex(separator)})${unit})*${unit}{1,${separator.length}}`
-}
-
-// A placeholder becomes the capture, the text around it a literal, decoded for a path so an
-// encoded brace in it stays a literal, and encoded for a raw query value as the template writes it.
-export const toRegexSource = (
-  text: string,
-  wrapCapture: (name: string, source: string) => string,
-  capture: Capture,
-  captures: Record<string, string> = {},
-  mapLiteral: MapText = (literal) => literal,
-  patterns: Record<string, string> = {},
-): string => {
-  const pieces = text
-    .split(placeholderRegex)
-    .map((piece, index) => (index % 2 === 1 ? piece : mapLiteral(piece)))
-
-  return pieces
-    .map((piece, index) => {
-      if (index % 2 === 0) {
-        return escapeRegex(piece)
-      }
-
-      const frontPattern = index > 1 ? patterns[pieces[index - 2]] : undefined
-      // A value in front that its pattern ends before the fixed text leaves the rest to this one.
-      const isFreed =
-        frontPattern !== undefined && !new RegExp(`^${frontPattern}$`, 'i').test(pieces[index - 1])
-      const laterSource =
-        index > 1 && !isFreed ? toLaterSource(capture, pieces[index - 1]) : undefined
-
-      const source = wrapCapture(
-        piece,
-        captures[piece] ?? patterns[piece] ?? laterSource ?? capture.source,
-      )
-
-      // A list holds the slash in front of it, so a list that may be empty leaves out both.
-      if (!isMultiSegment(piece)) {
-        return source
-      }
-
-      return isEmptyList(piece) ? `(?:/${source})?` : `/${source}`
-    })
-    .join('')
+  return toMatchResult(text, ranges)
 }
 
 // An old spelling is refused with the one that replaces it, a passed query as one no template
@@ -572,19 +621,19 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 // gives it.
 export const compileTemplate = (
   parsed: ParsedTemplate,
-  pathPatterns: Record<string, string> = {},
+  pathPatterns: Record<string, PathPattern> = {},
 ): CompiledTemplate => {
   const { scheme, host, path, isOpen, names } = parsed
   const captured: Array<Captured> = []
   const captureIn: CaptureIn = (part) => {
-    return (name, source) => {
+    return (name) => {
       captured.push({
         name: toBareName(name),
         part,
         isList: part === 'path' && isMultiSegment(name),
       })
 
-      return `(?<${captureGroupPrefix}${captured.length - 1}>${source})`
+      return `${captureGroupPrefix}${captured.length - 1}`
     }
   }
   // A host pattern can hold a named group of its own, which is no value of the template.
@@ -596,44 +645,52 @@ export const compileTemplate = (
     return captured[Number(group.slice(captureGroupPrefix.length))]
   }
   const params = parsed.params.map((param): CompiledParam => {
-    const source = toRegexSource(param.value, captureIn('query'), queryCapture)
-    const rawSource = toRegexSource(param.value, captureIn('query'), queryCapture, {}, encodeText)
+    const tokens = toTokens(param.value, captureIn('query'), { stops: queryStops })
+    const rawTokens = toTokens(param.value, captureIn('query'), {
+      stops: queryStops,
+      mapLiteral: encodeText,
+    })
 
     return {
       ...param,
-      regex: new RegExp(`^${source}$`, 'i'),
-      rawRegex: new RegExp(`^${rawSource}$`, 'd'),
+      read: (value) => matchText(tokens, value, true),
+      readRaw: (value) => matchText(rawTokens, value, false),
     }
   })
-  const multiSegmentCaptures = Object.fromEntries(
-    names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
-  )
-  const pathSource = toRegexSource(
-    path.replace(trailingSlashRegex, ''),
-    captureIn('path'),
-    pathCapture,
-    multiSegmentCaptures,
-    decodePath,
-    pathPatterns,
-  )
+  const toPatterns = (isRaw: boolean): TokenOptions['patterns'] => {
+    return Object.fromEntries(
+      Object.entries(pathPatterns).map(([name, pattern]) => [
+        name,
+        {
+          test: isRaw ? pattern.rawTest : pattern.test,
+          reach: isRaw ? pattern.rawReach : pattern.reach,
+        },
+      ]),
+    )
+  }
+  const pathTokens = toTokens(path.replace(trailingSlashRegex, ''), captureIn('path'), {
+    stops: pathStops,
+    mapLiteral: decodePath,
+    patterns: toPatterns(false),
+  })
   // A template with no path is a site, which a URL names with or without the slash of its root.
-  const rawPathSource = path
-    ? toRegexSource(
-        path,
-        captureIn('path'),
-        pathCapture,
-        multiSegmentCaptures,
-        encodeLiteral,
-        pathPatterns,
-      )
-    : '/?'
+  const rawPathTokens: Array<Token> = path
+    ? toTokens(path, captureIn('path'), {
+        stops: pathStops,
+        mapLiteral: encodeLiteral,
+        patterns: toPatterns(true),
+      })
+    : [{ kind: 'literal', text: '/', isOptional: true }]
   // An open tail is every segment behind the path, an empty one included, as pages link them.
-  const readPathSource = isOpen
-    ? `${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
-    : pathSource
+  const readPathTokens: Array<Token> = isOpen
+    ? [...pathTokens, { kind: 'tail', group: captureIn('path')(`${openTailName}*`) }]
+    : pathTokens
 
   // A name the template holds twice keeps the first value read.
-  const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
+  const readGroups = (
+    values: Record<string, UrlValue>,
+    groups: Record<string, string | undefined> = {},
+  ) => {
     for (const [group, value] of Object.entries(groups)) {
       const groupCaptured = getCaptured(group)
 
@@ -670,14 +727,14 @@ export const compileTemplate = (
       delete values[openTailName]
     }
 
-    for (const { name, isFlag, regex } of params) {
+    for (const { name, isFlag, read: readValue } of params) {
       const [value] = getQueryParamValues(getSearchParams(), name, { preserveEmptyValues: isFlag })
 
       if (value === undefined) {
         return
       }
 
-      const queryMatch = regex.exec(value)
+      const queryMatch = readValue(value)
 
       if (!queryMatch) {
         return
@@ -773,8 +830,8 @@ export const compileTemplate = (
   return {
     ...parsed,
     params,
-    readPathSource,
-    rawPathSource,
+    readPathTokens,
+    rawPathTokens,
     captureIn,
     getCaptured,
     read,

@@ -1,6 +1,5 @@
 import {
   decodePercent,
-  escapeRegex,
   getRegistrableDomain,
   isAnyOf,
   isFunction,
@@ -16,6 +15,13 @@ import {
   trimObject,
 } from 'trousse'
 import locales from './locales.json' with { type: 'json' }
+import {
+  type MatchResult,
+  matchTokens,
+  mayMatchTokens,
+  type TextTest,
+  toMatchResult,
+} from './matcher.js'
 import {
   appendValue,
   decodeQueryValue,
@@ -43,15 +49,17 @@ import {
   openTailName,
   openTailSuffix,
   type ParsedTemplate,
+  type PathPattern,
   parseTemplate,
   placeholderRegex,
   schemePlaceholder,
   splitPath,
   type TemplatePart,
   toBareName,
-  toRegexSource,
+  toPathPattern,
   toSegments,
   toStrictUrl,
+  toTokens,
   toValueText,
   trailingSlashRegex,
   writeBase,
@@ -87,8 +95,9 @@ type RowTemplate = {
   // A pair under an own name as the row names it, in the spelling the row builds it with.
   getWrittenText: (pair: QueryPair) => string
   // The host and path a URL the template takes matches, as given and with an optional `www`.
-  asGivenRegex: RegExp
-  optionalWwwRegex: RegExp
+  asGivenMatcher: Matcher
+  optionalWwwMatcher: Matcher
+  hostHint?: HostHint
   // The values of a URL the template takes, read as given or with an optional `www`. A row read on
   // the stand-in host gets the scheme, host and base the URL is read under.
   readParams: (
@@ -119,6 +128,18 @@ type RowTemplate = {
 }
 
 type HostEntry = string | RegExp | UrlHostCheck
+
+// The hosts a template can take, as whole hosts and as endings, or undefined where a pattern or
+// a function among the hosts can take any host.
+type HostHint = {
+  names: Array<string>
+  suffixes: Array<string>
+}
+
+type Matcher = {
+  exec: (input: string) => MatchResult | undefined
+  test: (input: string) => boolean
+}
 
 // A check of the table gets the value alone, and one of a row the values read beside it.
 type CheckFunction<Rest extends Array<unknown> = []> = (value: string, ...rest: Rest) => boolean
@@ -154,7 +175,6 @@ const anchorsRegex = /^\^|\$$/g
 // A value every part of a URL reads the same way, so it can move from one part to another.
 const plainValueRegex = /^[\w.~-]+$/
 const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
-const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
 const fixedPathTextRegex = /[^/]/
 
@@ -163,7 +183,8 @@ const standInOrigin = 'https://root.invalid'
 const hostPlaceholder = '{host}'
 // An install sits at most a few segments deep, and each base tried is one more pass over the URL.
 const maxBasePathSegments = 8
-const anyDomainSource = '[^./]+(?:\\.[^./]+)+'
+// A host label holds no dot, and no host a slash.
+const hostStops = './'
 
 // A pair is under a name as `URLSearchParams` reads it, or with an escape that is no UTF-8 as
 // written, which is how some servers read it.
@@ -331,22 +352,17 @@ const readTableUrl = (url: string): TableUrl | undefined => {
   return tableUrl
 }
 
-// One pattern any of the patterns matches, so a table reads a URL on none of its rows at once.
-const joinRegexes = (regexes: Array<RegExp>): RegExp => {
-  // A capture is named, and a name may appear once in a pattern.
-  const sources = regexes.map((regex) => `(?:${regex.source.replace(captureRegex, '(?:')})`)
-
-  return new RegExp(sources.join('|') || '(?!)', 'i')
+// A check pattern without its anchors, to take one value among others in a path segment.
+const toPatternSource = (check: RegExp): string => {
+  return check.source.replace(anchorsRegex, '')
 }
 
-// A host or domain entry as a regex source: a string as a literal, a pattern without its anchors,
-// and a function as any domain, which `isListedHost` checks after the match.
-const toEntrySource = (entry: HostEntry): string => {
-  if (isFunction(entry)) {
-    return anyDomainSource
-  }
+// Two labels or more, as a function among the hosts takes any domain, which `isListedHost`
+// checks after the read.
+const isAnyDomain = (value: string): boolean => {
+  const labels = value.split('.')
 
-  return isString(entry) ? escapeRegex(entry) : `(?:${entry.source.replace(anchorsRegex, '')})`
+  return labels.length > 1 && labels.every((label) => label && !label.includes('/'))
 }
 
 const isListedIn = (value: string, entries: Array<HostEntry> = []): boolean => {
@@ -425,15 +441,11 @@ const compileRowTemplate = (
   }
 
   const hosts = options.hosts?.exact ?? []
-  const tenantDomains = (options.hosts?.tenant ?? []).map((domain) => toEntrySource(domain))
-  const domainSource = `(?:${tenantDomains.join('|')})`
-  // One host label other than `www` unless `www` is a tenant.
-  const tenantSource = options.isWwwTenant ? '[^./]+' : '(?!www\\.)[^./]+'
-
-  const hasHosts = hosts.length > 0 || tenantDomains.length > 0
+  const tenantCount = options.hosts?.tenant?.length ?? 0
+  const hasHosts = hosts.length > 0 || tenantCount > 0
   const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? [])].some(isFunction)
 
-  if (host.includes('{domain}') && tenantDomains.length === 0) {
+  if (host.includes('{domain}') && tenantCount === 0) {
     throw new Error(t(locales.errors.missingHosts, { key }))
   }
 
@@ -468,7 +480,7 @@ const compileRowTemplate = (
   }
 
   // Two values in one segment: one whose check is a pattern is read by that pattern.
-  const pathPatterns: Record<string, string> = {}
+  const pathPatterns: Record<string, PathPattern> = {}
 
   for (const segment of splitPath(path)) {
     const segmentNames = [...segment.matchAll(placeholderRegex)].map(([, name]) => name)
@@ -477,7 +489,7 @@ const compileRowTemplate = (
       const check = givenRowChecks?.[name] ?? options.checks?.[name]
 
       if (check instanceof RegExp && isAnyOf(check.flags, ['', 'i'])) {
-        pathPatterns[name] = toEntrySource(check)
+        pathPatterns[name] = toPathPattern(toPatternSource(check))
       }
     }
   }
@@ -496,61 +508,154 @@ const compileRowTemplate = (
   }
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.
-  const toHostPathRegex = (isWwwOptional: boolean, pathPattern: string, flags: string): RegExp => {
-    const wwwSource = isWwwOptional ? '(?:www\\.)?' : ''
-    const tenantWwwSource = options.isWwwTenantPrefix ? wwwSource : ''
+  const toHostPathMatcher = (isWwwOptional: boolean, isRaw: boolean): Matcher => {
+    const isCaseless = !isRaw
+    // A host is parsed into lowercase, so only the template's text needs its case set aside.
+    const toEntryText = (entry: string): string => (isCaseless ? entry.toLowerCase() : entry)
+    const isTenantWwwOptional = isWwwOptional && Boolean(options.isWwwTenantPrefix)
     const normalize = (value: string): string => (isWwwOptional ? stripWww(value) : value)
+    // A host as given, or with the `www` in front of it set aside where it is optional.
+    const toForms = (value: string, isOptional: boolean): Array<string> => {
+      if (isOptional && value.startsWith('www.')) {
+        return [value.slice(4), value]
+      }
+
+      return [value]
+    }
+    const toEntryTest = (entry: HostEntry, isOptional: boolean): TextTest => {
+      if (isFunction(entry)) {
+        return isAnyDomain
+      }
+
+      if (isString(entry)) {
+        const entryText = toEntryText(entry)
+
+        return (value) => toForms(value, isOptional).includes(entryText)
+      }
+
+      const entryRegex = new RegExp(
+        `^${isOptional ? '(?:www\\.)?' : ''}(?:${toPatternSource(entry)})$`,
+        isCaseless ? 'i' : '',
+      )
+
+      return (value) => entryRegex.test(value)
+    }
+    const tenantEntries = options.hosts?.tenant ?? []
+    const domainTests = tenantEntries.map((entry) => toEntryTest(entry, false))
+    const isTenantDomain: TextTest = (value) => domainTests.some((isTaken) => isTaken(value))
+    // One host label other than `www` unless `www` is a tenant, under a tenant domain.
+    const isTenantHost: TextTest = (value) => {
+      return toForms(value, isTenantWwwOptional).some((form) => {
+        const dot = form.indexOf('.')
+        const label = form.slice(0, dot)
+
+        if (dot < 1 || (!options.isWwwTenant && label === 'www')) {
+          return false
+        }
+
+        return isTenantDomain(form.slice(dot + 1))
+      })
+    }
     // In a page table `www` is read in front of an apex host, and in front of a subdomain host
     // only where `hosts` lists it, since a subdomain serves no `www` of its own.
     const listedHosts = options.isFallThrough ? hosts.filter(isString) : []
-    const toPageHostSource = (value: string): string => {
+    const toPageHostTest = (value: string): TextTest => {
       const bare = stripWww(value)
 
-      return isApexHost(bare) ? `${wwwSource}${escapeRegex(bare)}` : escapeRegex(value)
+      return isApexHost(bare) ? toEntryTest(bare, isWwwOptional) : toEntryTest(value, false)
     }
-    const hostSources = [
+    const hostTests = [
       ...hosts.map((value) => {
         if (options.isFallThrough && isString(value)) {
-          return toPageHostSource(value)
+          return toPageHostTest(value)
         }
 
-        return `${wwwSource}${toEntrySource(isString(value) ? normalize(value) : value)}`
+        return toEntryTest(isString(value) ? normalize(value) : value, isWwwOptional)
       }),
-      ...(tenantDomains.length > 0 ? [`${tenantWwwSource}${tenantSource}\\.${domainSource}`] : []),
+      ...(tenantEntries.length > 0 ? [isTenantHost] : []),
     ]
     const isFixedHost = !host.startsWith('{') || host.startsWith('{domain}')
     const bareHost = stripWww(host)
     const listedForms = [bareHost, `www.${bareHost}`].filter((form) => listedHosts.includes(form))
     const isPageFixedHost = Boolean(options.isFallThrough) && isFixedHost && !host.includes('{')
-    const fixedPrefixSource = isFixedHost && !isPageFixedHost ? wwwSource : ''
-    const isTenantHost = !isFixedHost && !host.startsWith('{host}')
-    const tenantPrefixSource = isTenantHost ? tenantWwwSource : ''
-    const hostCaptures = {
-      host: `(?:${hostSources.join('|')})`,
-      domain: domainSource,
+    const isTenantTemplate = !isFixedHost && !host.startsWith(hostPlaceholder)
+    const isPrefixOptional =
+      (isFixedHost && !isPageFixedHost && isWwwOptional) ||
+      (isTenantTemplate && isTenantWwwOptional)
+    const hostTokens = toTokens(normalize(host), compiled.captureIn('host'), {
+      stops: hostStops,
+      wholes: {
+        host: (value) => hostTests.some((isTaken) => isTaken(value)),
+        domain: isTenantDomain,
+      },
+      isWwwRefused: !options.isWwwTenant,
+    })
+    const pageForms = listedForms.length > 0 ? listedForms : [host]
+    const pageTests = isApexHost(bareHost)
+      ? [toPageHostTest(bareHost)]
+      : pageForms.map((form) => toEntryTest(form, false))
+    const pathTokens = isRaw ? compiled.rawPathTokens : compiled.readPathTokens
+
+    // The host's values, none for a fixed host of a page table, or undefined where it is no host
+    // the template takes. The hostname is parsed into lowercase, so `www.` is matched as written.
+    const readHost = (input: string, hostEnd: number): ReturnType<typeof matchTokens> => {
+      if (isPageFixedHost) {
+        const inputHost = input.slice(0, hostEnd)
+
+        if (!pageTests.some((isTaken) => isTaken(inputHost))) {
+          return
+        }
+
+        return {}
+      }
+
+      const hasPrefix = isPrefixOptional && hostEnd > 4 && input.startsWith('www.')
+
+      if (hasPrefix) {
+        const ranges = matchTokens(hostTokens, input, 4, hostEnd, isCaseless)
+
+        if (ranges) {
+          return ranges
+        }
+      }
+
+      return matchTokens(hostTokens, input, 0, hostEnd, isCaseless)
     }
-    const hostSource = toRegexSource(
-      normalize(host),
-      compiled.captureIn('host'),
-      { source: tenantSource },
-      hostCaptures,
-    )
-    const prefixSource = `${fixedPrefixSource}${tenantPrefixSource}`
 
-    if (isPageFixedHost) {
-      const forms = listedForms.length > 0 ? listedForms : [host]
-      const sources = isApexHost(bareHost) ? [toPageHostSource(bareHost)] : forms.map(escapeRegex)
+    const exec = (input: string): MatchResult | undefined => {
+      const slash = input.indexOf('/')
+      const hostEnd = slash === -1 ? input.length : slash
 
-      return new RegExp(`^(?:${sources.join('|')})${pathPattern}$`, flags)
+      // Fixed text in the path rules most URLs out before the host is read.
+      if (!mayMatchTokens(pathTokens, input, hostEnd, input.length, isCaseless)) {
+        return
+      }
+
+      const hostRanges = readHost(input, hostEnd)
+
+      if (!hostRanges) {
+        return
+      }
+
+      const pathRanges = matchTokens(pathTokens, input, hostEnd, input.length, isCaseless)
+
+      if (!pathRanges) {
+        return
+      }
+
+      return toMatchResult(input, { ...hostRanges, ...pathRanges })
     }
 
-    return new RegExp(`^${prefixSource}${hostSource}${pathPattern}$`, flags)
+    return {
+      exec,
+      test: (input) => exec(input) !== undefined,
+    }
   }
-  const asGivenRegex = toHostPathRegex(false, compiled.readPathSource, 'i')
-  const optionalWwwRegex = toHostPathRegex(true, compiled.readPathSource, 'i')
-  // Matched on the path as given, with the indices a case mark lowercases.
-  const rawAsGivenRegex = toHostPathRegex(false, compiled.rawPathSource, 'd')
-  const rawOptionalWwwRegex = toHostPathRegex(true, compiled.rawPathSource, 'd')
+  const asGivenMatcher = toHostPathMatcher(false, false)
+  const optionalWwwMatcher = toHostPathMatcher(true, false)
+  // Matched on the path as given, with the ranges a case mark lowercases.
+  const rawAsGivenMatcher = toHostPathMatcher(false, true)
+  const rawOptionalWwwMatcher = toHostPathMatcher(true, true)
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const shapeNames = ownNames
     .map((name) => name.toLowerCase())
@@ -560,13 +665,54 @@ const compileRowTemplate = (
   // A `#` is in no template, so an open template shares its shape with no template that is not.
   const shape = `${shapeHostPath}${isOpen ? '#' : ''}?${shapeQuery}`
 
+  const toHostNames = (value: string): Array<string> => {
+    const bare = stripWww(value.toLowerCase())
+
+    return [value.toLowerCase(), bare, `www.${bare}`]
+  }
+  const toHostHint = (): HostHint | undefined => {
+    const exactEntries = options.hosts?.exact ?? []
+    const tenantEntries = options.hosts?.tenant ?? []
+    const isStringsOnly = (entries: Array<HostEntry>) => entries.every(isString)
+
+    if (!host.includes('{')) {
+      return { names: toHostNames(host), suffixes: [] }
+    }
+
+    if (host === hostPlaceholder || host.includes('{domain}')) {
+      if (
+        !isStringsOnly(tenantEntries) ||
+        (host === hostPlaceholder && !isStringsOnly(exactEntries))
+      ) {
+        return
+      }
+
+      const domains = tenantEntries.filter(isString).map((domain) => domain.toLowerCase())
+      const names =
+        host === hostPlaceholder ? exactEntries.filter(isString).flatMap(toHostNames) : []
+
+      return {
+        names: [...names, ...domains.flatMap(toHostNames)],
+        suffixes: domains.map((domain) => `.${domain}`),
+      }
+    }
+
+    const suffix = host.slice(host.lastIndexOf('}') + 1).toLowerCase()
+
+    if (host.includes(hostPlaceholder) || !suffix.startsWith('.')) {
+      return
+    }
+
+    return { names: [], suffixes: [suffix] }
+  }
+
   // A `{host}` row of a table without hosts serves any site, so nothing in its URL names the
   // platform, and only an any-host read takes it.
   const claimsUrls = !host.includes(hostPlaceholder) || hasHosts
 
   const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
     const { url, hostPath } = tableUrl
-    const match = claimsUrls && (isWwwOptional ? optionalWwwRegex : asGivenRegex).exec(hostPath)
+    const match = claimsUrls && (isWwwOptional ? optionalWwwMatcher : asGivenMatcher).exec(hostPath)
 
     if (!match) {
       return
@@ -607,7 +753,10 @@ const compileRowTemplate = (
   }
 
   // A name the template holds twice reads one value, so two different ones read nothing.
-  const readRawGroups = (rawParams: RawParams, groups: Record<string, string> = {}): boolean => {
+  const readRawGroups = (
+    rawParams: RawParams,
+    groups: Record<string, string | undefined> = {},
+  ): boolean => {
     return Object.entries(groups).every(([group, value]) => {
       const captured = getCaptured(group)
 
@@ -638,7 +787,7 @@ const compileRowTemplate = (
   }
 
   // The text a match ran on and its values, the values the case mark covers in lowercase.
-  const lowercaseValues = (match: RegExpExecArray, listParams: Record<string, UrlValue>) => {
+  const lowercaseValues = (match: MatchResult, listParams: Record<string, UrlValue>) => {
     const params = toCheckParams(listParams)
     const groups = { ...match.groups }
     let text = match.input
@@ -674,8 +823,8 @@ const compileRowTemplate = (
   const readRawParams: RowTemplate['readRawParams'] = (tableUrl, isWwwOptional, params) => {
     const { url } = tableUrl
     const { pairs } = readQuery(tableUrl)
-    const regex = isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex
-    const match = regex.exec(url.hostname + url.pathname)
+    const matcher = isWwwOptional ? rawOptionalWwwMatcher : rawAsGivenMatcher
+    const match = matcher.exec(url.hostname + url.pathname)
     const rawParams: RawParams = {}
 
     if (!match) {
@@ -717,7 +866,7 @@ const compileRowTemplate = (
         continue
       }
 
-      const queryMatch = param.rawRegex.exec(rawValue ?? '')
+      const queryMatch = param.readRaw(rawValue ?? '')
 
       if (!queryMatch) {
         return
@@ -859,8 +1008,9 @@ const compileRowTemplate = (
     valueNames: ownParams.filter((param) => param.value.includes('{')).map((param) => param.name),
     flagTexts: ownParams.filter((param) => param.isFlag).map((param) => `${param.writtenName}=`),
     getWrittenText,
-    asGivenRegex,
-    optionalWwwRegex,
+    asGivenMatcher,
+    optionalWwwMatcher,
+    hostHint: toHostHint(),
     readParams,
     readRawParams,
     getRawUrl,
@@ -920,9 +1070,33 @@ const createTable = <const Row extends UrlRow>(
   })
   // A table that passes a refused URL on reads its rows in the order written.
   const inReadOrder = options.isFallThrough ? claimed : bySpecificity
+  // The hosts any row takes, so a URL on another host is ruled out at once.
+  const hostHints = claimed.map((candidate) => candidate.hostHint)
+  const hostNames = new Set(hostHints.flatMap((hint) => hint?.names ?? []))
+  const hostSuffixes = [...new Set(hostHints.flatMap((hint) => hint?.suffixes ?? []))]
+  const isAnyHostTaken = hostHints.some((hint) => !hint)
+  const mayTakeHost = (hostname: string): boolean => {
+    if (isAnyHostTaken || hostNames.has(hostname)) {
+      return true
+    }
+
+    return hostSuffixes.some((suffix) => hostname.endsWith(suffix))
+  }
+
   // A URL whose host and path no template takes is none of the rows, whatever its query.
-  const asGivenRegex = joinRegexes(claimed.map((candidate) => candidate.asGivenRegex))
-  const optionalWwwRegex = joinRegexes(claimed.map((candidate) => candidate.optionalWwwRegex))
+  const takesHostPath = (tableUrl: TableUrl, isWwwOptional: boolean): boolean => {
+    if (!mayTakeHost(tableUrl.url.hostname)) {
+      return false
+    }
+
+    const { hostPath } = tableUrl
+
+    return claimed.some((candidate) => {
+      return (isWwwOptional ? candidate.optionalWwwMatcher : candidate.asGivenMatcher).test(
+        hostPath,
+      )
+    })
+  }
 
   // The templates of the key's rows in the order written, each row's main URL before its aliases.
   const getRowTemplates = (key: string, select?: Select): Array<Array<RowTemplate>> => {
@@ -1000,7 +1174,9 @@ const createTable = <const Row extends UrlRow>(
   ): Array<string> => {
     return compiled
       .filter((candidate) => {
-        return (isWwwOptional ? candidate.optionalWwwRegex : candidate.asGivenRegex).test(hostPath)
+        return (isWwwOptional ? candidate.optionalWwwMatcher : candidate.asGivenMatcher).test(
+          hostPath,
+        )
       })
       .flatMap((candidate) => candidate.fixedQuery)
       .filter(([name, value]) => {
@@ -1117,7 +1293,7 @@ const createTable = <const Row extends UrlRow>(
   const readTableTemplate = (tableUrl: TableUrl, base?: UrlValues): TakenTemplate | undefined => {
     // With `www` a tenant, a host as given wins, so `www.example.com` is the tenant `www`.
     const asGiven =
-      options.isWwwTenant && asGivenRegex.test(tableUrl.hostPath)
+      options.isWwwTenant && takesHostPath(tableUrl, false)
         ? findTemplate(tableUrl, false, base)
         : undefined
 
@@ -1125,7 +1301,7 @@ const createTable = <const Row extends UrlRow>(
       return asGiven
     }
 
-    if (optionalWwwRegex.test(tableUrl.hostPath)) {
+    if (takesHostPath(tableUrl, true)) {
       return findTemplate(tableUrl, true, base)
     }
   }
@@ -1139,12 +1315,12 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    const takesHostPath = (): boolean => {
-      return [asGivenRegex, optionalWwwRegex].some((regex) => regex.test(tableUrl.hostPath))
+    const isTaken = (): boolean => {
+      return [false, true].some((isWwwOptional) => takesHostPath(tableUrl, isWwwOptional))
     }
     let readableUrl = tableUrl
 
-    if (hasAmpersandMark && takesHostPath() && readQuery(tableUrl).pairs.some(isEntityPair)) {
+    if (hasAmpersandMark && isTaken() && readQuery(tableUrl).pairs.some(isEntityPair)) {
       const { pairs, hash } = readQuery(tableUrl)
 
       readableUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
