@@ -271,7 +271,10 @@ const toCheckFunctions = <Rest extends Array<unknown>>(
       throw new Error(t(locales.errors.unanchoredCheckRegex, { name }))
     }
 
-    functions[name] = (value, ..._rest) => check.test(value)
+    // The anchors bind the whole pattern only where no `|` sits outside a group, as in `^\d+|x$`.
+    const wholeRegex = new RegExp(`^(?:${check.source})$`, check.flags)
+
+    functions[name] = (value, ..._rest) => wholeRegex.test(value)
   }
 
   const hostCheck = functions.host
@@ -481,8 +484,10 @@ const compileRowTemplate = (
     throw new Error(t(locales.errors.sharedCaseMark, { key, name: sharedName }))
   }
 
-  // Two values in one segment: one whose check is a pattern is read by that pattern.
+  // Two values in one segment: one whose check is a pattern is read by that pattern. A URL read as
+  // written is matched case-sensitively, so a pattern of any case stays out of that read.
   const pathPatterns: Record<string, string> = {}
+  const writtenPathPatterns: Record<string, string> = {}
 
   for (const segment of splitPath(path)) {
     const segmentNames = [...segment.matchAll(placeholderRegex)].map(([, name]) => name)
@@ -493,11 +498,17 @@ const compileRowTemplate = (
       if (check instanceof RegExp && isAnyOf(check.flags, ['', 'i'])) {
         pathPatterns[name] = toEntrySource(check)
       }
+
+      if (check instanceof RegExp && !check.flags) {
+        writtenPathPatterns[name] = toEntrySource(check)
+      }
     }
   }
 
-  const compiled: CompiledTemplate = compileTemplate(parsed, pathPatterns)
-  const builtCompiled = hasBase ? compileTemplate(built, pathPatterns) : compiled
+  const compiled: CompiledTemplate = compileTemplate(parsed, pathPatterns, writtenPathPatterns)
+  const builtCompiled = hasBase
+    ? compileTemplate(built, pathPatterns, writtenPathPatterns)
+    : compiled
   const ownParams = compiled.params
   const { getCaptured } = compiled
   const hasRowChecks = Object.keys(rowChecks).length > 0
@@ -1426,9 +1437,15 @@ const createTable = <const Row extends UrlRow>(
 
     // A row of values alone reads `/forum/viewtopic.php` with no base, as a user in a group, so
     // the bases a row with fixed text reads the URL under go first, each list shortest first.
-    const fixedLengths = baseLengths.filter((baseLength) => readBehind(true, baseLength))
+    for (const baseLength of baseLengths) {
+      const match = readBehind(true, baseLength) ? readUnder(baseLength) : undefined
 
-    for (const baseLength of [...fixedLengths, ...baseLengths]) {
+      if (match) {
+        return match
+      }
+    }
+
+    for (const baseLength of baseLengths) {
       const match = readUnder(baseLength)
 
       if (match) {

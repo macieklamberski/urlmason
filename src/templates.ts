@@ -169,7 +169,8 @@ const pathCapture: Capture = {
   segmentMaxLength: sharedPartMaxLength,
 }
 const writtenPathCapture: Capture = { ...pathCapture, segmentMaxLength: writtenPartMaxLength }
-const queryCapture: Capture = { source: '.+', unit: '.' }
+// A query value can hold a line break, which `.` leaves out.
+const queryCapture: Capture = { source: '[^]+', unit: '[^]' }
 
 export const isMultiSegment = (placeholder: string): boolean => {
   return placeholder.endsWith('*')
@@ -611,6 +612,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 export const compileTemplate = (
   parsed: ParsedTemplate,
   pathPatterns: Record<string, string> = {},
+  writtenPathPatterns: Record<string, string> = pathPatterns,
 ): CompiledTemplate => {
   const { scheme, host, path, isOpen, names } = parsed
   const captured: Array<Captured> = []
@@ -669,7 +671,7 @@ export const compileTemplate = (
         writtenPathCapture,
         multiSegmentCaptures,
         encodeLiteral,
-        pathPatterns,
+        writtenPathPatterns,
       )
     : '/?'
   // An open tail is every segment behind the path, an empty one included, as pages link them.
