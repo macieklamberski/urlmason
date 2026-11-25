@@ -81,7 +81,7 @@ describe('parseTemplate', () => {
     const throwing = () => parseTemplate(value)
 
     expect(throwing).toThrow(
-      `The template ${value} writes ?{query}, a passed query, which no template takes yet`,
+      `The template ${value} writes ?{query}, a passed query, which no template takes`,
     )
   })
 
@@ -89,14 +89,14 @@ describe('parseTemplate', () => {
     const value = 'https://example.com/search{?query*}'
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow('Not a feed URL template: https://example.com/search{?query*}')
+    expect(throwing).toThrow('Not a URL template: https://example.com/search{?query*}')
   })
 
   it('should throw for a template without a scheme', () => {
     const value = 'example.com/feed'
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow('Not a feed URL template: example.com/feed')
+    expect(throwing).toThrow('Not a URL template: example.com/feed')
   })
 })
 

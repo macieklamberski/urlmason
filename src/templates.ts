@@ -290,7 +290,7 @@ export const toRegexSource = (
 }
 
 // An old spelling is refused with the one that replaces it, a passed query as one no template
-// takes yet, and any operator or modifier but a list with its slash.
+// takes, and any operator or modifier but a list with its slash.
 const checkExpressions = (template: string): void => {
   const throwOldSpelling = (expression: string, spelling: string): never => {
     throw new Error(t(locales.errors.oldTemplateSpelling, { template, expression, spelling }))
@@ -317,7 +317,7 @@ const checkExpressions = (template: string): void => {
 
     // A passed query is no part of the core, so `{?query*}` is refused.
     if (queryExpressionRegex.test(body)) {
-      throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+      throw new Error(t(locales.errors.invalidTemplate, { template }))
     }
 
     throw new Error(t(locales.errors.unsupportedTemplateExpression, { template, expression }))
@@ -331,7 +331,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const match = templateRegex.exec(template)
 
   if (!match) {
-    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
   const [, scheme, host, givenPath = '', search] = match
@@ -340,7 +340,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
   // A placeholder fills a value and never names a parameter, as `?{name}` or `?%7Bname%7D`.
   if (entries.some(([name]) => name.includes('{'))) {
-    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
   // A name with no value, such as `?rss`, is a flag, built with no value.
@@ -365,7 +365,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
   // A parameter the template names twice, as `types=page&types=post`, has no one value to read.
   if (paramNames.some((name, index) => paramNames.indexOf(name) !== index)) {
-    throw new Error(t(locales.errors.invalidFeedTemplate, { template }))
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
   const path = isOpen ? givenPath.slice(0, -openTailSuffix.length) : givenPath

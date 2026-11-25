@@ -426,7 +426,7 @@ const compileRowTemplate = (
   const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? [])].some(isFunction)
 
   if (host.includes('{domain}') && tenantDomains.length === 0) {
-    throw new Error(t(locales.errors.missingFeedHosts, { key }))
+    throw new Error(t(locales.errors.missingHosts, { key }))
   }
 
   const pathNames = [...path.matchAll(placeholderRegex)].map(([, name]) => name)
@@ -919,7 +919,7 @@ const createTable = <const Row extends UrlRow>(
   // The templates of the key's rows in the order written, each row's main URL before its aliases.
   const getRowTemplates = (key: string, select?: Select): Array<Array<RowTemplate>> => {
     if (!rows.some((row) => row.key === key)) {
-      throw new Error(t(locales.errors.missingFeedTemplate, { key }))
+      throw new Error(t(locales.errors.unknownKey, { key }))
     }
 
     return compiledRows.filter((_templates, rowIndex) => {
