@@ -3,6 +3,7 @@ import {
   encodePathSegment,
   escapeRegex,
   getQueryParamValues,
+  isPlainObject,
   isString,
   parseUrl,
   t,
@@ -19,7 +20,7 @@ import {
   toSearchParams,
   writeQuery,
 } from './queries.js'
-import type { UrlEncoding, UrlValue, UrlValues } from './types.js'
+import type { UrlEncoding, UrlMap, UrlValue, UrlValues } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query'
 
@@ -153,7 +154,16 @@ const isEmptyList = (placeholder: string): boolean => {
 
 // A path a list or a string of segments names, as `['forum']` or `/forum/`, without empty ones.
 export const toSegments = (value: UrlValue | undefined): Array<string> => {
+  if (isPlainObject(value)) {
+    return []
+  }
+
   return (isString(value) ? value.split('/') : (value ?? [])).filter((segment) => segment)
+}
+
+// A map as the names and values it holds, one after another, as `['lang', 'en']`.
+const toMapItems = (map: UrlMap): Array<string> => {
+  return Object.entries(map).flat()
 }
 
 // A list is one or more segments, and `base` and `tail` zero or more. An empty segment is dropped,
@@ -161,6 +171,15 @@ export const toSegments = (value: UrlValue | undefined): Array<string> => {
 // string is read as segments joined by `/`, and a list is no value of a placeholder of one segment.
 const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue | undefined => {
   const value = params[toBareName(placeholder)]
+
+  // A map with no name is no value, as a list with no item.
+  if (isPlainObject(value)) {
+    if (Object.keys(value).length === 0) {
+      return
+    }
+
+    return value
+  }
 
   // A list in a slot of one value is written as its items joined by commas, and no item as none.
   if (!isMultiSegment(placeholder)) {
@@ -184,6 +203,10 @@ export const splitPath = (path: string): Array<string> => {
 
 // A value as text, as a check sees it: a list as its segments joined by `/`.
 export const toValueText = (value: UrlValue): string => {
+  if (isPlainObject(value)) {
+    return toMapItems(value).join(',')
+  }
+
   return Array.isArray(value) ? value.join('/') : value
 }
 
@@ -237,14 +260,15 @@ const fillQueryValue = (
     }
 
     const value = values[piece]
+    const items = isPlainObject(value) ? toMapItems(value) : value
 
-    if (!Array.isArray(value)) {
-      push(String(value), 'value')
+    if (!Array.isArray(items)) {
+      push(String(items), 'value')
 
       continue
     }
 
-    for (const [itemIndex, item] of value.entries()) {
+    for (const [itemIndex, item] of items.entries()) {
       if (itemIndex > 0) {
         push(',', 'separator')
       }
@@ -273,14 +297,23 @@ const fillQueryValue = (
 // A value in a slot of one value, as `{id}`. A list is its items joined by commas, each item's own
 // commas encoded, so the separators stay apart from them.
 const encodeSlot = (value: UrlValue, encode: (value: string) => string): string => {
-  if (!Array.isArray(value)) {
-    return encode(value)
+  const items = isPlainObject(value) ? toMapItems(value) : value
+
+  if (!Array.isArray(items)) {
+    return encode(items)
   }
 
-  return value.map((item) => encode(item).replaceAll(',', '%2C')).join(',')
+  return items.map((item) => encode(item).replaceAll(',', '%2C')).join(',')
 }
 
-const encodePath = (value: UrlValue): string => {
+// A map in a list slot, one `name=value` segment per name.
+const encodeMapSegments = (map: UrlMap, encode: (value: string) => string): string => {
+  return Object.entries(map)
+    .map(([name, value]) => `${encode(name)}=${encode(value)}`)
+    .join('/')
+}
+
+const encodePath = (value: string | Array<string>): string => {
   return Array.isArray(value) ? value.map(encodePathValue).join('/') : encodePathValue(value)
 }
 
@@ -336,7 +369,7 @@ export const toStrictUrl = (url: string): string => {
   return `${origin}${strictPath}${query ? `?${strictQuery}` : ''}${fragment}`
 }
 
-const encodeStrict = (value: UrlValue): string => {
+const encodeStrict = (value: string | Array<string>): string => {
   return Array.isArray(value) ? value.map(encodeStrictValue).join('/') : encodeStrictValue(value)
 }
 
@@ -678,13 +711,20 @@ export const compileTemplate = (
   const writtenPath = encodeLiteral(path)
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
-    const fillPlaceholders = (text: string, encode: (value: UrlValue) => string = toValueText) => {
+    const fillPlaceholders = (
+      text: string,
+      encode: (value: string | Array<string>) => string = toValueText,
+    ) => {
       return text.replace(placeholderRegex, (_placeholder, name: string) => {
         const value = values[name]
 
         // A list holds the slash in front of it, so a list of no segment writes nothing.
         if (!isMultiSegment(name)) {
           return encodeSlot(value, encode)
+        }
+
+        if (isPlainObject(value)) {
+          return `/${encodeMapSegments(value, isStrict ? encodeStrictValue : encodePathValue)}`
         }
 
         return value.length > 0 ? `/${encode(value)}` : ''

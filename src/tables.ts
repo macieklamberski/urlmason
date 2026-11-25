@@ -6,6 +6,7 @@ import {
   isFunction,
   isHostOf,
   isHttpUrl,
+  isPlainObject,
   isSameText,
   isString,
   parseUrl,
@@ -190,6 +191,10 @@ const asciiUpperCaseRegex = /[A-Z]+/g
 const toAsciiLowerCase = (value: UrlValue): UrlValue => {
   const lowercase = (text: string) => {
     return text.replace(asciiUpperCaseRegex, (letters) => letters.toLowerCase())
+  }
+
+  if (isPlainObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([name, text]) => [name, lowercase(text)]))
   }
 
   return Array.isArray(value) ? value.map(lowercase) : lowercase(value)
