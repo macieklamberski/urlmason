@@ -733,6 +733,12 @@ const checkedExact = defineUrls([{ key: 'jobs', main: '{scheme}://{host}/jobs/fe
 
 describe('defineUrls', () => {
   describe('rows', () => {
+    it('should throw for a row on a domain placeholder in a table without tenant domains', () => {
+      const throwing = () => defineUrls([{ key: 'blog', main: 'https://{user}.{domain}/feed' }])
+
+      expect(throwing).toThrow('No hosts for the blog feed')
+    })
+
     it('should return the rows it was given', () => {
       expect(players.rows).toEqual(playerRows)
     })
@@ -848,6 +854,20 @@ describe('defineUrls', () => {
   })
 
   describe('read', () => {
+    it('should return undefined for a URL that is not http', () => {
+      const value = 'ftp://www.example.com/embed/x8abc'
+
+      expect(players.read(value)).toBeUndefined()
+    })
+
+    it('should read a URL as not exact when a value the row holds twice is spelled two ways', () => {
+      const table = defineUrls([{ key: 'item', main: 'https://example.com/{id}/feed?id={id}' }])
+      const value = 'https://example.com/Abc/feed?id=abc'
+      const match = table.read(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
     it('should return the key, the values and the row of a main URL', () => {
       const value = 'https://www.example.com/embed/x8abc'
       const expected: UrlMatch<string, PlayerRow> = {
@@ -1177,6 +1197,12 @@ describe('defineUrls', () => {
   })
 
   describe('forUrl', () => {
+    it('should return undefined for a page URL that is not http', () => {
+      const value = 'mailto:alice@example.com'
+
+      expect(unsorted.forUrl(value)).toBeUndefined()
+    })
+
     it('should sort the query of a URL built for a page', () => {
       const value = 'https://example.com/about'
       const expected = 'https://example.com/index.php?format=feed&type=rss'
@@ -1830,6 +1856,16 @@ describe('defineUrls', () => {
   })
 
   describe('with the case mark', () => {
+    it('should read a host value under the mark as exact', () => {
+      const table = defineUrls([{ key: 'user', main: 'https://{user}.example.com/feed' }], {
+        lenient: { case: ['user'] },
+      })
+      const value = 'https://alice.example.com/feed'
+      const match = table.read(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
     it('should write a value of a main URL in lowercase', () => {
       const value = 'https://feeds.example.com/Alice'
       const expected = 'https://feeds.example.com/alice'
@@ -3231,6 +3267,13 @@ describe('defineUrls', () => {
   })
 
   describe('with a base the URL shows', () => {
+    it('should return undefined for a URL that is not http', () => {
+      const value = 'ftp://example.org/viewtopic.php?t=5'
+      const options = { isAnyHost: true }
+
+      expect(boards.read(value, options)).toBeUndefined()
+    })
+
     it('should keep the scheme and host of a URL while a check reads another table', () => {
       const profiles = defineUrls([{ key: 'profile', main: '{scheme}://{host}/@{user}' }])
       const isProfile = (user: string): boolean => {
@@ -3539,6 +3582,17 @@ describe('defineUrls', () => {
   })
 
   describe('with a check of a row', () => {
+    it('should read any value under a check left undefined', () => {
+      const table = defineUrls([
+        { key: 'item', main: 'https://example.com/items/{id}', checks: { id: undefined } },
+      ])
+      const value = 'https://example.com/items/alice'
+      const expected = { id: 'alice' }
+      const match = table.read(value)
+
+      expect(match?.params).toEqual(expected)
+    })
+
     it('should read a value the check of the row takes', () => {
       const value = 'https://example.com/items/123'
       const expected = 'item'
