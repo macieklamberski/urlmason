@@ -133,10 +133,8 @@ export const openTailSuffix = '{/tail*}'
 const emptyListNames = ['base*', `${openTailName}*`]
 const captureGroupPrefix = 'p'
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
-const anyDomainSource = '[^./]+(?:\\.[^./]+)+'
 const pathCapture: Capture = { source: '[^/]+', unit: '[^/]' }
 const queryCapture: Capture = { source: '.+', unit: '.' }
-const labelCapture: Capture = { source: '[^./]+' }
 
 export const isMultiSegment = (placeholder: string): boolean => {
   return placeholder.endsWith('*')
@@ -583,68 +581,4 @@ export const compileTemplate = (
     getValues,
     fill,
   }
-}
-
-// The URL a template writes from the values given, or undefined where one is missing or empty.
-export const buildUrl = (
-  template: CompiledTemplate,
-  params: UrlParams = {},
-): string | undefined => {
-  const values = template.getValues(params)
-
-  if (!values) {
-    return
-  }
-
-  return template.fill(values)
-}
-
-// The patterns `readUrl` matches a host and path with, made on its first read of a template.
-const readRegexes = new WeakMap<CompiledTemplate, RegExp>()
-
-// The values of a URL the template takes, the open tail among them as `tail`, or undefined. A
-// `{host}` or `{domain}` reads any domain and every other host placeholder one label.
-export const readUrl = (
-  template: CompiledTemplate,
-  url: string,
-): Record<string, UrlValue> | undefined => {
-  const parsedUrl = parseUrl(url)
-
-  if (!parsedUrl) {
-    return
-  }
-
-  let regex = readRegexes.get(template)
-
-  if (!regex) {
-    const hostCaptures = { host: anyDomainSource, domain: anyDomainSource }
-    const hostSource = toRegexSource(
-      template.host,
-      template.captureIn('host'),
-      labelCapture,
-      hostCaptures,
-    )
-
-    regex = new RegExp(`^${hostSource}${template.readPathSource}$`, 'i')
-    readRegexes.set(template, regex)
-  }
-
-  const hostPath = parsedUrl.hostname + decodePath(parsedUrl.pathname)
-  const match = regex.exec(hostPath.replace(trailingSlashRegex, ''))
-
-  if (!match) {
-    return
-  }
-
-  const values = template.read(match.groups, () => parsedUrl.searchParams)
-
-  if (!values) {
-    return
-  }
-
-  if (template.scheme === schemePlaceholder) {
-    values.scheme = parsedUrl.protocol.slice(0, -1)
-  }
-
-  return values
 }
