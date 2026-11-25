@@ -85,8 +85,13 @@ type RowTemplate = {
   // The host and path a URL the template takes matches, as given and with an optional `www`.
   asGivenRegex: RegExp
   optionalWwwRegex: RegExp
-  // The values of a URL the template takes, read as given or with an optional `www`.
-  readParams: (tableUrl: TableUrl, isWwwOptional: boolean) => Record<string, UrlValue> | undefined
+  // The values of a URL the template takes, read as given or with an optional `www`. A row read on
+  // the stand-in host gets the scheme, host and base the URL is read under.
+  readParams: (
+    tableUrl: TableUrl,
+    isWwwOptional: boolean,
+    base?: UrlParams,
+  ) => Record<string, UrlValue> | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
   // spelling a mark covers is read in the template's, with the path and the pairs written that way.
@@ -281,6 +286,18 @@ const toTableUrl = (url: URL): TableUrl => {
   }
 }
 
+// A table, and the read its any-host reads use: on the stand-in host, under the scheme, host and
+// base the URL is read under.
+type ReadStandIn<Key extends string, Row> = (
+  url: string,
+  base: UrlParams,
+) => UrlMatch<Key, Row> | undefined
+
+type TableParts<Key extends string, Row> = {
+  table: UrlTable<Key, Row>
+  readStandIn: ReadStandIn<Key, Row>
+}
+
 // The query of a URL, parsed once: a URL no template takes the host and path of is never parsed.
 const readQuery = (tableUrl: TableUrl): UrlQuery => {
   if (!tableUrl.query) {
@@ -305,10 +322,6 @@ const readTableUrl = (url: string): TableUrl | undefined => {
 
   return tableUrl
 }
-
-// The scheme, host and base a URL is being read under, which the rows on the stand-in host hand
-// to their checks.
-let readBase: UrlParams | undefined
 
 // One pattern any of the patterns matches, so a table reads a URL on none of its rows at once.
 const joinRegexes = (regexes: Array<RegExp>): RegExp => {
@@ -543,10 +556,7 @@ const compileRowTemplate = (
   // platform, and only an any-host read takes it.
   const claimsUrls = !host.includes(hostPlaceholder) || hasHosts
 
-  const readParams = (
-    tableUrl: TableUrl,
-    isWwwOptional: boolean,
-  ): Record<string, UrlValue> | undefined => {
+  const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
     const { url, hostPath } = tableUrl
     const match = claimsUrls && (isWwwOptional ? optionalWwwRegex : asGivenRegex).exec(hostPath)
 
@@ -581,8 +591,8 @@ const compileRowTemplate = (
     }
 
     // A row read under a base sits on the stand-in host, and its checks see the host and base.
-    if (readBase) {
-      Object.assign(params, readBase)
+    if (base) {
+      Object.assign(params, base)
     }
 
     return params
@@ -854,13 +864,10 @@ const compileRowTemplate = (
   }
 }
 
-// One table of URLs, keyed by what each row is. `build` writes a row's URL from the values a page
-// gave, `buildAll` lists every spelling of it, `read` takes a URL back to its row and values, and
-// `getMainUrl` writes a URL in its row's main spelling.
-export const defineUrls = <const Row extends UrlRow>(
+const createTable = <const Row extends UrlRow>(
   givenRows: Array<Row>,
   options: UrlTableOptions = {},
-): UrlTable<Row['key'], Row> => {
+): TableParts<Row['key'], Row> => {
   type Key = Row['key']
   type Select = (row: Row) => boolean
 
@@ -1040,7 +1047,11 @@ export const defineUrls = <const Row extends UrlRow>(
   // The first template that takes the URL decides. A value its check refuses passes the URL on
   // only to a template of the same shape, as a row for another value of `format`, so a looser
   // row does not take it. Under `isFallThrough` every refusal passes it on to every later row.
-  const findTemplate = (tableUrl: TableUrl, isWwwOptional: boolean): TakenTemplate | undefined => {
+  const findTemplate = (
+    tableUrl: TableUrl,
+    isWwwOptional: boolean,
+    base?: UrlParams,
+  ): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
 
     for (const template of inReadOrder) {
@@ -1048,7 +1059,7 @@ export const defineUrls = <const Row extends UrlRow>(
         continue
       }
 
-      const params = template.readParams(tableUrl, isWwwOptional)
+      const params = template.readParams(tableUrl, isWwwOptional, base)
 
       if (!params) {
         continue
@@ -1095,11 +1106,11 @@ export const defineUrls = <const Row extends UrlRow>(
     return template.readRawParams(tableUrl, isWwwOptional, params)
   }
 
-  const readTableTemplate = (tableUrl: TableUrl): TakenTemplate | undefined => {
+  const readTableTemplate = (tableUrl: TableUrl, base?: UrlParams): TakenTemplate | undefined => {
     // With `www` a tenant, a host as given wins, so `www.example.com` is the tenant `www`.
     const asGiven =
       options.isWwwTenant && asGivenRegex.test(tableUrl.hostPath)
-        ? findTemplate(tableUrl, false)
+        ? findTemplate(tableUrl, false, base)
         : undefined
 
     if (asGiven) {
@@ -1107,13 +1118,13 @@ export const defineUrls = <const Row extends UrlRow>(
     }
 
     if (optionalWwwRegex.test(tableUrl.hostPath)) {
-      return findTemplate(tableUrl, true)
+      return findTemplate(tableUrl, true, base)
     }
   }
 
   // The template a URL is read by. Under the ampersand mark the server sees the query with `&`, so
   // the pairs are the ones of the query with `&amp;` read as `&`.
-  const readTemplate = (url: string): FoundTemplate | undefined => {
+  const readTemplate = (url: string, base?: UrlParams): FoundTemplate | undefined => {
     const tableUrl = readTableUrl(url)
 
     if (!tableUrl) {
@@ -1131,7 +1142,7 @@ export const defineUrls = <const Row extends UrlRow>(
       readUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
     }
 
-    const found = readTableTemplate(readUrl)
+    const found = readTableTemplate(readUrl, base)
 
     if (!found?.params) {
       return
@@ -1148,7 +1159,7 @@ export const defineUrls = <const Row extends UrlRow>(
   }
 
   type RootRow = UrlRow<Key> & { rootRowIndex: number; isMainRead: boolean }
-  type RootTable = UrlTable<Key, RootRow>
+  type RootTable = TableParts<Key, RootRow>
   type RootTables = Record<'all' | 'fixed' | 'based' | 'basedFixed', RootTable>
 
   // The `{host}` rows as rows on one fixed host, which stands for whatever host and base a URL is
@@ -1192,7 +1203,7 @@ export const defineUrls = <const Row extends UrlRow>(
       }
     }
 
-    return defineUrls(rootRows, {
+    return createTable(rootRows, {
       ...options,
       hosts: undefined,
     })
@@ -1234,25 +1245,21 @@ export const defineUrls = <const Row extends UrlRow>(
           ? tables[isFixed ? 'basedFixed' : 'based']
           : tables[isFixed ? 'fixed' : 'all']
 
-      readBase = {
+      const readBase: UrlParams = {
         scheme: parsedUrl.protocol.slice(0, -1),
         host: parsedUrl.host,
         ...(base.length > 0 && { base }),
       }
+      const match = table.readStandIn(
+        `${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`,
+        readBase,
+      )
 
-      try {
-        const match = table.read(
-          `${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`,
-        )
-
-        if (!match) {
-          return
-        }
-
-        return { match, params: { ...match.params, ...readBase } }
-      } finally {
-        readBase = undefined
+      if (!match) {
+        return
       }
+
+      return { match, params: { ...match.params, ...readBase } }
     }
     const readUnder = (baseLength: number): UrlMatch<Key, Row> | undefined => {
       const read = readBehind(false, baseLength)
@@ -1315,12 +1322,10 @@ export const defineUrls = <const Row extends UrlRow>(
     }
   }
 
-  const read: UrlTable<Key, Row>['read'] = (url, readOptions) => {
-    if (readOptions?.base !== undefined || readOptions?.isAnyHost) {
-      return readRooted(url, readOptions)
-    }
-
-    const found = readTemplate(url)
+  // A URL read by the table's own rows. A row on the stand-in host gets the scheme, host and base
+  // the URL is read under.
+  const readOwn = (url: string, base?: UrlParams): UrlMatch<Key, Row> | undefined => {
+    const found = readTemplate(url, base)
 
     if (!found) {
       return
@@ -1339,6 +1344,14 @@ export const defineUrls = <const Row extends UrlRow>(
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
     })
+  }
+
+  const read: UrlTable<Key, Row>['read'] = (url, readOptions) => {
+    if (readOptions?.base !== undefined || readOptions?.isAnyHost) {
+      return readRooted(url, readOptions)
+    }
+
+    return readOwn(url)
   }
 
   // The URL a template read, written as its row's main URL, or undefined where it cannot be.
@@ -1496,5 +1509,18 @@ export const defineUrls = <const Row extends UrlRow>(
     }
   }
 
-  return { rows: rows.map(copyRow), build, buildAll, read, getMainUrl, forUrl }
+  return {
+    table: { rows: rows.map(copyRow), build, buildAll, read, getMainUrl, forUrl },
+    readStandIn: readOwn,
+  }
+}
+
+// One table of URLs, keyed by what each row is. `build` writes a row's URL from the values a page
+// gave, `buildAll` lists every spelling of it, `read` takes a URL back to its row and values, and
+// `getMainUrl` writes a URL in its row's main spelling.
+export const defineUrls = <const Row extends UrlRow>(
+  givenRows: Array<Row>,
+  options: UrlTableOptions = {},
+): UrlTable<Row['key'], Row> => {
+  return createTable(givenRows, options).table
 }

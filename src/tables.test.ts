@@ -3231,6 +3231,30 @@ describe('defineUrls', () => {
   })
 
   describe('with a base the URL shows', () => {
+    it('should keep the scheme and host of a URL while a check reads another table', () => {
+      const profiles = defineUrls([{ key: 'profile', main: '{scheme}://{host}/@{user}' }])
+      const isProfile = (user: string): boolean => {
+        return profiles.read(`https://example.net/${user}`, { isAnyHost: true }) !== undefined
+      }
+      const table = defineUrls(
+        [
+          { key: 'mention', main: '{scheme}://{host}/{user}', checks: { user: isProfile } },
+          { key: 'page', main: '{scheme}://{host}/{slug}' },
+        ],
+        { isFallThrough: true },
+      )
+      const value = 'https://example.org/about'
+      const options = { isAnyHost: true }
+      const expected = {
+        slug: 'about',
+        scheme: 'https',
+        host: 'example.org',
+      }
+      const match = table.read(value, options)
+
+      expect(match?.params).toEqual(expected)
+    })
+
     it('should read a row without a base only at the top of the host', () => {
       const table = defineUrls([{ key: 'profile', main: '{scheme}://{host}/@{user}' }])
       const options = { isAnyHost: true }
