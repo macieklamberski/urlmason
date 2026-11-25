@@ -36,8 +36,9 @@ const leadingQuestionMarkRegex = /^\?/
 const pairSeparatorRegex = /=(.*)/s
 // A name `URLSearchParams` reads as it is written.
 const plainNameRegex = /^[\w.~-]*$/
-// A lone surrogate has no UTF-8 form and stays as given.
-export const nonAsciiRegex = /[^\p{ASCII}\p{Cs}]+/gu
+// A lone surrogate has no UTF-8 form and stays as given. A control character is no URL character,
+// so it is encoded with the rest.
+export const nonAsciiRegex = /[^\p{ASCII}\p{Cs}]+|\p{Cc}+/gu
 
 export const cutHref = (url: URL): HrefParts => {
   const [beforeHash] = url.href.split('#', 1)

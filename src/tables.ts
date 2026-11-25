@@ -36,6 +36,7 @@ import {
   type CompiledTemplate,
   compileTemplate,
   decodePath,
+  dotSegmentRegex,
   encodeLiteral,
   isMultiSegment,
   type MapText,
@@ -164,7 +165,6 @@ const leadingSlashesRegex = /^\/{2,}/
 const anchorsRegex = /^\^|\$$/g
 // A value every part of a URL reads the same way, so it can move from one part to another.
 const plainValueRegex = /^[\w.~-]+$/
-const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
 const fixedPathTextRegex = /[^/]/
