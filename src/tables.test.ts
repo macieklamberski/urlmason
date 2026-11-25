@@ -1853,6 +1853,34 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with pretty encoding', () => {
+    const notes = defineTable([
+      { key: 'note', main: 'https://example.com/notes/{title}' },
+      { key: 'search', main: 'https://example.com/search?q={query}' },
+    ])
+
+    it('should write an escaped path value as the characters it stands for', () => {
+      const value = { title: 'Hello%21' }
+      const expected = 'https://example.com/notes/Hello!'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should write an escaped query value as the characters it stands for', () => {
+      const value = { query: 'a%2Cb' }
+      const expected = 'https://example.com/search?q=a,b'
+
+      expect(notes.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should write a percent sign that starts no escape as an escape', () => {
+      const value = { title: '50%' }
+      const expected = 'https://example.com/notes/50%25'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+  })
+
   describe('with strict encoding', () => {
     const strict = { encoding: 'strict' } as const
     const notes = defineTable([
