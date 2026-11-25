@@ -14,6 +14,8 @@ const unsupportedExpressions = [
   '{}',
 ]
 
+const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
+
 const oldSpellings: Array<[string, string, string]> = [
   ['https://example.com/-/{labels*}', '/{labels*}', '{/labels*}'],
   ['https://example.com/{owner}/{*}', '/{*}', '{/tail*}'],
@@ -91,6 +93,15 @@ describe('parseTemplate', () => {
 
     expect(throwing).toThrow('Not a URL template: https://example.com/search{?query*}')
   })
+
+  it.each(unbalancedTemplates)(
+    'should throw for %s, whose brace is not closed or opened',
+    (value) => {
+      const throwing = () => parseTemplate(value)
+
+      expect(throwing).toThrow(`The template ${value} writes a brace outside a complete expression`)
+    },
+  )
 
   it('should throw for a template without a scheme', () => {
     const value = 'example.com/feed'

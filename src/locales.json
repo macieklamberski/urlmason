@@ -12,6 +12,7 @@
     "openTailName": "The {{key}} row names a value tail, which {/tail*} is read as",
     "unsupportedTemplateExpression": "The template {{template}} writes {{expression}}, an operator or modifier no template takes",
     "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes",
-    "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}"
+    "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}",
+    "unbalancedBrace": "The template {{template}} writes a brace outside a complete expression"
   }
 }

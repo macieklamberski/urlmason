@@ -105,6 +105,7 @@ export const trailingSlashRegex = /\/$/
 const templateRegex =
   /^(https?|\{scheme\}):\/\/((?:[^/?#{]|\{[^/{}]*\})+)((?:\/|\{\/)[^?#]*)?(\?(?!\?)[^#]*)?$/i
 const expressionRegex = /\{([^{}]*)\}/g
+const braceRegex = /[{}]/
 // An old spelling of a list and of the open tail, with the slash in front of the brace: `/{name*}`
 // and `/{*}`. The slashes after the scheme are no path.
 const oldListRegex = /(?<!\/)\/\{(\w*)\*\}/
@@ -304,6 +305,11 @@ const checkExpressions = (template: string): void => {
   // A passed query is no part of the core yet, so its old spelling names no new one.
   if (template.includes(oldQuery)) {
     throw new Error(t(locales.errors.unsupportedPassedQuery, { template, expression: oldQuery }))
+  }
+
+  // A brace left once every expression is taken out opens or closes nothing, as `{/id*`.
+  if (braceRegex.test(template.replace(expressionRegex, ''))) {
+    throw new Error(t(locales.errors.unbalancedBrace, { template }))
   }
 
   for (const [expression, body] of template.matchAll(expressionRegex)) {
