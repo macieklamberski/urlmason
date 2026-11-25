@@ -162,8 +162,9 @@ export const toSegments = (value: UrlValue | undefined): Array<string> => {
 const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue | undefined => {
   const value = params[toBareName(placeholder)]
 
+  // A list in a slot of one value is written as its items joined by commas, and no item as none.
   if (!isMultiSegment(placeholder)) {
-    return Array.isArray(value) ? undefined : value
+    return Array.isArray(value) && value.length === 0 ? undefined : value
   }
 
   const segments = toSegments(value)
@@ -200,9 +201,83 @@ const encodePathValue = (value: string): string => {
     .replace(nonAsciiRegex, encodeURIComponent)
 }
 
-// A query value's text with its escapes decoded, written later with the fixed text around it.
-const toQueryText = (value: UrlValue): string => {
-  return decodeEscapes(toValueText(value))
+// A query value with its escapes decoded, then written as any query value.
+const encodeQueryValue = (value: string): string => {
+  return encodeText(decodeEscapes(value))
+}
+
+// Values next to each other are encoded as one text, so a surrogate pair split across them is
+// written whole. A list's items are joined by commas and their own commas written as `%2C`, so
+// the separators stay apart from them.
+const fillQueryValue = (
+  template: string,
+  values: Record<string, UrlValue>,
+  encodeValue: (text: string) => string,
+): string => {
+  const runs: Array<QueryRun> = []
+  const push = (text: string, kind: QueryRun['kind']) => {
+    const last = runs.at(-1)
+
+    if (last && last.kind === kind && kind !== 'separator') {
+      last.text += text
+
+      return
+    }
+
+    runs.push({ text, kind })
+  }
+
+  for (const [index, piece] of template.split(placeholderRegex).entries()) {
+    if (index % 2 === 0) {
+      if (piece) {
+        push(piece, 'literal')
+      }
+
+      continue
+    }
+
+    const value = values[piece]
+
+    if (!Array.isArray(value)) {
+      push(String(value), 'value')
+
+      continue
+    }
+
+    for (const [itemIndex, item] of value.entries()) {
+      if (itemIndex > 0) {
+        push(',', 'separator')
+      }
+
+      for (const [partIndex, part] of item.split(',').entries()) {
+        if (partIndex > 0) {
+          push('%2C', 'separator')
+        }
+
+        push(part, 'value')
+      }
+    }
+  }
+
+  return runs
+    .map((run) => {
+      if (run.kind === 'separator') {
+        return run.text
+      }
+
+      return run.kind === 'literal' ? encodeText(run.text) : encodeValue(run.text)
+    })
+    .join('')
+}
+
+// A value in a slot of one value, as `{id}`. A list is its items joined by commas, each item's own
+// commas encoded, so the separators stay apart from them.
+const encodeSlot = (value: UrlValue, encode: (value: string) => string): string => {
+  if (!Array.isArray(value)) {
+    return encode(value)
+  }
+
+  return value.map((item) => encode(item).replaceAll(',', '%2C')).join(',')
 }
 
 const encodePath = (value: UrlValue): string => {
@@ -216,6 +291,11 @@ const toPercentEscape = (character: string): string => {
 // A value as RFC 6570 writes it: every character outside the unreserved set encoded, `%` too.
 const encodeStrictValue = (value: string): string => {
   return encodeURIComponent(value).replace(subDelimiterRegex, toPercentEscape)
+}
+
+type QueryRun = {
+  text: string
+  kind: 'literal' | 'value' | 'separator'
 }
 
 // A URL in its parts: the origin, the path, the query with its `?` and the fragment with its `#`.
@@ -598,7 +678,7 @@ export const compileTemplate = (
 
         // A list holds the slash in front of it, so a list of no segment writes nothing.
         if (!isMultiSegment(name)) {
-          return encode(value)
+          return encodeSlot(value, encode)
         }
 
         return value.length > 0 ? `/${encode(value)}` : ''
@@ -613,10 +693,11 @@ export const compileTemplate = (
         continue
       }
 
-      // A strict value is encoded alone, and the fixed text around it as any query value.
-      const text = isStrict
-        ? mapTemplate(own.value, (name) => encodeStrict(values[name]), encodeText)
-        : encodeText(fillPlaceholders(own.value, toQueryText))
+      const text = fillQueryValue(
+        own.value,
+        values,
+        isStrict ? encodeStrictValue : encodeQueryValue,
+      )
 
       pairs.push(appendValue(own.pair, text))
     }

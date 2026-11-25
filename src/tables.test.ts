@@ -1881,6 +1881,41 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with a list in a slot of one value', () => {
+    const items = defineTable([
+      { key: 'item', main: 'https://example.com/items/{ids}' },
+      { key: 'search', main: 'https://example.com/search?ids={ids}' },
+    ])
+
+    it('should write an item comma as an escape, apart from the commas between items', () => {
+      const value = { ids: ['a,b', 'c'] }
+      const expected = 'https://example.com/items/a%2Cb,c'
+
+      expect(items.buildUrl('item', value)).toBe(expected)
+    })
+
+    it('should write a list in a query value as its items joined by commas', () => {
+      const value = { ids: ['a,b', 'c'] }
+      const expected = 'https://example.com/search?ids=a%2Cb,c'
+
+      expect(items.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should write a list strictly as its encoded items joined by commas', () => {
+      const value = { ids: ['a,b', 'c!'] }
+      const options = { encoding: 'strict' } as const
+      const expected = 'https://example.com/items/a%2Cb,c%21'
+
+      expect(items.buildUrl('item', value, options)).toBe(expected)
+    })
+
+    it('should build nothing from an empty list', () => {
+      const value = { ids: [] }
+
+      expect(items.buildUrl('item', value)).toBeUndefined()
+    })
+  })
+
   describe('with strict encoding', () => {
     const strict = { encoding: 'strict' } as const
     const notes = defineTable([
@@ -2941,10 +2976,11 @@ describe('defineTable', () => {
       expect(tags.buildUrl('docs', value)).toBe(expected)
     })
 
-    it('should write no value of one segment given as a list', () => {
+    it('should write a list in a slot of one segment as its items joined by commas', () => {
       const value = { tag: ['a', 'b'] }
+      const expected = 'https://example.com/tag/a,b'
 
-      expect(tags.buildUrl('tag', value)).toBeUndefined()
+      expect(tags.buildUrl('tag', value)).toBe(expected)
     })
 
     it('should read a query value with a percent sign and an ampersand decoded', () => {
