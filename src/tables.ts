@@ -357,11 +357,11 @@ const isListedHost = (host: string, options: UrlTableOptions): boolean => {
   return (
     isListedIn(host, options.hosts?.exact) ||
     isListedIn(bareHost, options.hosts?.exact) ||
-    parentDomains.some((domain) => isListedIn(domain, options.hosts?.tenants))
+    parentDomains.some((domain) => isListedIn(domain, options.hosts?.tenant))
   )
 }
 
-// The nearest parent domain of a host that `tenants` lists.
+// The nearest parent domain of a host that `tenant` lists.
 const getTenantDomain = (host: string, tenants: Array<HostEntry> = []): string | undefined => {
   for (let index = host.indexOf('.'); index !== -1; index = host.indexOf('.', index + 1)) {
     if (isListedIn(host.slice(index + 1), tenants)) {
@@ -417,13 +417,13 @@ const compileRowTemplate = (
   }
 
   const hosts = options.hosts?.exact ?? []
-  const tenantDomains = (options.hosts?.tenants ?? []).map((domain) => toEntrySource(domain))
+  const tenantDomains = (options.hosts?.tenant ?? []).map((domain) => toEntrySource(domain))
   const domainSource = `(?:${tenantDomains.join('|')})`
   // One host label other than `www` unless `www` is a tenant.
   const tenantSource = options.isWwwTenant ? '[^./]+' : '(?!www\\.)[^./]+'
 
   const hasHosts = hosts.length > 0 || tenantDomains.length > 0
-  const hasHostCheck = [...hosts, ...(options.hosts?.tenants ?? [])].some(isFunction)
+  const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? [])].some(isFunction)
 
   if (host.includes('{domain}') && tenantDomains.length === 0) {
     throw new Error(t(locales.errors.missingFeedHosts, { key }))
@@ -573,7 +573,7 @@ const compileRowTemplate = (
     // A function among the hosts matched any domain, so the host read is checked by it.
     if (hasHostCheck && ('host' in params || 'domain' in params)) {
       const isListed = isString(params.domain)
-        ? isListedIn(params.domain, options.hosts?.tenants)
+        ? isListedIn(params.domain, options.hosts?.tenant)
         : isListedHost(url.hostname, options)
 
       if (!isListed) {
@@ -1484,7 +1484,7 @@ const createTable = <const Row extends UrlRow>(
   }
 
   // The table for one page: `{scheme}` and `{host}` come from the page URL, `{domain}` is its host
-  // without the tenant under `hosts.tenants`, `example.co.uk` for `alice.example.co.uk`. A value
+  // without the tenant under `hosts.tenant`, `example.co.uk` for `alice.example.co.uk`. A value
   // the caller passes wins, so a caller passes the `base` the page names.
   const forUrl: UrlTable<Key, Row>['forUrl'] = (url) => {
     const parsedUrl = parseUrl(url)
@@ -1496,7 +1496,7 @@ const createTable = <const Row extends UrlRow>(
     const urlParams: UrlParams = {
       scheme: parsedUrl.protocol.slice(0, -1),
       host: parsedUrl.host,
-      domain: getTenantDomain(parsedUrl.hostname, options.hosts?.tenants),
+      domain: getTenantDomain(parsedUrl.hostname, options.hosts?.tenant),
     }
     // An undefined value the caller passes leaves the one of the page in place.
     const withUrlParams = (params: UrlParams = {}): UrlParams => {
