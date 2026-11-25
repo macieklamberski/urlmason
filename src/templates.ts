@@ -19,7 +19,7 @@ import {
   toSearchParams,
   writeQuery,
 } from './queries.js'
-import type { UrlParams, UrlValue } from './types.js'
+import type { UrlValue, UrlValues } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query'
 
@@ -92,7 +92,7 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params'> & {
     getSearchParams: () => URLSearchParams,
   ) => Record<string, UrlValue> | undefined
   // The value of each placeholder, or undefined where one has none.
-  getValues: (params: UrlParams) => Record<string, UrlValue> | undefined
+  getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
   fill: (values: Record<string, UrlValue>) => string | undefined
 }
@@ -156,7 +156,7 @@ export const toSegments = (value: UrlValue | undefined): Array<string> => {
 // A list is one or more segments, and `base` and `tail` zero or more. An empty segment is dropped,
 // as a doubled slash names the same page, and any other list with no segment left is no value. A
 // string is read as segments joined by `/`, and a list is no value of a placeholder of one segment.
-const getPlaceholderValue = (params: UrlParams, placeholder: string): UrlValue | undefined => {
+const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue | undefined => {
   const value = params[toBareName(placeholder)]
 
   if (!isMultiSegment(placeholder)) {

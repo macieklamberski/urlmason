@@ -58,12 +58,12 @@ import type {
   UrlKeyMatch,
   UrlLenient,
   UrlMatch,
-  UrlParams,
   UrlReadOptions,
   UrlRow,
   UrlTable,
   UrlTableOptions,
   UrlValue,
+  UrlValues,
 } from './types.js'
 
 // One URL of a row: its main one or an alias.
@@ -90,7 +90,7 @@ type RowTemplate = {
   readParams: (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
-    base?: UrlParams,
+    base?: UrlValues,
   ) => Record<string, UrlValue> | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
@@ -111,7 +111,7 @@ type RowTemplate = {
   shape: string
   // The path segments in front of an open tail, and infinity for a template without one.
   openDepth: number
-  getUrl: (params?: UrlParams) => string | undefined
+  getUrl: (params?: UrlValues) => string | undefined
 }
 
 type HostEntry = string | RegExp | UrlHostCheck
@@ -290,7 +290,7 @@ const toTableUrl = (url: URL): TableUrl => {
 // base the URL is read under.
 type ReadStandIn<Key extends string, Row> = (
   url: string,
-  base: UrlParams,
+  base: UrlValues,
 ) => UrlMatch<Key, Row> | undefined
 
 type TableParts<Key extends string, Row> = {
@@ -581,7 +581,7 @@ const compileRowTemplate = (
       }
     }
 
-    // A host is read with its port, as `forUrl` fills it.
+    // A host is read with its port, as `forSite` fills it.
     if ('host' in params) {
       params.host = url.host
     }
@@ -927,7 +927,7 @@ const createTable = <const Row extends UrlRow>(
     })
   }
 
-  const build: UrlTable<Key, Row>['build'] = (key, params, select) => {
+  const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, select) => {
     // A key with several shapes builds the first one whose placeholders the values fill.
     for (const candidate of getRowTemplates(key, select).flat()) {
       const url = candidate.getUrl(params)
@@ -939,7 +939,7 @@ const createTable = <const Row extends UrlRow>(
   }
 
   // Every URL the values fill of the first row of the key that builds one.
-  const buildAll: UrlTable<Key, Row>['buildAll'] = (key, params, select) => {
+  const buildUrls: UrlTable<Key, Row>['buildUrls'] = (key, params, select) => {
     for (const templates of getRowTemplates(key, select)) {
       const urls: Array<string> = []
 
@@ -1050,7 +1050,7 @@ const createTable = <const Row extends UrlRow>(
   const findTemplate = (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
-    base?: UrlParams,
+    base?: UrlValues,
   ): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
 
@@ -1106,7 +1106,7 @@ const createTable = <const Row extends UrlRow>(
     return template.readRawParams(tableUrl, isWwwOptional, params)
   }
 
-  const readTableTemplate = (tableUrl: TableUrl, base?: UrlParams): TakenTemplate | undefined => {
+  const readTableTemplate = (tableUrl: TableUrl, base?: UrlValues): TakenTemplate | undefined => {
     // With `www` a tenant, a host as given wins, so `www.example.com` is the tenant `www`.
     const asGiven =
       options.isWwwTenant && asGivenRegex.test(tableUrl.hostPath)
@@ -1124,7 +1124,7 @@ const createTable = <const Row extends UrlRow>(
 
   // The template a URL is read by. Under the ampersand mark the server sees the query with `&`, so
   // the pairs are the ones of the query with `&amp;` read as `&`.
-  const readTemplate = (url: string, base?: UrlParams): FoundTemplate | undefined => {
+  const readTemplate = (url: string, base?: UrlValues): FoundTemplate | undefined => {
     const tableUrl = readTableUrl(url)
 
     if (!tableUrl) {
@@ -1134,15 +1134,15 @@ const createTable = <const Row extends UrlRow>(
     const takesHostPath = (): boolean => {
       return [asGivenRegex, optionalWwwRegex].some((regex) => regex.test(tableUrl.hostPath))
     }
-    let readUrl = tableUrl
+    let readableUrl = tableUrl
 
     if (hasAmpersandMark && takesHostPath() && readQuery(tableUrl).pairs.some(isEntityPair)) {
       const { pairs, hash } = readQuery(tableUrl)
 
-      readUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
+      readableUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
     }
 
-    const found = readTableTemplate(readUrl, base)
+    const found = readTableTemplate(readableUrl, base)
 
     if (!found?.params) {
       return
@@ -1245,7 +1245,7 @@ const createTable = <const Row extends UrlRow>(
           ? tables[isFixed ? 'basedFixed' : 'based']
           : tables[isFixed ? 'fixed' : 'all']
 
-      const readBase: UrlParams = {
+      const readBase: UrlValues = {
         scheme: parsedUrl.protocol.slice(0, -1),
         host: parsedUrl.host,
         ...(base.length > 0 && { base }),
@@ -1259,7 +1259,7 @@ const createTable = <const Row extends UrlRow>(
         return
       }
 
-      return { match, params: { ...match.params, ...readBase } }
+      return { match, values: { ...match.values, ...readBase } }
     }
     const readUnder = (baseLength: number): UrlMatch<Key, Row> | undefined => {
       const read = readBehind(false, baseLength)
@@ -1272,7 +1272,7 @@ const createTable = <const Row extends UrlRow>(
 
       return toMatch({
         key: row.key,
-        params: read.params,
+        values: read.values,
         row: copyRow(row),
         isAlias: read.match.isAlias || !read.match.row.isMainRead,
         isExact: false,
@@ -1324,7 +1324,7 @@ const createTable = <const Row extends UrlRow>(
 
   // A URL read by the table's own rows. A row on the stand-in host gets the scheme, host and base
   // the URL is read under.
-  const readOwn = (url: string, base?: UrlParams): UrlMatch<Key, Row> | undefined => {
+  const readOwn = (url: string, base?: UrlValues): UrlMatch<Key, Row> | undefined => {
     const found = readTemplate(url, base)
 
     if (!found) {
@@ -1339,14 +1339,14 @@ const createTable = <const Row extends UrlRow>(
 
     return toMatch({
       key: row.key,
-      params,
+      values: params,
       row: copyRow(row),
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
     })
   }
 
-  const read: UrlTable<Key, Row>['read'] = (url, readOptions) => {
+  const readUrl: UrlTable<Key, Row>['readUrl'] = (url, readOptions) => {
     if (readOptions?.base !== undefined || readOptions?.isAnyHost) {
       return readRooted(url, readOptions)
     }
@@ -1486,39 +1486,39 @@ const createTable = <const Row extends UrlRow>(
   // The table for one page: `{scheme}` and `{host}` come from the page URL, `{domain}` is its host
   // without the tenant under `hosts.tenant`, `example.co.uk` for `alice.example.co.uk`. A value
   // the caller passes wins, so a caller passes the `base` the page names.
-  const forUrl: UrlTable<Key, Row>['forUrl'] = (url) => {
+  const forSite: UrlTable<Key, Row>['forSite'] = (url) => {
     const parsedUrl = parseUrl(url)
 
     if (!parsedUrl || !isHttpUrl(parsedUrl)) {
       return
     }
 
-    const urlParams: UrlParams = {
+    const urlParams: UrlValues = {
       scheme: parsedUrl.protocol.slice(0, -1),
       host: parsedUrl.host,
       domain: getTenantDomain(parsedUrl.hostname, options.hosts?.tenant),
     }
     // An undefined value the caller passes leaves the one of the page in place.
-    const withUrlParams = (params: UrlParams = {}): UrlParams => {
+    const withUrlParams = (params: UrlValues = {}): UrlValues => {
       return { ...urlParams, ...trimObject(params) }
     }
 
     return {
-      build: (key, params, select) => build(key, withUrlParams(params), select),
-      buildAll: (key, params, select) => buildAll(key, withUrlParams(params), select),
+      buildUrl: (key, values, select) => buildUrl(key, withUrlParams(values), select),
+      buildUrls: (key, values, select) => buildUrls(key, withUrlParams(values), select),
     }
   }
 
   return {
-    table: { rows: rows.map(copyRow), build, buildAll, read, getMainUrl, forUrl },
+    table: { rows: rows.map(copyRow), buildUrl, buildUrls, readUrl, getMainUrl, forSite },
     readStandIn: readOwn,
   }
 }
 
-// One table of URLs, keyed by what each row is. `build` writes a row's URL from the values a page
-// gave, `buildAll` lists every spelling of it, `read` takes a URL back to its row and values, and
-// `getMainUrl` writes a URL in its row's main spelling.
-export const defineUrls = <const Row extends UrlRow>(
+// One table of URLs, keyed by what each row is. `buildUrl` writes a row's URL from the values a
+// page gave, `buildUrls` lists every spelling of it, `readUrl` takes a URL back to its row and
+// values, and `getMainUrl` writes a URL in its row's main spelling.
+export const defineTable = <const Row extends UrlRow>(
   givenRows: Array<Row>,
   options: UrlTableOptions = {},
 ): UrlTable<Row['key'], Row> => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { defineUrls } from './tables.js'
+import { defineTable } from './tables.js'
 import { parseTemplate } from './templates.js'
 
 const unsupportedExpressions = [
@@ -101,74 +101,74 @@ describe('parseTemplate', () => {
 })
 
 describe('build with a URI Template', () => {
-  const docs = defineUrls([{ key: 'docs', main: 'https://example.com/docs{/path*}' }])
-  const feeds = defineUrls([{ key: 'feed', main: 'https://example.com{/base*}/feed' }])
+  const docs = defineTable([{ key: 'docs', main: 'https://example.com/docs{/path*}' }])
+  const feeds = defineTable([{ key: 'feed', main: 'https://example.com{/base*}/feed' }])
 
   it('should write a list as segments behind a slash', () => {
     const value = { path: ['guide', 'first steps'] }
     const expected = 'https://example.com/docs/guide/first%20steps'
 
-    expect(docs.build('docs', value)).toBe(expected)
+    expect(docs.buildUrl('docs', value)).toBe(expected)
   })
 
   it('should read a string value of a list as segments joined by a slash', () => {
     const value = { path: 'guide//setup' }
     const expected = 'https://example.com/docs/guide/setup'
 
-    expect(docs.build('docs', value)).toBe(expected)
+    expect(docs.buildUrl('docs', value)).toBe(expected)
   })
 
   it('should build nothing for an empty list', () => {
     const value = { path: [] }
 
-    expect(docs.build('docs', value)).toBeUndefined()
+    expect(docs.buildUrl('docs', value)).toBeUndefined()
   })
 
   it('should build nothing for a missing value', () => {
     const value = {}
 
-    expect(docs.build('docs', value)).toBeUndefined()
+    expect(docs.buildUrl('docs', value)).toBeUndefined()
   })
 
   it('should write an empty base as nothing, its slash too', () => {
     const value = { base: [] }
     const expected = 'https://example.com/feed'
 
-    expect(feeds.build('feed', value)).toBe(expected)
+    expect(feeds.buildUrl('feed', value)).toBe(expected)
   })
 
   it('should write a missing base as an empty one', () => {
     const expected = 'https://example.com/feed'
 
-    expect(feeds.build('feed')).toBe(expected)
+    expect(feeds.buildUrl('feed')).toBe(expected)
   })
 
   it('should write a base as segments behind a slash', () => {
     const value = { base: 'community/forum' }
     const expected = 'https://example.com/community/forum/feed'
 
-    expect(feeds.build('feed', value)).toBe(expected)
+    expect(feeds.buildUrl('feed', value)).toBe(expected)
   })
 
   it('should write the query sorted with its values encoded', () => {
-    const table = defineUrls([
+    const table = defineTable([
       { key: 'search', main: 'https://example.com/feed?q={query}&alt=rss' },
     ])
     const value = { query: 'news&weather' }
     const expected = 'https://example.com/feed?alt=rss&q=news%26weather'
 
-    expect(table.build('search', value)).toBe(expected)
+    expect(table.buildUrl('search', value)).toBe(expected)
   })
 
   it('should write a host value in lowercase', () => {
-    const table = defineUrls([{ key: 'user', main: '{scheme}://{user}.example.com/feed' }])
+    const table = defineTable([{ key: 'user', main: '{scheme}://{user}.example.com/feed' }])
     const value = {
       scheme: 'http',
       user: 'Alice',
     }
     const expected = 'http://alice.example.com/feed'
 
-    expect(table.build('user', value)).toBe(expected)
+    expect(table.buildUrl('user', value)).toBe(expected)
   })
 })
 
@@ -176,69 +176,69 @@ describe('read with a URI Template', () => {
   const anyHost = { isAnyHost: true }
 
   it('should read a list into its segments', () => {
-    const table = defineUrls([{ key: 'labels', main: 'https://example.com/-{/labels*}/feed' }])
+    const table = defineTable([{ key: 'labels', main: 'https://example.com/-{/labels*}/feed' }])
     const value = 'https://example.com/-/news/local%20news/feed'
     const expected = { labels: ['news', 'local news'] }
-    const match = table.read(value)
+    const match = table.readUrl(value)
 
-    expect(match?.params).toEqual(expected)
+    expect(match?.values).toEqual(expected)
   })
 
   it('should read a host, a scheme and a query value', () => {
-    const table = defineUrls([{ key: 'feed', main: '{scheme}://{host}/feed?id={id}' }])
+    const table = defineTable([{ key: 'feed', main: '{scheme}://{host}/feed?id={id}' }])
     const value = 'http://example.org/feed?id=7'
     const expected = {
       scheme: 'http',
       host: 'example.org',
       id: '7',
     }
-    const match = table.read(value, anyHost)
+    const match = table.readUrl(value, anyHost)
 
-    expect(match?.params).toEqual(expected)
+    expect(match?.values).toEqual(expected)
   })
 
   it('should read nothing from a URL without a parameter the template sets', () => {
-    const table = defineUrls([{ key: 'feed', main: 'https://example.com/feed?alt=rss' }])
+    const table = defineTable([{ key: 'feed', main: 'https://example.com/feed?alt=rss' }])
     const value = 'https://example.com/feed'
 
-    expect(table.read(value)).toBeUndefined()
+    expect(table.readUrl(value)).toBeUndefined()
   })
 
   it('should read a base into its segments', () => {
-    const table = defineUrls([{ key: 'feed', main: '{scheme}://{host}{/base*}/feed' }])
+    const table = defineTable([{ key: 'feed', main: '{scheme}://{host}{/base*}/feed' }])
     const value = 'https://example.org/community/forum/feed'
     const expected = {
       scheme: 'https',
       host: 'example.org',
       base: ['community', 'forum'],
     }
-    const match = table.read(value, anyHost)
+    const match = table.readUrl(value, anyHost)
 
-    expect(match?.params).toEqual(expected)
+    expect(match?.values).toEqual(expected)
   })
 
   it('should read an empty base as no value', () => {
-    const table = defineUrls([{ key: 'feed', main: '{scheme}://{host}{/base*}/feed' }])
+    const table = defineTable([{ key: 'feed', main: '{scheme}://{host}{/base*}/feed' }])
     const value = 'https://example.org/feed'
     const expected = {
       scheme: 'https',
       host: 'example.org',
     }
-    const match = table.read(value, anyHost)
+    const match = table.readUrl(value, anyHost)
 
-    expect(match?.params).toEqual(expected)
+    expect(match?.values).toEqual(expected)
   })
 
   it('should read nothing from a URL with an empty list', () => {
-    const table = defineUrls([{ key: 'docs', main: 'https://example.com/docs{/path*}' }])
+    const table = defineTable([{ key: 'docs', main: 'https://example.com/docs{/path*}' }])
     const value = 'https://example.com/docs'
 
-    expect(table.read(value)).toBeUndefined()
+    expect(table.readUrl(value)).toBeUndefined()
   })
 })
 
-describe('defineUrls with the URI Templates spelling', () => {
-  const table = defineUrls([
+describe('defineTable with the URI Templates spelling', () => {
+  const table = defineTable([
     { key: 'docs', main: 'https://example.com/docs{/path*}' },
     { key: 'repo', main: 'https://example.com/{owner}{/tail*}' },
   ])
@@ -246,8 +246,8 @@ describe('defineUrls with the URI Templates spelling', () => {
   it('should type a list as its segments', () => {
     const value = 'https://example.com/docs/guide/setup'
     const expected = ['guide', 'setup']
-    const match = table.read(value)
-    const path: Array<string> | undefined = match?.key === 'docs' ? match.params.path : undefined
+    const match = table.readUrl(value)
+    const path: Array<string> | undefined = match?.key === 'docs' ? match.values.path : undefined
 
     expect(path).toEqual(expected)
   })
@@ -255,11 +255,11 @@ describe('defineUrls with the URI Templates spelling', () => {
   it('should leave the open tail out of the values', () => {
     const value = 'https://example.com/alice/repo/issues'
     const expected = { owner: 'alice' }
-    const match = table.read(value)
+    const match = table.readUrl(value)
     // @ts-expect-error: The open tail is no value.
-    const tail = match?.key === 'repo' ? match.params.tail : undefined
+    const tail = match?.key === 'repo' ? match.values.tail : undefined
 
-    expect(match?.params).toEqual(expected)
+    expect(match?.values).toEqual(expected)
     expect(tail).toBeUndefined()
   })
 })
