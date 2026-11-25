@@ -30,8 +30,8 @@ export type MapText = (text: string) => string
 export type Capture = {
   source: string
   unit?: string
-  // A path, whose segments holding two values or more are read only up to a length.
-  isSegmented?: boolean
+  // The length a path segment holding two values or more is read up to.
+  segmentMaxLength?: number
 }
 
 // A placeholder a pattern captures, with the part of the URL it sits in, and whether its value
@@ -141,16 +141,30 @@ const captureGroupPrefix = 'p'
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
 // Two values side by side make a pattern retry every split of the text they share, so a part of a
 // URL holding two or more is read only up to this length. No real path segment comes near it.
-const sharedLength = 1000
-const sharedPartGuard = `(?=[^]{0,${sharedLength}}$)`
-const sharedSegmentGuard = `(?=[^/]{1,${sharedLength}}(?:/|$))`
+export const sharedPartMaxLength = 1000
+// A URL read as written spells a character of its decoded text in up to nine, as `%E2%80%A8`.
+const writtenPartMaxLength = sharedPartMaxLength * 9
+
+// A part of at most `maxLength` characters up to the end, or up to the next of the stops.
+export const toLengthGuard = (maxLength: number, stops?: string): string => {
+  if (!stops) {
+    return `(?=[^]{0,${maxLength}}$)`
+  }
+
+  return `(?=[^${stops}]{0,${maxLength}}(?:[${stops}]|$))`
+}
 
 // A text split at its placeholders holds one between each two pieces of fixed text.
 const countValues = (pieces: Array<string>): number => {
   return Math.floor(pieces.length / 2)
 }
 
-const pathCapture: Capture = { source: '[^/]+', unit: '[^/]', isSegmented: true }
+const pathCapture: Capture = {
+  source: '[^/]+',
+  unit: '[^/]',
+  segmentMaxLength: sharedPartMaxLength,
+}
+const writtenPathCapture: Capture = { ...pathCapture, segmentMaxLength: writtenPartMaxLength }
 const queryCapture: Capture = { source: '.+', unit: '.' }
 
 export const isMultiSegment = (placeholder: string): boolean => {
@@ -466,11 +480,14 @@ export const toRegexSource = (
       if (index % 2 === 0) {
         const slash = piece.lastIndexOf('/')
 
-        if (!capture.isSegmented || slash === -1 || countSegmentValues(index) < 2) {
+        if (!capture.segmentMaxLength || slash === -1 || countSegmentValues(index) < 2) {
           return escapeRegex(piece)
         }
 
-        return `${escapeRegex(piece.slice(0, slash + 1))}${sharedSegmentGuard}${escapeRegex(piece.slice(slash + 1))}`
+        const head = escapeRegex(piece.slice(0, slash + 1))
+        const tail = escapeRegex(piece.slice(slash + 1))
+
+        return `${head}${toLengthGuard(capture.segmentMaxLength, '/')}${tail}`
       }
 
       const frontPattern = index > 1 ? patterns[pieces[index - 2]] : undefined
@@ -626,20 +643,23 @@ export const compileTemplate = (
   const params = parsed.params.map((param): CompiledParam => {
     const source = toRegexSource(param.value, captureIn('query'), queryCapture)
     const rawSource = toRegexSource(param.value, captureIn('query'), queryCapture, {}, encodeText)
-
-    const guard = countValues(param.value.split(placeholderRegex)) > 1 ? sharedPartGuard : ''
+    const isShared = countValues(param.value.split(placeholderRegex)) > 1
+    const guard = isShared ? toLengthGuard(sharedPartMaxLength) : ''
+    const rawGuard = isShared ? toLengthGuard(writtenPartMaxLength) : ''
 
     return {
       ...param,
       regex: new RegExp(`^${guard}${source}$`, 'i'),
-      rawRegex: new RegExp(`^${guard}${rawSource}$`, 'd'),
+      rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
     }
   })
   const multiSegmentCaptures = Object.fromEntries(
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
   )
   // Two lists share the whole path.
-  const pathGuard = names.filter(isMultiSegment).length > 1 ? sharedPartGuard : ''
+  const hasTwoLists = names.filter(isMultiSegment).length > 1
+  const pathGuard = hasTwoLists ? toLengthGuard(sharedPartMaxLength) : ''
+  const rawPathGuard = hasTwoLists ? toLengthGuard(writtenPartMaxLength) : ''
   const pathSource = toRegexSource(
     path.replace(trailingSlashRegex, ''),
     captureIn('path'),
@@ -653,7 +673,7 @@ export const compileTemplate = (
     ? toRegexSource(
         path,
         captureIn('path'),
-        pathCapture,
+        writtenPathCapture,
         multiSegmentCaptures,
         encodeLiteral,
         pathPatterns,
@@ -806,7 +826,7 @@ export const compileTemplate = (
     ...parsed,
     params,
     readPathSource,
-    rawPathSource: `${pathGuard}${rawPathSource}`,
+    rawPathSource: `${rawPathGuard}${rawPathSource}`,
     captureIn,
     getCaptured,
     read,

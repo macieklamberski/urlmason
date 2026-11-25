@@ -492,6 +492,16 @@ const checkedSharedPages = defineTable(
 
 const atomFiles = defineTable([{ key: 'file', main: 'https://example.com/files{/path*}.atom' }])
 
+const labeledHosts = defineTable([{ key: 'feed', main: 'https://{a}-{b}-{c}.example.com/feed' }])
+
+const movedSharedPages = defineTable([
+  {
+    key: 'page',
+    main: 'https://example.com/{board}-{user}',
+    aliases: ['https://example.com/old/{board}-{user}'],
+  },
+])
+
 const commitFiles = defineTable([
   { key: 'file', main: 'https://example.com{/project*}/-/commits/{branch}{/file*}' },
 ])
@@ -2803,9 +2813,10 @@ describe('defineTable', () => {
 
     it('should read a segment of values 1,000 characters long', () => {
       const value = `https://example.com/pages/${'a'.repeat(988)}-alice-2.xml`
+      const expected = 'page'
       const match = sharedPages.readUrl(value)
 
-      expect(match?.key).toBe('page')
+      expect(match?.key).toBe(expected)
     })
 
     it('should return undefined for a segment of values over 1,000 characters', () => {
@@ -2814,7 +2825,7 @@ describe('defineTable', () => {
       expect(sharedPages.readUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for a query value of values over 1,000 characters', () => {
+    it('should return undefined for a query value of two values over 1,000 characters', () => {
       const value = `https://example.com/search?q=${'a'.repeat(989)}-alice-2.xml`
 
       expect(sharedPages.readUrl(value)).toBeUndefined()
@@ -2822,9 +2833,10 @@ describe('defineTable', () => {
 
     it('should read a long value alone in its segment', () => {
       const value = `https://example.com/items/${'a'.repeat(5000)}`
+      const expected = 'item'
       const match = keptEscape.readUrl(value)
 
-      expect(match?.key).toBe('item')
+      expect(match?.key).toBe(expected)
     })
 
     it('should read 200 kB of the fixed text in a query value within a second', () => {
@@ -2857,6 +2869,40 @@ describe('defineTable', () => {
       const value = 'https://example.com/files/docs/.atom'
 
       expect(atomFiles.readUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with several values in one host label', () => {
+    it('should read a host of 1,000 characters', () => {
+      const value = `https://${'a'.repeat(984)}-b-c.example.com/feed`
+      const expected = 'feed'
+      const match = labeledHosts.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a host over 1,000 characters', () => {
+      const value = `https://${'a'.repeat(985)}-b-c.example.com/feed`
+
+      expect(labeledHosts.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a crafted host of three values within a second', () => {
+      const value = `https://${'a-'.repeat(490)}x.example.com/feedx`
+      const startedAt = performance.now()
+
+      labeledHosts.readUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with non-ASCII text in a segment of several values', () => {
+    it('should read the URL as written up to its decoded length', () => {
+      const value = `https://example.com/old/${'ж'.repeat(400)}-b`
+      const match = movedSharedPages.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
     })
   })
 
