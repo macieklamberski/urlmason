@@ -8,9 +8,9 @@ Turn URLs into values and values back into URLs, from one list of URL patterns.
 
 Describe each kind of URL once, as a template in the [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) URI Template syntax, and urlmason reads, builds and cleans up URLs from that one description:
 
-- `https://example.com/@alice/feed` reads into `{ user: 'alice' }`.
-- `{ user: 'alice' }` builds `https://example.com/@alice/feed`.
-- An old spelling, such as `http://example.com/u/alice/rss`, rewrites to `https://example.com/@alice/feed`.
+- Turn `https://example.com/@alice/feed` into `{ user: 'alice' }`.
+- Turn `{ user: 'alice' }` into `https://example.com/@alice/feed`.
+- Turn an old spelling, such as `http://example.com/u/alice/rss`, into `https://example.com/@alice/feed`.
 
 It has no dependencies and runs in any modern JavaScript runtime.
 
