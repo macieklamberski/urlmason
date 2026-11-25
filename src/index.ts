@@ -1,5 +1,6 @@
 export { defineTable } from './tables.js'
 export type {
+  UrlBuildOptions,
   UrlCheck,
   UrlHostCheck,
   UrlHosts,

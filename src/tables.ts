@@ -927,9 +927,9 @@ const createTable = <const Row extends UrlRow>(
     })
   }
 
-  const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, select) => {
+  const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, buildOptions) => {
     // A key with several shapes builds the first one whose placeholders the values fill.
-    for (const candidate of getRowTemplates(key, select).flat()) {
+    for (const candidate of getRowTemplates(key, buildOptions?.select).flat()) {
       const url = candidate.getUrl(params)
 
       if (url) {
@@ -939,8 +939,8 @@ const createTable = <const Row extends UrlRow>(
   }
 
   // Every URL the values fill of the first row of the key that builds one.
-  const buildUrls: UrlTable<Key, Row>['buildUrls'] = (key, params, select) => {
-    for (const templates of getRowTemplates(key, select)) {
+  const buildUrls: UrlTable<Key, Row>['buildUrls'] = (key, params, buildOptions) => {
+    for (const templates of getRowTemplates(key, buildOptions?.select)) {
       const urls: Array<string> = []
 
       for (const candidate of templates) {
@@ -1504,8 +1504,8 @@ const createTable = <const Row extends UrlRow>(
     }
 
     return {
-      buildUrl: (key, values, select) => buildUrl(key, withUrlParams(values), select),
-      buildUrls: (key, values, select) => buildUrls(key, withUrlParams(values), select),
+      buildUrl: (key, values, buildOptions) => buildUrl(key, withUrlParams(values), buildOptions),
+      buildUrls: (key, values, buildOptions) => buildUrls(key, withUrlParams(values), buildOptions),
     }
   }
 
