@@ -19,7 +19,7 @@ import {
   toSearchParams,
   writeQuery,
 } from './queries.js'
-import type { UrlValue, UrlValues } from './types.js'
+import type { UrlEncoding, UrlValue, UrlValues } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query'
 
@@ -94,7 +94,7 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params'> & {
   // The value of each placeholder, or undefined where one has none.
   getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
-  fill: (values: Record<string, UrlValue>) => string | undefined
+  fill: (values: Record<string, UrlValue>, encoding?: UrlEncoding) => string | undefined
 }
 
 // A list holds the slash in front of it, `{/name*}`, which the name leaves out.
@@ -116,6 +116,8 @@ const oldQuery = '?{query}'
 const plainExpressionRegex = /^(?:\w+|\/\w+\*)$/
 const queryExpressionRegex = /^\?\w+\*$/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
+// The characters `encodeURIComponent` leaves that RFC 6570 encodes outside the unreserved set.
+const subDelimiterRegex = /[!'()*]/g
 // A scheme and host with no path, where a parser reads the path `/` before a query.
 const pathlessBaseRegex = /^[^/]+:\/\/[^/]+$/
 const ownGroupRegex = /^p\d+$/
@@ -194,6 +196,19 @@ const encodePathValue = (value: string): string => {
 
 const encodePath = (value: UrlValue): string => {
   return Array.isArray(value) ? value.map(encodePathValue).join('/') : encodePathValue(value)
+}
+
+const toPercentEscape = (character: string): string => {
+  return `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+}
+
+// A value as RFC 6570 writes it: every character outside the unreserved set encoded, `%` too.
+const encodeStrictValue = (value: string): string => {
+  return encodeURIComponent(value).replace(subDelimiterRegex, toPercentEscape)
+}
+
+const encodeStrict = (value: UrlValue): string => {
+  return Array.isArray(value) ? value.map(encodeStrictValue).join('/') : encodeStrictValue(value)
 }
 
 // A path decoded segment by segment, so `%40` and `@` compare equal. A decoded `%` and `/` are
@@ -530,7 +545,8 @@ export const compileTemplate = (
     return values
   }
 
-  const fill: CompiledTemplate['fill'] = (values) => {
+  const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
+    const isStrict = encoding === 'strict'
     const fillPlaceholders = (text: string, encode: (value: UrlValue) => string = toValueText) => {
       return text.replace(placeholderRegex, (_placeholder, name: string) => {
         const value = values[name]
@@ -552,7 +568,12 @@ export const compileTemplate = (
         continue
       }
 
-      pairs.push(appendValue(own.pair, encodeText(fillPlaceholders(own.value))))
+      // A strict value is encoded alone, and the fixed text around it as any query value.
+      const text = isStrict
+        ? mapTemplate(own.value, (name) => encodeStrict(values[name]), encodeText)
+        : encodeText(fillPlaceholders(own.value))
+
+      pairs.push(appendValue(own.pair, text))
     }
 
     // A host reads in any case, so a value that fills a host label is written in lowercase.
@@ -565,7 +586,8 @@ export const compileTemplate = (
     }
 
     const origin = `${fillPlaceholders(scheme)}://${filledHost}`
-    const base = writeBase(`${origin}${fillPlaceholders(path, encodePath)}`, pairs)
+    const filledPath = fillPlaceholders(path, isStrict ? encodeStrict : encodePath)
+    const base = writeBase(`${origin}${filledPath}`, pairs)
     const url = `${base}${writeQuery(sortPairs(pairs))}`
 
     // A host label is written as given, so a value can hold a space no URL takes.

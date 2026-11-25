@@ -2,6 +2,7 @@ export { defineTable } from './tables.js'
 export type {
   UrlBuildOptions,
   UrlCheck,
+  UrlEncoding,
   UrlHostCheck,
   UrlHosts,
   UrlKeyMatch,

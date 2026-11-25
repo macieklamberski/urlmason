@@ -160,10 +160,16 @@ export type UrlKeyMatch<Key extends string, Row> = {
   isExact: boolean
 }
 
+// How a built URL spells its values. `pretty` keeps every character the part of the URL allows, so
+// `Hello!` stays as it is. `strict` follows RFC 6570 and encodes all but the unreserved characters,
+// so `Hello!` is `Hello%21`.
+export type UrlEncoding = 'pretty' | 'strict'
+
 // How a URL is built. `select` narrows the key's rows by their fields, as to one format: it gets a
-// copy of each row, never the object given.
+// copy of each row, never the object given. `encoding` is `pretty` when left out.
 export type UrlBuildOptions<Row> = {
   select?: (row: Row) => boolean
+  encoding?: UrlEncoding
 }
 
 // A table's methods take only the keys of its rows, so a key the table does not hold fails the
