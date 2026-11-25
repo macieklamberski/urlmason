@@ -30,28 +30,136 @@ It has no dependencies and runs in any modern JavaScript runtime.
 npm install urlmason
 ```
 
-Then:
+Define a table of rows. Each row has a key, its main URL, and other URLs that serve the same thing:
 
 ```typescript
 import { defineTable } from 'urlmason'
 
-const feeds = defineTable([
-  {
-    key: 'user',
-    main: 'https://example.com/@{user}/feed{?page}',
-    aliases: ['https://example.com/u/{user}/rss'],
-  },
-  { key: 'tag', main: 'https://example.com/tags{/tags*}.rss' },
+const feeds = defineTable(
+  [
+    {
+      key: 'user',
+      main: 'https://example.com/@{user}/feed.xml{?page}',
+      aliases: ['https://example.com/u/{user}/rss', 'https://old.example.com/{user}/feed'],
+    },
+    { key: 'tag', main: 'https://example.com/tags{/tags*}.xml' },
+    { key: 'post', main: 'https://example.com/@{user}/{id}/comments.xml' },
+  ],
+  { checks: { id: /^\d+$/ } },
+)
+```
+
+### Read a URL
+
+```typescript
+feeds.readUrl('https://old.example.com/alice/feed')
+
+// {
+//   key: 'user',
+//   values: { user: 'alice' },
+//   row: { key: 'user', main: 'https://example.com/@{user}/feed.xml{?page}', aliases: [...] },
+//   isAlias: true,
+//   isExact: true,
+// }
+```
+
+A URL no row takes, or one whose value fails a check, reads as nothing:
+
+```typescript
+feeds.readUrl('https://example.com/@alice/abc/comments.xml')
+
+// undefined
+```
+
+### Build a URL
+
+```typescript
+feeds.buildUrl('user', { user: 'alice', page: '2' })
+
+// 'https://example.com/@alice/feed.xml?page=2'
+```
+
+Values that don't fill a row build nothing:
+
+```typescript
+feeds.buildUrl('post', { user: 'alice' })
+
+// undefined
+```
+
+Or every spelling of a row, its main URL first:
+
+```typescript
+feeds.buildUrls('user', { user: 'alice' })
+
+// [
+//   'https://example.com/@alice/feed.xml',
+//   'https://example.com/u/alice/rss',
+//   'https://old.example.com/alice/feed',
+// ]
+```
+
+### Rewrite a URL to its main URL
+
+```typescript
+feeds.getMainUrl('http://old.example.com/alice/feed?utm_source=newsletter')
+
+// 'https://example.com/@alice/feed.xml'
+```
+
+The row writes `{?page}`, so the rewrite keeps `page` and drops every other query parameter. A URL that's already the main URL rewrites to nothing:
+
+```typescript
+feeds.getMainUrl('https://example.com/@alice/feed.xml')
+
+// undefined
+```
+
+### Encode strictly
+
+```typescript
+feeds.buildUrl('tag', { tags: ['C++', 'web dev'] })
+
+// 'https://example.com/tags/C++/web%20dev.xml'
+
+feeds.buildUrl('tag', { tags: ['C++', 'web dev'] }, { encoding: 'strict' })
+
+// 'https://example.com/tags/C%2B%2B/web%20dev.xml'
+```
+
+### Read a URL on any host
+
+A row on `{host}` can read software that runs on many sites, such as forums, under whatever folder the site sits in:
+
+```typescript
+const forums = defineTable([
+  { key: 'topic', main: '{scheme}://{host}{/base*}/viewtopic.php?t={topic}' },
+  { key: 'forum', main: '{scheme}://{host}{/base*}/feed.php' },
 ])
 
-feeds.readUrl('https://example.com/@alice/feed?page=2')
-// => { key: 'user', values: { user: 'alice', page: '2' }, isAlias: false, isExact: true, row }
+forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', { isAnyHost: true })
 
-feeds.buildUrl('tag', { tags: ['news', 'tech'] })
-// => 'https://example.com/tags/news/tech.rss'
+// {
+//   key: 'topic',
+//   values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] },
+//   ...
+// }
 
-feeds.getMainUrl('http://example.com/u/alice/rss')
-// => 'https://example.com/@alice/feed'
+forums.forSite('https://board.example.org/community/')?.buildUrl('forum', { base: ['community'] })
+
+// 'https://board.example.org/community/feed.php'
+```
+
+### Read a tenant's URL
+
+```typescript
+const blogs = defineTable([{ key: 'blog', main: 'https://{blog}.{domain}/feed' }], {
+  hosts: { tenant: ['example.com', 'example.co.uk'] },
+})
+
+blogs.readUrl('https://alice.example.co.uk/feed')?.values
+
+// { blog: 'alice', domain: 'example.co.uk' }
 ```
 
 ## Templates
@@ -90,12 +198,6 @@ const pages = defineTable(
 Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as an Atom and an RSS spelling of one feed, and a build takes the first one the values fill.
 
 ### Hosts
-
-```typescript
-defineTable([{ key: 'blog', main: 'https://{blog}.{domain}/feed' }], {
-  hosts: { tenant: ['example.com', 'example.co.uk'] },
-})
-```
 
 `hosts.exact` lists the hosts a `{host}` placeholder stands for, and `hosts.tenant` the domains that `{domain}` stands for and that tenants live under. An entry is a string, a pattern anchored at both ends, or a function that takes a host. A fixed host matches with or without `www`.
 
@@ -168,7 +270,3 @@ Returns `buildUrl` and `buildUrls` with `{scheme}`, `{host}` and `{domain}` fill
 ## Thanks
 
 The [uritemplate-test](https://github.com/uri-templates/uritemplate-test) suite checks every build urlmason shares with RFC 6570, and [url-template](https://github.com/bramstein/url-template) checks builds on inputs the suite lacks. Both run in the tests only, since they build URLs and urlmason also reads them.
-
-## License
-
-MIT
