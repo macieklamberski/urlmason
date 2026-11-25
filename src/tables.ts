@@ -49,6 +49,7 @@ import {
   toBareName,
   toRegexSource,
   toSegments,
+  toStrictUrl,
   toValueText,
   trailingSlashRegex,
   writeBase,
@@ -1427,7 +1428,7 @@ const createTable = <const Row extends UrlRow>(
   // A URL written as its row's main URL, every value as spelled but where a mark covers it. A main
   // URL under `http` or another `www` is rewritten too. Any other difference, a URL with
   // credentials and a value or a port the main URL cannot keep give nothing.
-  const getMainUrl: UrlTable<Key, Row>['getMainUrl'] = (url) => {
+  const getMainUrl: UrlTable<Key, Row>['getMainUrl'] = (url, writeOptions) => {
     const found = readTemplate(url)
 
     if (!found) {
@@ -1453,7 +1454,13 @@ const createTable = <const Row extends UrlRow>(
 
     const mainUrl = writeMainUrl(found.template, found.tableUrl, rawRead)
 
-    if (!mainUrl || mainUrl === sourceUrl.href) {
+    if (!mainUrl) {
+      return
+    }
+
+    const writtenUrl = writeOptions?.encoding === 'strict' ? toStrictUrl(mainUrl) : mainUrl
+
+    if (writtenUrl === sourceUrl.href) {
       return
     }
 
@@ -1481,7 +1488,7 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    return mainUrl
+    return writtenUrl
   }
 
   // The table for one page: `{scheme}` and `{host}` come from the page URL, `{domain}` is its host

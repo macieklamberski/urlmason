@@ -1932,6 +1932,40 @@ describe('defineTable', () => {
       expect(notes.buildUrls('note', value, strict)).toEqual(expected)
     })
 
+    it('should write the main URL of an alias with its values encoded', () => {
+      const table = defineTable([
+        {
+          key: 'post',
+          main: 'https://example.com/posts/{slug}',
+          aliases: ['https://old.example.com/p/{slug}'],
+        },
+      ])
+      const value = 'https://old.example.com/p/Hello!'
+      const expected = 'https://example.com/posts/Hello%21'
+
+      expect(table.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should write a main URL spelled the pretty way as the strict one', () => {
+      const value = 'https://example.com/notes/Hello!'
+      const expected = 'https://example.com/notes/Hello%21'
+
+      expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should return undefined for a main URL already spelled strictly', () => {
+      const value = 'https://example.com/notes/Hello%21'
+
+      expect(notes.getMainUrl(value, strict)).toBeUndefined()
+    })
+
+    it('should keep a plus sign in the query of a main URL', () => {
+      const value = 'https://example.com/search?q=tag-a+b!'
+      const expected = 'https://example.com/search?q=tag-a+b%21'
+
+      expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
     it('should encode a URL built for a page', () => {
       const value = { title: 'Hello!' }
       const expected = 'https://example.org/notes/Hello%21'

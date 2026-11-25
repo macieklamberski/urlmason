@@ -165,11 +165,15 @@ export type UrlKeyMatch<Key extends string, Row> = {
 // so `Hello!` is `Hello%21`.
 export type UrlEncoding = 'pretty' | 'strict'
 
-// How a URL is built. `select` narrows the key's rows by their fields, as to one format: it gets a
-// copy of each row, never the object given. `encoding` is `pretty` when left out.
-export type UrlBuildOptions<Row> = {
-  select?: (row: Row) => boolean
+// How a URL is written. `encoding` is `pretty` when left out.
+export type UrlWriteOptions = {
   encoding?: UrlEncoding
+}
+
+// How a URL is built. `select` narrows the key's rows by their fields, as to one format: it gets a
+// copy of each row, never the object given.
+export type UrlBuildOptions<Row> = UrlWriteOptions & {
+  select?: (row: Row) => boolean
 }
 
 // A table's methods take only the keys of its rows, so a key the table does not hold fails the
@@ -180,6 +184,6 @@ export type UrlTable<Key extends string, Row> = {
   buildUrl: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => string | undefined
   buildUrls: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => Array<string>
   readUrl: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
-  getMainUrl: (url: string) => string | undefined
+  getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
   forSite: (url: string) => Pick<UrlTable<Key, Row>, 'buildUrl' | 'buildUrls'> | undefined
 }
