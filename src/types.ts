@@ -29,9 +29,13 @@ export type UrlRow<Key extends string = string> = {
   checks?: Record<string, UrlRowCheck | undefined>
 }
 
+// Names and their values, as `{ lang: 'en' }`. A slot of one value builds it as `lang,en`, and a
+// list slot as one `lang=en` segment per name.
+export type UrlMap = Record<string, string>
+
 // A value of one path segment, host label or query value is a string. A `{name*}` value spans
 // several path segments, so it is a list of segments, as `['a/b', 'c']`.
-export type UrlValue = string | Array<string>
+export type UrlValue = string | Array<string> | UrlMap
 
 // A value left undefined is no value, so the URL it would fill is skipped.
 export type UrlValues = Record<string, UrlValue | undefined>

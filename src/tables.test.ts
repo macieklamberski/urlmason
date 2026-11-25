@@ -1947,6 +1947,41 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with a map as a value', () => {
+    const filters = defineTable([
+      { key: 'slot', main: 'https://example.com/filter/{facets}' },
+      { key: 'list', main: 'https://example.com/filter{/facets*}' },
+      { key: 'query', main: 'https://example.com/filter?f={facets}' },
+    ])
+
+    it('should write a map in a slot of one value as its names and values joined by commas', () => {
+      const value = { facets: { lang: 'en', tag: 'a,b' } }
+      const expected = 'https://example.com/filter/lang,en,tag,a%2Cb'
+
+      expect(filters.buildUrl('slot', value)).toBe(expected)
+    })
+
+    it('should write a map in a list slot as one segment per name', () => {
+      const value = { facets: { lang: 'en', tag: 'news' } }
+      const expected = 'https://example.com/filter/lang=en/tag=news'
+
+      expect(filters.buildUrl('list', value)).toBe(expected)
+    })
+
+    it('should write a map in a query value as its names and values joined by commas', () => {
+      const value = { facets: { lang: 'en', tag: 'news' } }
+      const expected = 'https://example.com/filter?f=lang,en,tag,news'
+
+      expect(filters.buildUrl('query', value)).toBe(expected)
+    })
+
+    it('should build nothing from a map with no name', () => {
+      const value = { facets: {} }
+
+      expect(filters.buildUrl('slot', value)).toBeUndefined()
+    })
+  })
+
   describe('with strict encoding', () => {
     const strict = { encoding: 'strict' } as const
     const notes = defineTable([

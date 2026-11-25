@@ -52,7 +52,9 @@ const builtCases: Array<string> = [
   "Level 1 Examples: '{var}'",
   'Level 1 Examples: {hello}',
   'Level 4 Examples: {list}',
+  'Level 4 Examples: {keys}',
   'Level 4 Examples: {/list*}',
+  'Level 4 Examples: {/keys*}',
   'Additional Examples 1: {/id*}',
   'Additional Examples 1: {random}',
   'Additional Examples 2: {/id*}',
@@ -61,16 +63,13 @@ const builtCases: Array<string> = [
   'Additional Examples 6: Reserved Expansion: {id}',
   'Additional Examples 6: Reserved Expansion: {not_pct}',
   'Additional Examples 6: Reserved Expansion: {list}',
+  'Additional Examples 6: Reserved Expansion: {keys}',
   'Additional Examples 8: Literal Encoding: café/{var}',
   'Additional Examples 8: Literal Encoding: x%20y/{var}',
   'Additional Examples 8: Literal Encoding: x%20y{var}z%20w',
 ]
 
-const differentCases: Array<string> = [
-  'Level 4 Examples: {keys}',
-  'Additional Examples 3: Empty Variables: {/empty_list*}',
-  'Additional Examples 6: Reserved Expansion: {keys}',
-]
+const differentCases: Array<string> = ['Additional Examples 3: Empty Variables: {/empty_list*}']
 
 const refusedCases = Object.keys(cases).filter((name) => {
   return !builtCases.includes(name) && !differentCases.includes(name)
@@ -85,7 +84,7 @@ describe('RFC 6570 test suite', () => {
   })
 
   it.each(refusedCases)('should refuse %s, whose operator no table takes', (name) => {
-    const throwing = () => buildCase(cases[name])
+    const throwing = () => defineTable([{ key: 'case', main: cases[name].template }])
 
     expect(throwing).toThrow()
   })
@@ -94,11 +93,6 @@ describe('RFC 6570 test suite', () => {
     const throwing = () => buildCase(failures[name])
 
     expect(throwing).toThrow()
-  })
-
-  it.todo('should build a map in a slot of one value as its keys and values', () => {
-    // {keys} with { semi: ';', dot: '.', comma: ',' } builds `semi,%3B,dot,.,comma,%2C`. A map is
-    // no value a table takes yet, and is written as `[object Object]`.
   })
 
   it.todo('should build an empty list in a list slot as nothing, its slash too', () => {
