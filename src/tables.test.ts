@@ -736,7 +736,7 @@ describe('defineUrls', () => {
     it('should throw for a row on a domain placeholder in a table without tenant domains', () => {
       const throwing = () => defineUrls([{ key: 'blog', main: 'https://{user}.{domain}/feed' }])
 
-      expect(throwing).toThrow('No hosts for the blog feed')
+      expect(throwing).toThrow('No hosts for the blog row')
     })
 
     it('should return the rows it was given', () => {
@@ -1014,7 +1014,7 @@ describe('defineUrls', () => {
       const select = (row: PlayerRow) => row.ratio === '4/3'
       const throwing = () => players.build('unknown', value, select)
 
-      expect(throwing).toThrow('No feed template for unknown')
+      expect(throwing).toThrow('No row for unknown')
     })
 
     it('should return undefined for a selector that tells a row by identity', () => {
@@ -1120,16 +1120,14 @@ describe('defineUrls', () => {
       const value = [{ key: 'list', main: 'https://example.com/list{?query*}' }]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow('Not a feed URL template: https://example.com/list{?query*}')
+      expect(throwing).toThrow('Not a URL template: https://example.com/list{?query*}')
     })
 
     it('should throw for a placeholder as a parameter name whose braces the row escapes', () => {
       const value = [{ key: 'list', main: 'https://example.com/{user}/list?%7Bquery%7D' }]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow(
-        'Not a feed URL template: https://example.com/{user}/list?%7Bquery%7D',
-      )
+      expect(throwing).toThrow('Not a URL template: https://example.com/{user}/list?%7Bquery%7D')
     })
 
     it('should throw for a parameter the row names twice', () => {
@@ -1137,7 +1135,7 @@ describe('defineUrls', () => {
       const throwing = () => defineUrls(value)
 
       expect(throwing).toThrow(
-        'Not a feed URL template: https://example.com/search?types=page&types=post',
+        'Not a URL template: https://example.com/search?types=page&types=post',
       )
     })
 
@@ -2420,7 +2418,7 @@ describe('defineUrls', () => {
       const value = [{ key: 'item', main: 'https://example.com/items??id={id}' }]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow('Not a feed URL template: https://example.com/items??id={id}')
+      expect(throwing).toThrow('Not a URL template: https://example.com/items??id={id}')
     })
 
     it('should throw for an alias whose query opens with a second question mark', () => {
@@ -2433,7 +2431,7 @@ describe('defineUrls', () => {
       ]
       const throwing = () => defineUrls(value)
 
-      expect(throwing).toThrow('Not a feed URL template: https://old.example.com/feed??alt=rss')
+      expect(throwing).toThrow('Not a URL template: https://old.example.com/feed??alt=rss')
     })
 
     it('should write an alias that gives a parameter of the main URL behind a name that opens with a question mark', () => {

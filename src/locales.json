@@ -1,8 +1,8 @@
 {
   "errors": {
-    "invalidFeedTemplate": "Not a feed URL template: {{template}}",
-    "missingFeedTemplate": "No feed template for {{key}}",
-    "missingFeedHosts": "No hosts for the {{key}} feed",
+    "invalidTemplate": "Not a URL template: {{template}}",
+    "unknownKey": "No row for {{key}}",
+    "missingHosts": "No hosts for the {{key}} row",
     "sharedCaseMark": "The {{key}} row marks the case of {{name}}, which shares a part of its URL with another value",
     "ampersandEntityName": "The {{key}} row sets {{name}}, which the ampersand mark reads as another parameter",
     "statefulCheckRegex": "The check of {{name}} is a pattern with a g or y flag, which answers differently on a second call",
@@ -10,9 +10,8 @@
     "misplacedOpenTail": "The {{key}} row writes {/tail*} elsewhere than at the end of its path",
     "openTailBesideMultiSegment": "The {{key}} row writes {/tail*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
     "openTailName": "The {{key}} row names a value tail, which {/tail*} is read as",
-    "feedFallThrough": "The {{platform}} feed table sets isFallThrough, which only a page table takes",
     "unsupportedTemplateExpression": "The template {{template}} writes {{expression}}, an operator or modifier no template takes",
-    "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes yet",
+    "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes",
     "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}"
   }
 }
