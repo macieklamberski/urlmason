@@ -27,7 +27,7 @@ const playerRows: Array<PlayerRow> = [
 ]
 
 const players = defineUrls(playerRows, {
-  hosts: { tenants: ['example.org'] },
+  hosts: { tenant: ['example.org'] },
   checks: { locale: isLocale },
 })
 
@@ -96,7 +96,7 @@ const rooted = defineUrls(
     },
   ],
   {
-    hosts: { tenants: ['example.net'] },
+    hosts: { tenant: ['example.net'] },
   },
 )
 
@@ -105,12 +105,12 @@ const wwwTenants = defineUrls(
     { key: 'site', main: 'https://example.org/rss', aliases: ['https://example.org/rss.atom'] },
     { key: 'blog', main: '{scheme}://{host}/rss' },
   ],
-  { hosts: { tenants: ['example.org'] }, isWwwTenant: true },
+  { hosts: { tenant: ['example.org'] }, isWwwTenant: true },
 )
 
 const hosted = defineUrls(
   [{ key: 'site', main: '{scheme}://{host}/feed.xml', aliases: ['{scheme}://{host}/rss.xml'] }],
-  { hosts: { tenants: ['example.net'] } },
+  { hosts: { tenant: ['example.net'] } },
 )
 
 const paged = defineUrls(
@@ -585,7 +585,7 @@ const newsletters = defineUrls(
       main: '{scheme}://{host}/feed/podcast/{publication}/private/{token}.rss',
     },
   ],
-  { hosts: { tenants: ['example.com'] } },
+  { hosts: { tenant: ['example.com'] } },
 )
 
 const playlists = defineUrls([
@@ -606,7 +606,7 @@ const journals = defineUrls(
       checks: { host: (host) => host !== 'asylums.example.com' },
     },
   ],
-  { hosts: { exact: ['asylums.example.com'], tenants: ['example.com'] } },
+  { hosts: { exact: ['asylums.example.com'], tenant: ['example.com'] } },
 )
 
 const archives = defineUrls(
@@ -620,7 +620,7 @@ const archives = defineUrls(
     },
     { key: 'post-comments', main: '{scheme}://{host}{/post*}/feed' },
   ],
-  { hosts: { tenants: ['example.com', 'example.org'] }, checks: { date: dateRegex } },
+  { hosts: { tenant: ['example.com', 'example.org'] }, checks: { date: dateRegex } },
 )
 
 const rootChecked = defineUrls([
@@ -724,7 +724,7 @@ const checkedTenants = defineUrls(
     { key: 'posts', main: '{scheme}://{host}/rss' },
     { key: 'about', main: '{scheme}://{domain}/about' },
   ],
-  { hosts: { tenants: [isCheckedDomain] }, isWwwTenantPrefix: true },
+  { hosts: { tenant: [isCheckedDomain] }, isWwwTenantPrefix: true },
 )
 
 const checkedExact = defineUrls([{ key: 'jobs', main: '{scheme}://{host}/jobs/feed' }], {

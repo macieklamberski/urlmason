@@ -48,7 +48,7 @@ export type UrlHosts = {
   // one-label tenant under one. A pattern stands for a family of domains, such as
   // `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends, and a function for the domains
   // it accepts.
-  tenants?: Array<string | RegExp | UrlHostCheck>
+  tenant?: Array<string | RegExp | UrlHostCheck>
 }
 
 // A check sees a list value as its segments joined by `/`, as `a/b/c` for `['a/b', 'c']`.
