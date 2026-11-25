@@ -51,12 +51,24 @@ const builtCases: Array<string> = [
   'Level 1 Examples: {var}',
   "Level 1 Examples: '{var}'",
   'Level 1 Examples: {hello}',
+  'Level 3 Examples: {?x,y}',
+  'Level 3 Examples: ?fixed=yes{&x}',
   'Level 4 Examples: {list}',
   'Level 4 Examples: {keys}',
   'Level 4 Examples: {/list*}',
   'Level 4 Examples: {/keys*}',
+  'Level 4 Examples: {?list}',
+  'Level 4 Examples: {?keys}',
   'Additional Examples 1: {/id*}',
   'Additional Examples 1: {random}',
+  'Additional Examples 1: /set{?number}',
+  'Additional Examples 1: /sparql{?query}',
+  'Additional Examples 1: /go{?uri}',
+  'Additional Examples 1: /service{?word}',
+  'Additional Examples 2: {/id*}{?fields,token}',
+  'Additional Examples 3: Empty Variables: {?empty_list}',
+  'Additional Examples 3: Empty Variables: {?empty_assoc}',
+  'Additional Examples 4: Numeric Keys: {?42}',
   'Additional Examples 2: {/id*}',
   'Additional Examples 4: Numeric Keys: {42}',
   'Additional Examples 4: Numeric Keys: {1337}',
@@ -71,9 +83,26 @@ const builtCases: Array<string> = [
 
 const differentCases: Array<string> = ['Additional Examples 3: Empty Variables: {/empty_list*}']
 
+// A table writes query pairs sorted by name, so one URL has one spelling, where RFC 6570 keeps the
+// template's order.
+const sortedCases: Array<string> = [
+  'Level 3 Examples: {?x,y,empty}',
+  'Additional Examples 1: /search.{format}{?q,geocode,lang,locale,page,result_type}',
+  'Additional Examples 1: /loc{?long,lat}',
+]
+
+// A name may hold a hyphen, as the platforms write them, where RFC 6570 refuses one.
+const hyphenFailures: Array<string> = ['Failure Tests: /sparql{?query,default-graph-uri}']
+
 const refusedCases = Object.keys(cases).filter((name) => {
-  return !builtCases.includes(name) && !differentCases.includes(name)
+  return ![...builtCases, ...differentCases, ...sortedCases].includes(name)
 })
+
+const toSorted = (url: string): string => {
+  const [base, query] = url.split('?')
+
+  return query ? `${base}?${query.split('&').sort().join('&')}` : url
+}
 
 describe('RFC 6570 test suite', () => {
   it.each(builtCases)('should build %s as the suite does', (name) => {
@@ -89,11 +118,28 @@ describe('RFC 6570 test suite', () => {
     expect(throwing).toThrow()
   })
 
-  it.each(Object.keys(failures))('should refuse the malformed %s', (name) => {
-    const throwing = () => buildCase(failures[name])
+  it.each(sortedCases)('should build %s with its pairs sorted by name', (name) => {
+    const value = cases[name]
+    const built = String(buildCase(value))
 
-    expect(throwing).toThrow()
+    expect(value.expected.map(toSorted)).toContain(built)
   })
+
+  it.each(hyphenFailures)('should build %s, whose name holds a hyphen', (name) => {
+    const value = failures[name]
+    const built = buildCase(value)
+
+    expect(built).toBeDefined()
+  })
+
+  it.each(Object.keys(failures).filter((name) => !hyphenFailures.includes(name)))(
+    'should refuse the malformed %s',
+    (name) => {
+      const throwing = () => buildCase(failures[name])
+
+      expect(throwing).toThrow()
+    },
+  )
 
   it.todo('should build an empty list in a list slot as nothing, its slash too', () => {
     // {/empty_list*} with [] builds the URL without the slot. A table builds no URL from an empty

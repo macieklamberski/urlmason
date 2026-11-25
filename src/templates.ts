@@ -71,6 +71,8 @@ export type ParsedTemplate = {
   // The placeholders but the open tail, a list as `name*`.
   names: Array<string>
   params: Array<TemplateParam>
+  // The query names a URL may carry, as `{?max-results,q}` or, behind a query, `{&q}`.
+  optionalNames: Array<string>
 }
 
 export type CompiledParam = TemplateParam & {
@@ -120,6 +122,10 @@ const oldQuery = '?{query}'
 // A value, and a list with its slash.
 const plainExpressionRegex = /^(?:\w+|\/\w+\*)$/
 const queryExpressionRegex = /^\?\w+\*$/
+// Query names a URL may carry, as `{?max-results,q}`, and behind a fixed query `{&q}`. A name may
+// hold a hyphen, as the platforms write them.
+const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*$/
+const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*)\}$/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 // The characters `encodeURIComponent` leaves that RFC 6570 encodes outside the unreserved set.
 const subDelimiterRegex = /[!'()*]/g
@@ -533,7 +539,7 @@ const checkExpressions = (template: string): void => {
       throwOldSpelling(oldTail, openTailSuffix)
     }
 
-    if (plainExpressionRegex.test(body)) {
+    if (plainExpressionRegex.test(body) || optionalQueryExpressionRegex.test(body)) {
       continue
     }
 
@@ -550,13 +556,22 @@ const checkExpressions = (template: string): void => {
 export const parseTemplate = (template: string): ParsedTemplate => {
   checkExpressions(template)
 
-  const match = templateRegex.exec(template)
+  // The optional names close the template: `{?a,b}` where it has no query, `{&a,b}` behind one.
+  const optional = optionalQueryRegex.exec(template)
+  const base = optional ? template.slice(0, optional.index) : template
+  const match = templateRegex.exec(base)
 
-  if (!match) {
+  if (!match || base.includes('{?') || base.includes('{&')) {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
   const [, scheme, host, givenPath = '', search] = match
+
+  if (optional && (optional[1] === '?') === Boolean(search)) {
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
+  }
+
+  const optionalNames = optional ? optional[2].split(',') : []
   const isOpen = givenPath.endsWith(openTailSuffix)
   const entries = search ? [...toSearchParams(parseQuery(search))] : []
 
@@ -583,7 +598,13 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
     return param
   })
-  const paramNames = params.map((param) => param.name)
+  const paramNames = [...params.map((param) => param.name), ...optionalNames]
+  const placeholderNames = [...base.matchAll(placeholderRegex)].map(([, name]) => toBareName(name))
+
+  // A name read from the query and a placeholder of the same name would give one value two sources.
+  if (optionalNames.some((name) => placeholderNames.includes(name))) {
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
+  }
 
   // A parameter the template names twice, as `types=page&types=post`, has no one value to read.
   if (paramNames.some((name, index) => paramNames.indexOf(name) !== index)) {
@@ -603,6 +624,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
       ([, name]) => name,
     ),
     params,
+    optionalNames,
   }
 }
 
@@ -733,6 +755,14 @@ export const compileTemplate = (
       readGroups(values, queryMatch.groups)
     }
 
+    for (const name of parsed.optionalNames) {
+      const [value] = getQueryParamValues(getSearchParams(), name)
+
+      if (value !== undefined) {
+        values[name] = value
+      }
+    }
+
     return values
   }
 
@@ -749,6 +779,16 @@ export const compileTemplate = (
       }
 
       values[name] = value
+    }
+
+    // An optional name with no value, or a list with no item, is left out of the URL. An empty
+    // string is a value, written as `name=`, as RFC 6570 writes it.
+    for (const name of parsed.optionalNames) {
+      const value = getPlaceholderValue(givenParams, name)
+
+      if (value !== undefined) {
+        values[name] = value
+      }
     }
 
     return values
@@ -793,6 +833,19 @@ export const compileTemplate = (
       )
 
       pairs.push(appendValue(own.pair, text))
+    }
+
+    for (const name of parsed.optionalNames) {
+      const value = values[name]
+
+      if (value === undefined) {
+        continue
+      }
+
+      const writtenName = isStrict ? encodeStrictValue(name) : encodeText(name)
+      const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodeQueryValue)
+
+      pairs.push(toPair(`${writtenName}=${writtenValue}`))
     }
 
     // A host reads in any case, so a value that fills a host label is written in lowercase.
