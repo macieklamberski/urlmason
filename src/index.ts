@@ -7,6 +7,7 @@ export type {
   UrlHosts,
   UrlKeyMatch,
   UrlLenient,
+  UrlMap,
   UrlMatch,
   UrlReadOptions,
   UrlRow,
