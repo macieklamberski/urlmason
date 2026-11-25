@@ -78,8 +78,9 @@ import type {
 type RowTemplate = {
   rowIndex: number
   isAlias: boolean
-  // The query parameters the template sets itself.
+  // The query parameters the template sets itself, and the ones a URL may carry, as `{?q}`.
   ownNames: Array<string>
+  optionalNames: Array<string>
   // The placeholders of the host, which a URL reads in any case.
   hostNames: Array<string>
   // The parameters the template sets to a fixed value, as `alt=rss`, and the ones it reads a
@@ -943,6 +944,7 @@ const compileRowTemplate = (
     rowIndex,
     isAlias,
     ownNames,
+    optionalNames: parsed.optionalNames,
     hostNames: [...host.matchAll(placeholderRegex)].map(([, name]) => name),
     fixedQuery: fixedParams.map((param) => [param.name, param.value]),
     valueNames: ownParams.filter((param) => param.value.includes('{')).map((param) => param.name),
@@ -1143,7 +1145,7 @@ const createTable = <const Row extends UrlRow>(
     const rowFixedQuery = compiledRows[template.rowIndex].flatMap(
       (candidate) => candidate.fixedQuery,
     )
-    const openNames = [...template.valueNames, ...(options.keptParams ?? [])]
+    const openNames = [...template.valueNames, ...template.optionalNames]
 
     return [...readQuery(tableUrl).searchParams].some(([name, value]) => {
       if (!isAnyOf(name, names) || isAnyOf(name, openNames)) {
@@ -1494,10 +1496,16 @@ const createTable = <const Row extends UrlRow>(
   ): string | undefined => {
     const { url } = tableUrl
     const [main] = compiledRows[template.rowIndex]
-    const { keptParams } = options
     const pairs = rawRead.pairs.filter((pair) => pair.text)
-    // A parameter no template names stays, and with a list only when the list names it.
-    const isKept = (pair: QueryPair): boolean => !keptParams || isNamed(pair, keptParams)
+    // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has
+    // one, and never under `isQueryKept: false`.
+    const isKept = (pair: QueryPair): boolean => {
+      if (main.optionalNames.length > 0 || options.isQueryKept === false) {
+        return isNamed(pair, main.optionalNames)
+      }
+
+      return true
+    }
 
     if (!template.isAlias) {
       const origin = url.port ? undefined : main.getHttpsOrigin(rawRead.params)

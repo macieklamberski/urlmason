@@ -113,33 +113,27 @@ const hosted = defineTable(
   { hosts: { tenant: ['example.net'] } },
 )
 
-const paged = defineTable(
-  [
-    {
-      key: 'posts',
-      main: 'https://feeds.example.com/posts.xml',
-      aliases: ['https://example.com/posts.xml'],
-    },
-    {
-      key: 'search',
-      main: 'https://feeds.example.com/search.xml?q={query}',
-      aliases: ['https://example.com/search.xml?q={query}'],
-    },
-  ],
-  { keptParams: ['max-results', 'start-index'] },
-)
+const paged = defineTable([
+  {
+    key: 'posts',
+    main: 'https://feeds.example.com/posts.xml{?max-results,start-index}',
+    aliases: ['https://example.com/posts.xml{?max-results,start-index}'],
+  },
+  {
+    key: 'search',
+    main: 'https://feeds.example.com/search.xml?q={query}{&max-results,start-index}',
+    aliases: ['https://example.com/search.xml?q={query}{&max-results,start-index}'],
+  },
+])
 
-const formats = defineTable(
-  [
-    { key: 'posts', main: 'https://example.com/feed' },
-    {
-      key: 'posts',
-      main: 'https://example.com/feed?alt=rss',
-      aliases: ['https://example.com/rss.xml'],
-    },
-  ],
-  { keptParams: ['max-results'] },
-)
+const formats = defineTable([
+  { key: 'posts', main: 'https://example.com/feed{?max-results}' },
+  {
+    key: 'posts',
+    main: 'https://example.com/feed?alt=rss{&max-results}',
+    aliases: ['https://example.com/rss.xml{?max-results}'],
+  },
+])
 
 const unsorted = defineTable([
   {
@@ -168,13 +162,10 @@ const wwwRoutes = defineTable([
   { key: 'comments', main: 'https://example.com/feed?type=comments' },
 ])
 
-const keptFormats = defineTable(
-  [
-    { key: 'posts', main: 'https://example.com/feed' },
-    { key: 'posts', main: 'https://example.com/feed?alt=rss' },
-  ],
-  { keptParams: ['alt'] },
-)
+const keptFormats = defineTable([
+  { key: 'posts', main: 'https://example.com/feed{?alt}' },
+  { key: 'posts', main: 'https://example.com/feed?alt=rss' },
+])
 
 const bare = defineTable(
   [
@@ -184,7 +175,7 @@ const bare = defineTable(
       aliases: ['{scheme}://old.example.com/{name}'],
     },
   ],
-  { keptParams: [] },
+  { isQueryKept: false },
 )
 
 const flaggedMain = defineTable([
@@ -248,10 +239,10 @@ const unmarkedAmpersands = defineTable([
 
 const ampersandRoutes = defineTable(
   [
-    { key: 'posts', main: 'https://example.com/feed' },
-    { key: 'comments', main: 'https://example.com/feed?type=comments' },
+    { key: 'posts', main: 'https://example.com/feed{?page}' },
+    { key: 'comments', main: 'https://example.com/feed?type=comments{&page}' },
   ],
-  { lenient: { ampersandEntity: true }, keptParams: ['page'] },
+  { lenient: { ampersandEntity: true } },
 )
 
 const ampersandPairs = defineTable(
@@ -357,9 +348,7 @@ const escapedPercentName = defineTable([
   },
 ])
 
-const keptEscape = defineTable([{ key: 'item', main: 'https://example.com/items/{id}' }], {
-  keptParams: ['%FF'],
-})
+const keptEscape = defineTable([{ key: 'item', main: 'https://example.com/items/{id}' }])
 
 const versions = defineTable(
   [
@@ -528,6 +517,25 @@ const looseChecks = defineTable([{ key: 'item', main: 'https://example.com/items
 const threeValuePages = defineTable([
   { key: 'page', main: 'https://example.com/y/{a}-{b}-{c}/feed' },
 ])
+
+const optionalPosts = defineTable([
+  {
+    key: 'posts',
+    main: 'https://feeds.example.com/posts{?max-results,q}',
+    aliases: ['https://example.com/posts?alt=rss{&max-results,q}'],
+  },
+])
+
+const unkeptFeeds = defineTable(
+  [
+    {
+      key: 'feed',
+      main: 'https://feeds.example.com/{name}',
+      aliases: ['https://example.com/{name}'],
+    },
+  ],
+  { isQueryKept: false },
+)
 
 const builtFeeds = defineTable([
   { key: 'feed', main: '{scheme}://{host}/u/{id}/feed' },
@@ -1718,7 +1726,7 @@ describe('defineTable', () => {
   describe('with a parameter that tells rows apart', () => {
     it('should read the row that sets the value', () => {
       const value = 'https://example.com/feed?alt=rss'
-      const expected = 'https://example.com/feed?alt=rss'
+      const expected = 'https://example.com/feed?alt=rss{&max-results}'
 
       const main = formats.readUrl(value)?.row.main
 
@@ -1733,7 +1741,7 @@ describe('defineTable', () => {
 
     it('should read a listed value in another case', () => {
       const value = 'https://example.com/feed?ALT=RSS'
-      const expected = 'https://example.com/feed?alt=rss'
+      const expected = 'https://example.com/feed?alt=rss{&max-results}'
       const main = formats.readUrl(value)?.row.main
 
       expect(main).toBe(expected)
@@ -1766,7 +1774,7 @@ describe('defineTable', () => {
 
     it('should read a URL with a parameter no row sets', () => {
       const value = 'https://example.com/feed?page=2'
-      const expected = 'https://example.com/feed'
+      const expected = 'https://example.com/feed{?max-results}'
 
       const main = formats.readUrl(value)?.row.main
 
@@ -1795,7 +1803,7 @@ describe('defineTable', () => {
 
     it('should read any value of a parameter the table keeps', () => {
       const value = 'https://example.com/feed?alt=rss2'
-      const expected = 'https://example.com/feed'
+      const expected = 'https://example.com/feed{?alt}'
       const main = keptFormats.readUrl(value)?.row.main
 
       expect(main).toBe(expected)
@@ -2582,20 +2590,10 @@ describe('defineTable', () => {
       expect(paged.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep a listed parameter whose name is written with +', () => {
-      const table = defineTable([{ key: 'posts', main: 'https://example.com/posts.xml?id={id}' }], {
-        keptParams: ['max results'],
-      })
-      const value = 'https://example.com/posts.xml?ref=home&max+results=5&id=7'
-      const expected = 'https://example.com/posts.xml?id=7&max+results=5'
-
-      expect(table.getMainUrl(value)).toBe(expected)
-    })
-
     it('should return undefined for a main URL with an own parameter given again with +', () => {
-      const table = defineTable([{ key: 'posts', main: 'https://example.com/posts.xml?id={id}' }], {
-        keptParams: ['page'],
-      })
+      const table = defineTable([
+        { key: 'posts', main: 'https://example.com/posts.xml?id={id}{&page}' },
+      ])
       const value = 'https://example.com/posts.xml?id=7&id+=8&ref=home'
 
       expect(table.getMainUrl(value)).toBeUndefined()
@@ -2682,13 +2680,6 @@ describe('defineTable', () => {
       const value = 'https://old.example.com/item/5?%FF=9'
 
       expect(escapedPercentName.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should keep a pair a kept list names with an escape that is no UTF-8', () => {
-      const value = 'http://example.com/items/5?%FF=1&page=2'
-      const expected = 'https://example.com/items/5?%FF=1'
-
-      expect(keptEscape.getMainUrl(value)).toBe(expected)
     })
 
     it('should write an alias that gives a name with a percent sign as the row names it', () => {
@@ -3130,6 +3121,55 @@ describe('defineTable', () => {
       }
 
       expect(performance.now() - startedAt).toBeLessThan(200)
+    })
+  })
+
+  describe('with optional query names', () => {
+    it('should read the names a URL carries into its values', () => {
+      const value = 'https://feeds.example.com/posts?q=cats&max-results=5'
+      const expected = {
+        'max-results': '5',
+        q: 'cats',
+      }
+      const match = optionalPosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL without the optional names', () => {
+      const value = 'https://feeds.example.com/posts'
+      const expected = {}
+      const match = optionalPosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build the names given and leave the rest out', () => {
+      const value = { q: 'cats and dogs' }
+      const expected = 'https://feeds.example.com/posts?q=cats%20and%20dogs'
+
+      expect(optionalPosts.buildUrl('posts', value)).toBe(expected)
+    })
+
+    it('should build an empty string as the name with no value', () => {
+      const value = { q: '' }
+      const expected = 'https://feeds.example.com/posts?q='
+
+      expect(optionalPosts.buildUrl('posts', value)).toBe(expected)
+    })
+
+    it('should keep only the listed names on a rewrite to the main URL', () => {
+      const value = 'https://example.com/posts?alt=rss&max-results=5&utm_source=feed'
+      const expected = 'https://feeds.example.com/posts?max-results=5'
+
+      expect(optionalPosts.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep no extra parameter in a table that keeps none', () => {
+      const value = 'https://example.com/alice?format=xml&utm_source=feed'
+      const expected = 'https://feeds.example.com/alice'
+
+      expect(unkeptFeeds.getMainUrl(value)).toBe(expected)
     })
   })
 

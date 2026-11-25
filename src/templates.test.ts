@@ -7,11 +7,19 @@ const unsupportedExpressions = [
   '{#section}',
   '{.format}',
   '{;id}',
-  '{&page}',
   '{id:3}',
   '{owner,repo}',
   '{/path}', // A path segment without the explode modifier
   '{}',
+]
+
+// Query continuation needs a query in front of it, a query start none, either ends the URL, and
+// neither names a placeholder of the template.
+const misplacedQueryTemplates: Array<string> = [
+  'https://example.com/feed{&page}',
+  'https://example.com/feed?alt=rss{?page}',
+  'https://example.com/feed{?page}/more',
+  'https://example.com/feeds{/path*}{?path}',
 ]
 
 const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
@@ -68,6 +76,12 @@ describe('parseTemplate', () => {
       )
     },
   )
+
+  it.each(misplacedQueryTemplates)('should throw for the misplaced query names of %s', (value) => {
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
 
   it.each(unsupportedExpressions)('should throw for %s', (expression) => {
     const value = `https://example.com/feed/${expression}`

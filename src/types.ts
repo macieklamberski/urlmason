@@ -71,10 +71,9 @@ export type UrlTableOptions = {
   // both ends with no `g` or `y` flag, as `{ id: /^\d+$/ }`. A URL whose value fails its check is
   // neither built nor read.
   checks?: Record<string, UrlCheck>
-  // The query parameters every row takes beside the ones its URLs set, as `max-results`: names as
-  // the platform writes them, never placeholder names. With a list, a rewrite to the main URL
-  // drops every other parameter. Without one it keeps them all.
-  keptParams?: Array<string>
+  // Whether a rewrite to the main URL keeps the query parameters a row's main URL does not name.
+  // A row that writes `{?a,b}` keeps only those names. With `false`, a row without one keeps none.
+  isQueryKept?: boolean
   // The marks of every row.
   lenient?: UrlLenient
   // Whether a row that refuses a URL, by a check or by a parameter that tells rows apart, passes
