@@ -160,14 +160,19 @@ export type UrlKeyMatch<Key extends string, Row> = {
   isExact: boolean
 }
 
+// How a URL is built. `select` narrows the key's rows by their fields, as to one format: it gets a
+// copy of each row, never the object given.
+export type UrlBuildOptions<Row> = {
+  select?: (row: Row) => boolean
+}
+
 // A table's methods take only the keys of its rows, so a key the table does not hold fails the
-// typecheck. `select` narrows the key's rows by their fields, as to one format: it gets a copy of
-// each row, never the object given. A built URL and a main URL write their query sorted by name.
+// typecheck. A built URL and a main URL write their query sorted by name.
 export type UrlTable<Key extends string, Row> = {
   // A copy of each row given, for a caller that walks every row of a table.
   rows: Array<Row>
-  buildUrl: (key: Key, values?: UrlValues, select?: (row: Row) => boolean) => string | undefined
-  buildUrls: (key: Key, values?: UrlValues, select?: (row: Row) => boolean) => Array<string>
+  buildUrl: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => string | undefined
+  buildUrls: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => Array<string>
   readUrl: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
   getMainUrl: (url: string) => string | undefined
   forSite: (url: string) => Pick<UrlTable<Key, Row>, 'buildUrl' | 'buildUrls'> | undefined

@@ -845,7 +845,7 @@ describe('defineTable', () => {
         return true
       }
 
-      table.buildUrl('posts', {}, select)
+      table.buildUrl('posts', {}, { select })
 
       const match = table.readUrl(value)
 
@@ -1006,13 +1006,13 @@ describe('defineTable', () => {
       const value = { videoId: 'x8abc' }
       const select = (row: PlayerRow) => row.ratio === '4/3'
 
-      expect(players.buildUrl('video', value, select)).toBeUndefined()
+      expect(players.buildUrl('video', value, { select })).toBeUndefined()
     })
 
     it('should throw for a key the table does not hold, whatever the selector', () => {
       const value = { videoId: 'x8abc' }
       const select = (row: PlayerRow) => row.ratio === '4/3'
-      const throwing = () => players.buildUrl('unknown', value, select)
+      const throwing = () => players.buildUrl('unknown', value, { select })
 
       expect(throwing).toThrow('No row for unknown')
     })
@@ -1026,7 +1026,7 @@ describe('defineTable', () => {
       const value = { id: '7' }
       const select = (row: UrlRow) => row === rows[1]
 
-      expect(table.buildUrl('item', value, select)).toBeUndefined()
+      expect(table.buildUrl('item', value, { select })).toBeUndefined()
     })
 
     it('should write a host label in lowercase', () => {
