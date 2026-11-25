@@ -35,6 +35,7 @@ import {
   type CompiledTemplate,
   compileTemplate,
   decodePath,
+  encodeLiteral,
   isMultiSegment,
   type MapText,
   mapTemplate,
@@ -769,7 +770,7 @@ const compileRowTemplate = (
 
       return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
-    const filledPath = fill(path, 'path')
+    const filledPath = fill(path, 'path', encodeLiteral)
 
     // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
     if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {

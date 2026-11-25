@@ -284,6 +284,10 @@ const encodePath = (value: UrlValue): string => {
   return Array.isArray(value) ? value.map(encodePathValue).join('/') : encodePathValue(value)
 }
 
+export const encodeLiteral = (text: string): string => {
+  return text.replace(nonAsciiRegex, encodeURIComponent)
+}
+
 const toPercentEscape = (character: string): string => {
   return `%${character.charCodeAt(0).toString(16).toUpperCase()}`
 }
@@ -586,7 +590,7 @@ export const compileTemplate = (
         captureIn('path'),
         pathCapture,
         multiSegmentCaptures,
-        undefined,
+        encodeLiteral,
         pathPatterns,
       )
     : '/?'
@@ -670,6 +674,8 @@ export const compileTemplate = (
     return values
   }
 
+  // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
+  const writtenPath = encodeLiteral(path)
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
     const fillPlaceholders = (text: string, encode: (value: UrlValue) => string = toValueText) => {
@@ -712,7 +718,7 @@ export const compileTemplate = (
     }
 
     const origin = `${fillPlaceholders(scheme)}://${filledHost}`
-    const filledPath = fillPlaceholders(path, isStrict ? encodeStrict : encodePath)
+    const filledPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)
     const base = writeBase(`${origin}${filledPath}`, pairs)
     const url = `${base}${writeQuery(sortPairs(pairs))}`
 
