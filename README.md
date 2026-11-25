@@ -6,7 +6,13 @@
 
 Turn URLs into values and values back into URLs, from one list of URL patterns.
 
-Most code that knows a platform's URLs knows them twice: a regex to read a URL and a string template to build one, and the two drift apart. urlmason keeps one table of rows instead. Each row names a kind of URL with a template, `https://example.com/@{user}/feed`, and the same table reads a URL into `{ user: 'alice' }`, builds the URL back from it, and rewrites any other spelling of it, an old host or `http`, to the main one. Templates follow [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) URI Templates. It has no dependencies and runs in any modern JavaScript runtime.
+Describe each kind of URL once, as a template in the [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) URI Template syntax, and urlmason reads, builds and cleans up URLs from that one description:
+
+- `https://example.com/@alice/feed` reads into `{ user: 'alice' }`.
+- `{ user: 'alice' }` builds `https://example.com/@alice/feed`.
+- An old spelling, such as `http://example.com/u/alice/rss`, rewrites to `https://example.com/@alice/feed`.
+
+It has no dependencies and runs in any modern JavaScript runtime.
 
 [Quick start](#quick-start)
 &nbsp;&nbsp;·&nbsp;&nbsp;
