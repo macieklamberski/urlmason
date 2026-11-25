@@ -511,6 +511,12 @@ const domainFeeds = defineTable(
   { hosts: { exact: ['Example.org'], tenant: ['example.com'] }, isWwwTenantPrefix: true },
 )
 
+const builtFeeds = defineTable([
+  { key: 'feed', main: '{scheme}://{host}/u/{id}/feed' },
+  { key: 'search', main: 'https://example.com/search?q={q}' },
+  { key: 'docs', main: 'https://example.com/docs{/path*}' },
+])
+
 const commitFiles = defineTable([
   { key: 'file', main: 'https://example.com{/project*}/-/commits/{branch}{/file*}' },
 ])
@@ -1955,6 +1961,13 @@ describe('defineTable', () => {
       expect(items.buildUrl('item', value)).toBe(expected)
     })
 
+    it('should leave the empty items of a list out', () => {
+      const value = { ids: ['a', '', 'b'] }
+      const expected = 'https://example.com/items/a,b'
+
+      expect(items.buildUrl('item', value)).toBe(expected)
+    })
+
     it('should write a list in a query value as its items joined by commas', () => {
       const value = { ids: ['a,b', 'c'] }
       const expected = 'https://example.com/search?ids=a%2Cb,c'
@@ -2948,6 +2961,102 @@ describe('defineTable', () => {
       const value = 'https://example.net/feed'
 
       expect(domainFeeds.readUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a value that would move or break the URL', () => {
+    it('should build no URL from a value that is a dot segment', () => {
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        id: '..',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL from an escaped dot segment', () => {
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        id: '%2e%2e',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a list holding a dot segment', () => {
+      const value = { path: ['guide', '..', 'admin'] }
+
+      expect(builtFeeds.buildUrl('docs', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a scheme value that holds another URL', () => {
+      const value = {
+        scheme: 'https://evil.example/x?',
+        host: 'example.com',
+        id: '5',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL under a scheme other than http or https', () => {
+      const value = {
+        scheme: 'javascript',
+        host: 'example.com',
+        id: '5',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a host value with a line break', () => {
+      const value = {
+        scheme: 'https',
+        host: 'exam\nple.com',
+        id: '5',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a host value a parser reads as another host', () => {
+      const value = {
+        scheme: 'https',
+        host: '12345',
+        id: '5',
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build no URL from a list of empty items in a slot of one value', () => {
+      const value = {
+        scheme: 'https',
+        host: 'example.com',
+        id: ['', ''],
+      }
+
+      expect(builtFeeds.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should encode a control character in a value', () => {
+      const value = { q: 'a\u0000b' }
+      const expected = 'https://example.com/search?q=a%00b'
+
+      expect(builtFeeds.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should build a URL from a scheme value in capitals', () => {
+      const value = {
+        scheme: 'HTTPS',
+        host: 'example.com',
+        id: '5',
+      }
+      const expected = 'HTTPS://example.com/u/5/feed'
+
+      expect(builtFeeds.buildUrl('feed', value)).toBe(expected)
     })
   })
 

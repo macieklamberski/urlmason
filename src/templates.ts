@@ -3,8 +3,10 @@ import {
   encodePathSegment,
   escapeRegex,
   getQueryParamValues,
+  isHttpUrl,
   isPlainObject,
   isString,
+  omitEmpty,
   parseUrl,
   t,
 } from 'trousse'
@@ -124,6 +126,8 @@ const subDelimiterRegex = /[!'()*]/g
 // A scheme and host with no path, where a parser reads the path `/` before a query.
 const pathlessBaseRegex = /^[^/]+:\/\/[^/]+$/
 const ownGroupRegex = /^p\d+$/
+// A `.` or `..` segment is resolved away by a parser, so a URL holding one names another path.
+export const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 
 // The characters that end a host in a URL.
 const hostDelimiterRegex = /[/?#@\\]/
@@ -208,9 +212,10 @@ const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue |
     return value
   }
 
-  // A list in a slot of one value is written as its items joined by commas, and no item as none.
+  // A list in a slot of one value is written as its items joined by commas, without empty ones, as
+  // a list slot drops them, and no item left is no value.
   if (!isMultiSegment(placeholder)) {
-    return Array.isArray(value) && value.length === 0 ? undefined : value
+    return Array.isArray(value) ? omitEmpty(value) : value
   }
 
   const segments = toSegments(value)
@@ -809,13 +814,25 @@ export const compileTemplate = (
       return
     }
 
-    const origin = `${fillPlaceholders(scheme)}://${filledHost}`
+    const filledScheme = fillPlaceholders(scheme)
     const filledPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)
-    const base = writeBase(`${origin}${filledPath}`, pairs)
-    const url = `${base}${writeQuery(sortPairs(pairs))}`
 
-    // A host label is written as given, so a value can hold a space no URL takes.
-    if (!parseUrl(url)) {
+    if (filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
+      return
+    }
+
+    const base = writeBase(`${filledScheme}://${filledHost}${filledPath}`, pairs)
+    const url = `${base}${writeQuery(sortPairs(pairs))}`
+    const parsedUrl = parseUrl(url)
+
+    // A scheme or host value can move the URL to another scheme or host that still parses, as the
+    // scheme `https://evil.example/x?`, and a host value can hold a space no URL takes.
+    // biome-ignore lint/plugin: the host holds its port, which isHostOf leaves out.
+    if (!parsedUrl || !isHttpUrl(parsedUrl) || parsedUrl.host !== filledHost) {
+      return
+    }
+
+    if (parsedUrl.protocol !== `${filledScheme.toLowerCase()}:`) {
       return
     }
 
