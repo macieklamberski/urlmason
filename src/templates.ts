@@ -186,12 +186,23 @@ export const toValueText = (value: UrlValue): string => {
   return Array.isArray(value) ? value.join('/') : value
 }
 
-// A path value as pages link it: a `%` that starts no escape becomes `%25` and non-ASCII is
-// percent-encoded, while a valid escape keeps its spelling, so a caller can pass `caf%C3%A9`.
+// A value with its valid escapes decoded, so `Hello%21` and `Hello!` are one value. A `%` that
+// starts no escape stays as it is. A value that is no text past the types, as `true`, is its text.
+const decodeEscapes = (value: string): string => {
+  return decodePercent(String(value))
+}
+
+// A path value as pages link it: its escapes decoded, then every character a path segment allows
+// kept, a `%` written as `%25` and non-ASCII percent-encoded, so `caf%C3%A9` and `café` agree.
 const encodePathValue = (value: string): string => {
-  return encodePathSegment(value)
+  return encodePathSegment(decodeEscapes(value).replaceAll('%', '%25'))
     .replace(strayPercentRegex, '%25')
     .replace(nonAsciiRegex, encodeURIComponent)
+}
+
+// A query value's text with its escapes decoded, written later with the fixed text around it.
+const toQueryText = (value: UrlValue): string => {
+  return decodeEscapes(toValueText(value))
 }
 
 const encodePath = (value: UrlValue): string => {
@@ -571,7 +582,7 @@ export const compileTemplate = (
       // A strict value is encoded alone, and the fixed text around it as any query value.
       const text = isStrict
         ? mapTemplate(own.value, (name) => encodeStrict(values[name]), encodeText)
-        : encodeText(fillPlaceholders(own.value))
+        : encodeText(fillPlaceholders(own.value, toQueryText))
 
       pairs.push(appendValue(own.pair, text))
     }
