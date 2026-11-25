@@ -1,12 +1,12 @@
-export { defineUrls } from './tables.js'
+export { defineTable } from './tables.js'
 export type {
   UrlCheck,
   UrlHosts,
   UrlLenient,
   UrlMatch,
-  UrlParams,
   UrlRow,
   UrlTable,
   UrlTableOptions,
   UrlValue,
+  UrlValues,
 } from './types.js'

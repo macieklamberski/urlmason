@@ -34,7 +34,7 @@ export type UrlRow<Key extends string = string> = {
 export type UrlValue = string | Array<string>
 
 // A value left undefined is no value, so the URL it would fill is skipped.
-export type UrlParams = Record<string, UrlValue | undefined>
+export type UrlValues = Record<string, UrlValue | undefined>
 
 // A host or domain entry a function decides, given the host or domain without `www` or a port.
 export type UrlHostCheck = (host: string) => boolean
@@ -54,7 +54,7 @@ export type UrlHosts = {
 // A check sees a list value as its segments joined by `/`, as `a/b/c` for `['a/b', 'c']`.
 export type UrlCheck = ((value: string) => boolean) | RegExp
 
-export type UrlRowCheck = ((value: string, params: Record<string, string>) => boolean) | RegExp
+export type UrlRowCheck = ((value: string, values: Record<string, string>) => boolean) | RegExp
 
 export type UrlTableOptions = {
   hosts?: UrlHosts
@@ -151,7 +151,7 @@ export type UrlKeyMatch<Key extends string, Row> = {
   key: Key
   // The values read, decoded. The segments a row's `{/tail*}` took are no value: only the checks
   // see them, as `tail`. A URL with a tail is not exact and has no main URL.
-  params: KeyValues<Key, Row>
+  values: KeyValues<Key, Row>
   row: Row
   isAlias: boolean
   // Whether the URL is written as the row writes it, or in a spelling its marks cover: the same
@@ -166,9 +166,9 @@ export type UrlKeyMatch<Key extends string, Row> = {
 export type UrlTable<Key extends string, Row> = {
   // A copy of each row given, for a caller that walks every row of a table.
   rows: Array<Row>
-  build: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => string | undefined
-  buildAll: (key: Key, params?: UrlParams, select?: (row: Row) => boolean) => Array<string>
-  read: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
+  buildUrl: (key: Key, values?: UrlValues, select?: (row: Row) => boolean) => string | undefined
+  buildUrls: (key: Key, values?: UrlValues, select?: (row: Row) => boolean) => Array<string>
+  readUrl: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
   getMainUrl: (url: string) => string | undefined
-  forUrl: (url: string) => Pick<UrlTable<Key, Row>, 'build' | 'buildAll'> | undefined
+  forSite: (url: string) => Pick<UrlTable<Key, Row>, 'buildUrl' | 'buildUrls'> | undefined
 }
