@@ -511,6 +511,10 @@ const domainFeeds = defineTable(
   { hosts: { exact: ['Example.org'], tenant: ['example.com'] }, isWwwTenantPrefix: true },
 )
 
+const atHandles = defineTable([
+  { key: 'feed', main: 'https://listed.example/@{username}/feed.rss' },
+])
+
 const builtFeeds = defineTable([
   { key: 'feed', main: '{scheme}://{host}/u/{id}/feed' },
   { key: 'search', main: 'https://example.com/search?q={q}' },
@@ -2103,11 +2107,32 @@ describe('defineTable', () => {
       expect(notes.getMainUrl(value, strict)).toBeUndefined()
     })
 
-    it('should keep a plus sign in the query of a main URL', () => {
+    it('should write a plus sign in a query value as the space it reads as', () => {
       const value = 'https://example.com/search?q=tag-a+b!'
-      const expected = 'https://example.com/search?q=tag-a+b%21'
+      const expected = 'https://example.com/search?q=tag-a%20b%21'
 
       expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should keep fixed text of a main URL as the template writes it', () => {
+      const value = 'http://listed.example/@alice/feed.rss'
+      const expected = 'https://listed.example/@alice/feed.rss'
+
+      expect(atHandles.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should spell a pair no row names strictly, split at its first equals sign', () => {
+      const value = 'http://listed.example/@alice/feed.rss?ref=a=b'
+      const expected = 'https://listed.example/@alice/feed.rss?ref=a%3Db'
+
+      expect(atHandles.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should give the strict build of the same values', () => {
+      const value = 'http://listed.example/@Ali%20ce!/feed.rss'
+      const expected = 'https://listed.example/@Ali%20ce%21/feed.rss'
+
+      expect(atHandles.getMainUrl(value, strict)).toBe(expected)
     })
 
     it('should encode a URL built for a page', () => {

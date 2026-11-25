@@ -22,6 +22,7 @@ import {
   encodeText,
   entityPrefix,
   isEntityPair,
+  parseQuery,
   type QueryPair,
   readAmpersandEntities,
   readUrlQuery,
@@ -54,7 +55,7 @@ import {
   toLengthGuard,
   toRegexSource,
   toSegments,
-  toStrictUrl,
+  toStrictPair,
   toValueText,
   trailingSlashRegex,
   writeBase,
@@ -1537,6 +1538,31 @@ const createTable = <const Row extends UrlRow>(
     return `${mainUrl}${url.hash}`
   }
 
+  // A strict build of the values the main URL reads keeps its fixed text as the template writes it.
+  // The pairs no row names are spelled strictly too.
+  const writeStrictMainUrl = (readBack: FoundTemplate, mainUrl: string): string | undefined => {
+    const [main] = compiledRows[readBack.template.rowIndex]
+    const values = { ...readBack.params }
+
+    delete values[openTailName]
+
+    const builtUrl = main.getUrl(values, 'strict')
+    const parsedMainUrl = parseUrl(mainUrl)
+
+    if (!builtUrl || !parsedMainUrl) {
+      return
+    }
+
+    const queryStart = builtUrl.includes('?') ? builtUrl.indexOf('?') : builtUrl.length
+    const keptPairs = parseQuery(parsedMainUrl.search)
+      .filter((pair) => pair.text && !isNamed(pair, main.ownNames))
+      .map(toStrictPair)
+    const pairs = sortPairs([...parseQuery(builtUrl.slice(queryStart)), ...keptPairs])
+    const base = writeBase(builtUrl.slice(0, queryStart), pairs)
+
+    return `${base}${writeQuery(pairs)}${parsedMainUrl.hash}`
+  }
+
   // A URL written as its row's main URL, every value as spelled but where a mark covers it. A main
   // URL under `http` or another `www` is rewritten too. Any other difference, a URL with
   // credentials and a value or a port the main URL cannot keep give nothing.
@@ -1570,9 +1596,9 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    const writtenUrl = writeOptions?.encoding === 'strict' ? toStrictUrl(mainUrl) : mainUrl
+    const isStrict = writeOptions?.encoding === 'strict'
 
-    if (writtenUrl === sourceUrl.href) {
+    if (!isStrict && mainUrl === sourceUrl.href) {
       return
     }
 
@@ -1597,6 +1623,12 @@ const createTable = <const Row extends UrlRow>(
     })
 
     if (!isReadAsWritten) {
+      return
+    }
+
+    const writtenUrl = isStrict ? writeStrictMainUrl(readBack, mainUrl) : mainUrl
+
+    if (!writtenUrl || writtenUrl === sourceUrl.href) {
       return
     }
 
