@@ -11,7 +11,6 @@
     "openTailBesideMultiSegment": "The {{key}} row writes {/tail*} in a path with {{name}}, which takes several segments, so the two are split by a guess",
     "openTailName": "The {{key}} row names a value tail, which {/tail*} is read as",
     "unsupportedTemplateExpression": "The template {{template}} writes {{expression}}, an operator or modifier no template takes",
-    "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes",
     "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}",
     "misplacedReserved": "The template {{template}} writes {{expression}} outside its path, or beside a list or an open tail",
     "uncheckedListSplit": "The {{key}} row writes {{list}} in front of {{reserved}} with a check on neither, so the two are split by a guess",

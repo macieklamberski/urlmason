@@ -339,6 +339,27 @@ const nameFlags = defineTable(
   { checks: { id: digitsRegex } },
 )
 
+const passedQueries = defineTable([
+  {
+    key: 'search',
+    main: 'https://example.com/search{?q,query*}',
+    aliases: ['https://old.example.com/find{?q,query*}'],
+  },
+  { key: 'feed', main: 'https://example.com/feed?alt=rss{&query*}' },
+  { key: 'comments', main: 'https://example.com/feed?type=comments' },
+  { key: 'article', main: 'https://example.com/spip.php?article{id}{&query*}' },
+])
+
+const casedPassedQueries = defineTable(
+  [{ key: 'search', main: 'https://example.com/search{?query*}' }],
+  { lenient: { case: ['query'] } },
+)
+
+const unkeptPassedQueries = defineTable(
+  [{ key: 'search', main: 'https://example.com/search{?query*}' }],
+  { isQueryKept: false },
+)
+
 const joined = defineTable([{ key: 'plain', main: 'https://example.com/search?q={first}{second}' }])
 
 const escapedFlag = defineTable([
@@ -1293,13 +1314,6 @@ describe('defineTable', () => {
       const expected = 'https://example.com/list.rss?a=7&b=2&B=1'
 
       expect(unsorted.buildUrl('cased', value)).toBe(expected)
-    })
-
-    it('should throw for a placeholder as a parameter name', () => {
-      const value = [{ key: 'list', main: 'https://example.com/list{?query*}' }]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow('Not a URL template: https://example.com/list{?query*}')
     })
 
     it('should throw for a placeholder as a parameter name whose braces the row escapes', () => {
@@ -2530,6 +2544,161 @@ describe('defineTable', () => {
       marked.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with a passed query', () => {
+    it('should read every pair no other part names into a map', () => {
+      const value = 'https://example.com/search?q=feeds&page=2&sort=new'
+      const expected = {
+        q: 'feeds',
+        query: {
+          page: '2',
+          sort: 'new',
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a name given twice as a list of its values', () => {
+      const value = 'https://example.com/search?tag=a&tag=b'
+      const expected = {
+        query: {
+          tag: ['a', 'b'],
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a flag as a name with an empty value', () => {
+      const value = 'https://example.com/search?rss'
+      const expected = {
+        query: {
+          rss: '',
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read no value where no other pair is given', () => {
+      const value = 'https://example.com/search?q=feeds'
+      const expected = {
+        q: 'feeds',
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the pairs behind a query the template writes', () => {
+      const value = 'https://example.com/feed?alt=rss&page=2'
+      const expected = {
+        query: {
+          page: '2',
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a row with a fixed parameter before one that passes the query', () => {
+      const value = 'https://example.com/feed?type=comments'
+      const expected = 'comments'
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should leave a flag whose name holds a value out of the passed query', () => {
+      const value = 'https://example.com/spip.php?article12&lang=fr'
+      const expected = {
+        id: '12',
+        query: {
+          lang: 'fr',
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a passed query under the case mark in lowercase', () => {
+      const value = 'https://example.com/search?sort=New&tag=A&tag=B'
+      const expected = {
+        query: {
+          sort: 'new',
+          tag: ['a', 'b'],
+        },
+      }
+      const match = casedPassedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build a pair per name and per item of a list, sorted by name', () => {
+      const value = {
+        q: 'feeds',
+        query: {
+          tag: ['a', 'b'],
+          page: '2',
+        },
+      }
+      const expected = 'https://example.com/search?page=2&q=feeds&tag=a&tag=b'
+
+      expect(passedQueries.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should build the names and values of a passed query strictly', () => {
+      const value = {
+        query: {
+          'a b': "it's",
+        },
+      }
+      const expected = 'https://example.com/search?a%20b=it%27s'
+
+      expect(passedQueries.buildUrl('search', value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should build a URL read with a passed query back the same', () => {
+      const value = 'https://example.com/search?q=feeds&tag=a&tag=b'
+      const values = passedQueries.readUrl(value)?.values
+
+      expect(passedQueries.buildUrl('search', values)).toBe(value)
+    })
+
+    it('should keep the order of the values of a name in a rewrite', () => {
+      const value = 'http://example.com/search?tag=b&q=feeds&tag=a'
+      const expected = 'https://example.com/search?q=feeds&tag=b&tag=a'
+
+      expect(passedQueries.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite an alias with its passed query', () => {
+      const value = 'https://old.example.com/find?tag=b&q=feeds'
+      const expected = 'https://example.com/search?q=feeds&tag=b'
+
+      expect(passedQueries.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite an alias with its passed query strictly', () => {
+      const value = "https://old.example.com/find?tag=it's"
+      const expected = 'https://example.com/search?tag=it%27s'
+
+      expect(passedQueries.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should keep the passed query in a rewrite of a table that keeps no parameter', () => {
+      const value = 'http://example.com/search?b=1&a=2'
+      const expected = 'https://example.com/search?a=2&b=1'
+
+      expect(unkeptPassedQueries.getMainUrl(value)).toBe(expected)
     })
   })
 
