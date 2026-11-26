@@ -102,6 +102,11 @@ export const readAmpersandEntities = (pairs: Array<QueryPair>): Array<QueryPair>
   })
 }
 
+// `;` between two pairs read as `&`, as some servers split a query.
+export const readSemicolons = (pairs: Array<QueryPair>): Array<QueryPair> => {
+  return pairs.flatMap((pair) => pair.text.split(';').map(toPair))
+}
+
 // A pair that ends in `=` with a value written behind it, as `id=` and `5` give `id=5`.
 export const appendValue = (pair: QueryPair, valueText: string): QueryPair => {
   return {
