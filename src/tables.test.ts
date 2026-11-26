@@ -2167,6 +2167,22 @@ describe('defineTable', () => {
   })
 
   describe('with the case mark', () => {
+    it('should read a marked value in lowercase, as its main URL writes it', () => {
+      const value = 'https://example.com/EatGreen_News/feed/'
+      const expected = { name: 'eatgreen_news' }
+      const match = marked.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a marked value as written where its check refuses the lowercase', () => {
+      const value = 'https://example.com/en-US/feed'
+      const expected = { locale: 'en-US' }
+      const match = localized.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
     it('should read a host value under the mark as exact', () => {
       const table = defineTable([{ key: 'user', main: 'https://{user}.example.com/feed' }], {
         lenient: { case: ['user'] },
