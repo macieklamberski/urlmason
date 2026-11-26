@@ -571,6 +571,12 @@ const files = defineTable([
   { key: 'pair', main: 'https://pair.example.com/{+left}/-/{+right}' },
   { key: 'link', main: 'https://link.example.com/go/url:{+url}' },
   { key: 'keyed', main: 'https://keyed.example.com/{+path}/get?key={key}' },
+  { key: 'cut', main: 'https://cut.example.com/{+text}Fb' },
+  {
+    key: 'home',
+    main: 'https://home.example.com/start',
+    aliases: ['https://go.example.com/{+url}'],
+  },
 ])
 
 const sourceRegex = /^https?:\/\/\S+$/
@@ -622,6 +628,8 @@ const apps = defineTable([
   { key: 'guide', main: 'https://docs.example.com/{page}{#section}' },
   { key: 'clip', main: 'https://video.example.com/watch?v={id}#t={time}' },
   { key: 'pair', main: 'https://pair.example.com/#{+left}/-/{+right}' },
+  { key: 'twice', main: 'https://twice.example.com/#{name}/{name}' },
+  { key: 'cut', main: 'https://cut.example.com/#{+text}Fb' },
 ])
 
 const openPages = defineTable([
@@ -3857,6 +3865,19 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should return undefined for a match that ends inside an escape as written', () => {
+      const value = 'https://cut.example.com/a%2Fb'
+
+      expect(files.readUrl(value)).toBeUndefined()
+    })
+
+    it('should rewrite an alias to a main URL that has no place for the value', () => {
+      const value = 'https://go.example.com/https://example.org/feed?page=2#top'
+      const expected = 'https://home.example.com/start'
+
+      expect(files.getMainUrl(value)).toBe(expected)
+    })
+
     it('should return undefined for a URL without the fixed text', () => {
       const value = 'https://example.com/raw/a/b/feed.json'
 
@@ -4233,6 +4254,29 @@ describe('defineTable', () => {
       const match = apps.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should keep the first value of a name a fragment holds twice', () => {
+      const value = 'https://twice.example.com/#first/second'
+      const expected = {
+        name: 'first',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a name a fragment holds under two values as not exact', () => {
+      const value = 'https://twice.example.com/#first/second'
+      const match = apps.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should return undefined for a fragment match that ends inside an escape as written', () => {
+      const value = 'https://cut.example.com/#a%2Fb'
+
+      expect(apps.readUrl(value)).toBeUndefined()
     })
 
     it('should return undefined for a URL without the fragment its only row writes', () => {

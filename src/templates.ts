@@ -1014,21 +1014,23 @@ export const compileTemplate = (
 
     const values: Record<string, UrlValue> = {}
 
-    for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
-      const name = getCaptured(group)?.name
+    // Every group of a fragment pattern is a value of the template, and set.
+    for (const [group, [from, to]] of Object.entries(match.indices?.groups ?? {})) {
+      const name = getCaptured(group)?.name ?? group
 
-      if (!range || name === undefined || values[name] !== undefined) {
+      // A name the fragment holds twice keeps the first value read.
+      if (values[name] !== undefined) {
         continue
       }
 
       if (!fragmentReservedNames.includes(name)) {
-        values[name] = decodePercent(match.input.slice(range[0], range[1]))
+        values[name] = decodePercent(match.input.slice(from, to))
 
         continue
       }
 
-      const start = toWrittenOffset(hash, range[0])
-      const end = toWrittenOffset(hash, range[1])
+      const start = toWrittenOffset(hash, from)
+      const end = toWrittenOffset(hash, to)
 
       // A match that ends inside a character as written has no text of its own there.
       if (start === undefined || end === undefined) {
@@ -1052,11 +1054,7 @@ export const compileTemplate = (
     const values: Record<string, string> = {}
 
     for (const [group, value] of Object.entries(match.groups ?? {})) {
-      const name = getCaptured(group)?.name
-
-      if (name === undefined || value === undefined) {
-        continue
-      }
+      const name = getCaptured(group)?.name ?? group
 
       if (values[name] !== undefined && values[name] !== value) {
         return

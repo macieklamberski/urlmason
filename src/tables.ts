@@ -757,18 +757,15 @@ const compileRowTemplate = (
     tableUrl: TableUrl,
     params: Record<string, UrlValue>,
   ): Record<string, UrlValue> => {
-    const findRange = (name: string): [number, number] | undefined => {
+    // The row took the URL, so its match holds both values.
+    const findRange = (name: string): [number, number] => {
       const ranges = Object.entries(match.indices?.groups ?? {})
+      const found = ranges.find(([group, range]) => range && getCaptured(group)?.name === name)
 
-      return ranges.find(([group, range]) => range && getCaptured(group)?.name === name)?.[1]
+      return found?.[1] ?? [0, 0]
     }
     const listRange = findRange(split.list)
     const reservedRange = findRange(split.reserved)
-
-    if (!listRange || !reservedRange) {
-      return params
-    }
-
     const segments = match.input.slice(listRange[0], reservedRange[1]).split('/')
     const hasListCheck = (checks[split.list] ?? rowChecks[split.list]) !== undefined
     const counts = [...segments.keys()]
