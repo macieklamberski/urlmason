@@ -164,7 +164,7 @@ blogs.readUrl('https://alice.example.co.uk/feed')?.values
 
 ## Templates
 
-A template is a full URL with placeholders. Each one reads from and builds into its own part of the URL:
+A template is a full URL written in the [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) URI Template syntax. Builds follow the RFC and are checked against its own test suite, and the few places urlmason departs from it are [listed below](#where-it-differs-from-rfc-6570). Each placeholder reads from and builds into its own part of the URL:
 
 | Placeholder | Takes | Example |
 | --- | --- | --- |
