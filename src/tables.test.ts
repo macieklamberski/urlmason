@@ -1941,6 +1941,41 @@ describe('defineTable', () => {
 
       expect(notes.buildUrl('note', value)).toBe(expected)
     })
+
+    it('should keep an escape that is no UTF-8 in a path value as written', () => {
+      const value = { title: '%E0%A4%A' }
+      const expected = 'https://example.com/notes/%E0%A4%25A'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should keep an escape that is no UTF-8 in a query value as written', () => {
+      const value = { query: '%E0%A4%A' }
+      const expected = 'https://example.com/search?q=%E0%A4%25A'
+
+      expect(notes.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should decode the escapes around one that is no UTF-8', () => {
+      const value = { title: '%21%E0%A4%E0%A4%85' }
+      const expected = 'https://example.com/notes/!%E0%A4%E0%A4%85'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should decode an escape behind a cut-off character', () => {
+      const value = { title: '%E0%A4%41' }
+      const expected = 'https://example.com/notes/%E0%A4A'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should build a URL with an escape that is no UTF-8 as it reads', () => {
+      const value = 'https://example.com/notes/%E0%A4%25A'
+      const values = notes.readUrl(value)?.values ?? {}
+
+      expect(notes.buildUrl('note', values)).toBe(value)
+    })
   })
 
   describe('with non-ASCII fixed text in the path', () => {
