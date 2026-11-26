@@ -73,6 +73,8 @@ export type ParsedTemplate = {
   params: Array<TemplateParam>
   // The query names a URL may carry, as `{?max-results,q}` or, behind a query, `{&q}`.
   optionalNames: Array<string>
+  // The value that takes the rest of a URL, as `url` of `/proxy/{+url}`.
+  reservedName?: string
 }
 
 export type CompiledParam = TemplateParam & {
@@ -126,6 +128,15 @@ const queryExpressionRegex = /^\?\w+\*$/
 // hold a hyphen, as the platforms write them.
 const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*$/
 const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*)\}$/
+// A reserved value, which ends a template as its last path segment: `/{+url}`.
+const reservedExpressionRegex = /^\+\w+$/
+const reservedSuffixRegex = /(?<!\/)\/\{\+(\w+)\}$/
+const reservedAnywhereRegex = /\{\+[^{}]*\}/
+// An escape, kept by `split`.
+const singleEscapeRegex = /(%[0-9a-f]{2})/i
+// The ASCII characters outside RFC 6570's unreserved and reserved sets, but the control ones.
+const unreservedOtherRegex = /[^\w\-.~:/?#[\]@!$&'()*+,;=\P{ASCII}\p{Cc}]/gu
+const reservedEndRegex = /[?#]/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 // A run of escapes, as `%E0%A4%85`, kept by `split`.
 const escapeRunRegex = /((?:%[0-9a-f]{2})+)/i
@@ -449,6 +460,30 @@ export const toStrictPair = (pair: QueryPair): QueryPair => {
   return toPair(`${name}=${value}`)
 }
 
+// A value as RFC 6570 writes a reserved one: the reserved characters and every escape kept, so a
+// URL stays a URL, and everything else outside the unreserved set encoded.
+const encodeReservedValue = (value: string): string => {
+  return String(value)
+    .split(singleEscapeRegex)
+    .map((piece, index) => {
+      if (index % 2 === 1) {
+        return piece
+      }
+
+      return piece
+        .replace(unreservedOtherRegex, toPercentEscape)
+        .replace(nonAsciiRegex, encodeURIComponent)
+    })
+    .join('')
+}
+
+// A reserved value in its slot. A list is its items joined by commas, each item's own kept.
+const encodeReservedSlot = (value: UrlValue): string => {
+  const items = isPlainObject(value) ? toMapItems(value) : [value].flat()
+
+  return items.map(encodeReservedValue).join(',')
+}
+
 const encodeStrict = (value: string | Array<string>): string => {
   return Array.isArray(value) ? value.map(encodeStrictValue).join('/') : encodeStrictValue(value)
 }
@@ -596,6 +631,10 @@ const checkExpressions = (template: string): void => {
       continue
     }
 
+    if (reservedExpressionRegex.test(body)) {
+      continue
+    }
+
     // A passed query is no part of the core, so `{?query*}` is refused.
     if (queryExpressionRegex.test(body)) {
       throw new Error(t(locales.errors.invalidTemplate, { template }))
@@ -611,7 +650,10 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
   // The optional names close the template: `{?a,b}` where it has no query, `{&a,b}` behind one.
   const optional = optionalQueryRegex.exec(template)
-  const base = optional ? template.slice(0, optional.index) : template
+  // A reserved value closes it too, and takes the query of a URL with the rest of it.
+  const reserved = reservedSuffixRegex.exec(template)
+  const closing = reserved ?? optional
+  const base = closing ? template.slice(0, closing.index) : template
   const match = templateRegex.exec(base)
 
   if (!match || base.includes('{?') || base.includes('{&')) {
@@ -619,6 +661,18 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   }
 
   const [, scheme, host, givenPath = '', search] = match
+  const lists = [...base.matchAll(placeholderRegex)].filter(([, name]) => isMultiSegment(name))
+  // The segments in front of a reserved value are counted, so no list sits there but the base.
+  const hasCountedPath =
+    lists.length === 0 || (lists.length === 1 && givenPath.startsWith(basePlaceholder))
+
+  const misplaced = reservedAnywhereRegex.exec(
+    reserved && !search && hasCountedPath ? base : template,
+  )
+
+  if (misplaced) {
+    throw new Error(t(locales.errors.misplacedReserved, { template, expression: misplaced[0] }))
+  }
 
   if (optional && (optional[1] === '?') === Boolean(search)) {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
@@ -665,6 +719,12 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   }
 
   const path = isOpen ? givenPath.slice(0, -openTailSuffix.length) : givenPath
+  const reservedName = reserved?.[1]
+
+  // A name read from the rest of the URL and from a placeholder would give one value two sources.
+  if (reservedName !== undefined && placeholderNames.includes(reservedName)) {
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
+  }
 
   return {
     text: template,
@@ -673,11 +733,15 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     path,
     search,
     isOpen,
-    names: [...`${scheme}${host}${path}${search ?? ''}`.matchAll(placeholderRegex)].map(
-      ([, name]) => name,
-    ),
+    names: [
+      ...[...`${scheme}${host}${path}${search ?? ''}`.matchAll(placeholderRegex)].map(
+        ([, name]) => name,
+      ),
+      ...(reservedName === undefined ? [] : [reservedName]),
+    ],
     params,
     optionalNames,
+    reservedName,
   }
 }
 
@@ -689,7 +753,7 @@ export const compileTemplate = (
   pathPatterns: Record<string, string> = {},
   writtenPathPatterns: Record<string, string> = pathPatterns,
 ): CompiledTemplate => {
-  const { scheme, host, path, isOpen, names } = parsed
+  const { scheme, host, path, isOpen, names, reservedName } = parsed
   const captured: Array<Captured> = []
   const captureIn: CaptureIn = (part) => {
     return (name, source) => {
@@ -738,7 +802,12 @@ export const compileTemplate = (
     decodePath,
     pathPatterns,
   )
+  // A reserved value is everything behind the slash after the path.
+  const toReservedSource = (): string => {
+    return reservedName === undefined ? '' : `/${captureIn('path')(reservedName, '[^]+')}`
+  }
   // A template with no path is a site, which a URL names with or without the slash of its root.
+  const sitePathSource = reservedName === undefined ? '/?' : ''
   const rawPathSource = path
     ? toRegexSource(
         path,
@@ -748,11 +817,11 @@ export const compileTemplate = (
         encodeLiteral,
         writtenPathPatterns,
       )
-    : '/?'
+    : sitePathSource
   // An open tail is every segment behind the path, an empty one included, as pages link them.
   const readPathSource = isOpen
     ? `${pathGuard}${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
-    : `${pathGuard}${pathSource}`
+    : `${pathGuard}${pathSource}${toReservedSource()}`
 
   // A name the template holds twice keeps the first value read.
   const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
@@ -911,9 +980,14 @@ export const compileTemplate = (
     }
 
     const filledScheme = fillPlaceholders(scheme)
-    const filledPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)
+    const ownPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)
+    // A reserved value is written the same in both encodings, as RFC 6570 writes it.
+    const reserved =
+      reservedName === undefined ? '' : `/${encodeReservedSlot(values[reservedName])}`
+    const [reservedPath] = reserved.split(reservedEndRegex, 1)
+    const filledPath = `${ownPath}${reserved}`
 
-    if (filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
+    if (`${ownPath}${reservedPath}`.split('/').some((segment) => dotSegmentRegex.test(segment))) {
       return
     }
 
@@ -939,7 +1013,7 @@ export const compileTemplate = (
     ...parsed,
     params,
     readPathSource,
-    rawPathSource: `${rawPathGuard}${rawPathSource}`,
+    rawPathSource: `${rawPathGuard}${rawPathSource}${toReservedSource()}`,
     captureIn,
     getCaptured,
     read,

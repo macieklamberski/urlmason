@@ -137,6 +137,20 @@ forums.forSite('https://board.example.org/community/')?.buildUrl('forum', { base
 // 'https://board.example.org/community/feed.php'
 ```
 
+### Read a URL inside a URL
+
+```typescript
+const snapshots = defineTable([
+  { key: 'snapshot', main: 'https://archive.example.com/web/{time}/{+url}' },
+])
+
+snapshots.readUrl('https://archive.example.com/web/2020/https://example.org/feed?page=2')?.values
+// { time: '2020', url: 'https://example.org/feed?page=2' }
+
+snapshots.buildUrl('snapshot', { time: '2020', url: 'https://example.org/feed?page=2' })
+// 'https://archive.example.com/web/2020/https://example.org/feed?page=2'
+```
+
 ### Read a tenant's URL
 
 ```typescript
@@ -163,6 +177,7 @@ A template is a full URL with placeholders. Each one reads from and builds into 
 | `{domain}` | A tenant domain the table lists | `https://{blog}.{domain}/feed` |
 | `{/base*}` | The folder a site sits in, possibly empty | `{scheme}://{host}{/base*}/feed.php` |
 | `{/tail*}` | Any segments at the end of the path, possibly empty | `https://example.com/{user}{/tail*}` |
+| `{+name}` | The rest of the URL behind the path, its query and fragment included | `https://example.com/proxy/{+url}` |
 
 A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A name is a list everywhere in a table or nowhere, so `{/path*}` in one row and `{path}` in another throw when the table is defined, since values read from the first would build the second joined. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
 
@@ -209,7 +224,8 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - Query pairs are written sorted by name, so one URL has one spelling.
 - `{?a,b}` ends a URL with no query, and `{&a,b}` one behind a query.
 - A list slot given an empty list builds no URL, so a missing value never builds a URL that names nothing.
-- Operators beyond these, such as `{+x}`, `{#x}`, `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
+- `{+x}` is the last path segment of a template with no list and no query. It reads the rest of the URL as written, so a URL inside a URL comes back whole, and builds the same under both encodings.
+- Operators beyond these, such as `{#x}`, `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API
 
