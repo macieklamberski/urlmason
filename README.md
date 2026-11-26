@@ -202,6 +202,7 @@ A template is a full URL written in the [RFC 6570](https://www.rfc-editor.org/rf
 | `{name}` | One host label, path segment or query value | `https://{blog}.example.com/posts/{id}` |
 | `{/name*}` | One or more path segments | `https://example.com/docs{/path*}` |
 | `{?a,b}` | Query names a URL may carry, on a URL with no query | `https://example.com/feed{?page,limit}` |
+| `?name{id}` | A value inside the name of a flag, a pair with no value | `https://example.com/spip.php?article{id}` |
 | `{&a,b}` | The same, behind a query the template writes | `https://example.com/feed?alt=rss{&page}` |
 | `{scheme}` | The URL's scheme | `{scheme}://example.com/feed` |
 | `{host}` | A host the table lists | `{scheme}://{host}/feed` |

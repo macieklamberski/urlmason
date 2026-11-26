@@ -84,6 +84,15 @@ export type ParsedTemplate = {
   // The fragment without its `#`, as `!/video/{id}`, each reserved value written as `{name}`.
   fragment?: string
   fragmentReservedNames: Array<string>
+  // The flags whose name holds a value, as `article{id}` of `?article{id}`.
+  nameFlags: Array<string>
+}
+
+export type CompiledNameFlag = {
+  text: string
+  // The names of URL pairs it takes, decoded, and as written for a URL read in its own spelling.
+  regex: RegExp
+  rawRegex: RegExp
 }
 
 export type ListSplit = {
@@ -99,8 +108,9 @@ export type CompiledParam = TemplateParam & {
 
 export type CaptureIn = (part: TemplatePart) => (name: string, source: string) => string
 
-export type CompiledTemplate = Omit<ParsedTemplate, 'params'> & {
+export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   params: Array<CompiledParam>
+  nameFlags: Array<CompiledNameFlag>
   // The path matched on the decoded path without its trailing slash, with the open tail behind it
   // read as `tail`, and the path as the template writes it, for a URL read in its own spelling.
   readPathSource: string
@@ -808,14 +818,20 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const isOpen = givenPath.endsWith(openTailSuffix)
   const entries = search ? [...toSearchParams(parseQuery(search))] : []
 
-  // A placeholder fills a value and never names a parameter, as `?{name}` or `?%7Bname%7D`.
-  if (entries.some(([name]) => name.includes('{'))) {
+  // A placeholder names a parameter only in a flag, as `?article{id}`, and never one with a value,
+  // as `?{name}=1`, or one written escaped, as `?%7Bname%7D`.
+  const isNameFlag = ([name, value]: [string, string]): boolean => name.includes('{') && !value
+  const nameFlags = entries.filter(isNameFlag).map(([name]) => name)
+  const valueEntries = entries.filter((entry) => !isNameFlag(entry))
+  const isEscapedName = nameFlags.some((name) => !(search ?? '').includes(name))
+
+  if (isEscapedName || valueEntries.some(([name]) => name.includes('{'))) {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
   // A name with no value, such as `?rss`, is a flag, built with no value.
-  const flagNames = entries.filter(([, value]) => !value).map(([name]) => name)
-  const params = entries.map(([name, value]): TemplateParam => {
+  const flagNames = valueEntries.filter(([, value]) => !value).map(([name]) => name)
+  const params = valueEntries.map(([name, value]): TemplateParam => {
     const isFlag = flagNames.includes(name)
     const isFilled = !isFlag && value.includes('{')
     const writtenName = encodeText(name)
@@ -884,6 +900,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     listSplit,
     fragment,
     fragmentReservedNames,
+    nameFlags,
   }
 }
 
@@ -927,6 +944,27 @@ export const compileTemplate = (
 
     return {
       ...param,
+      regex: new RegExp(`^${guard}${source}$`, 'i'),
+      rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
+    }
+  })
+  // A flag's name is read as a path segment is: a value stops at a slash.
+  const nameFlags = parsed.nameFlags.map((text): CompiledNameFlag => {
+    const source = toRegexSource(text, captureIn('query'), pathCapture, {}, undefined, pathPatterns)
+    const rawSource = toRegexSource(
+      text,
+      captureIn('query'),
+      writtenPathCapture,
+      {},
+      encodeText,
+      writtenPathPatterns,
+    )
+    const isShared = countValues(text.split(placeholderRegex)) > 1
+    const guard = isShared ? toLengthGuard(sharedPartMaxLength) : ''
+    const rawGuard = isShared ? toLengthGuard(writtenPartMaxLength) : ''
+
+    return {
+      text,
       regex: new RegExp(`^${guard}${source}$`, 'i'),
       rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
     }
@@ -1123,6 +1161,20 @@ export const compileTemplate = (
       readGroups(values, queryMatch.groups)
     }
 
+    // A flag is the first pair with no value whose name the flag's pattern takes.
+    for (const { regex } of nameFlags) {
+      const flagMatch = [...getSearchParams()]
+        .filter(([, value]) => !value)
+        .map(([name]) => regex.exec(name))
+        .find((match) => match !== null)
+
+      if (!flagMatch) {
+        return
+      }
+
+      readGroups(values, flagMatch.groups)
+    }
+
     for (const name of parsed.optionalNames) {
       const [value] = getQueryParamValues(getSearchParams(), name)
 
@@ -1223,6 +1275,17 @@ export const compileTemplate = (
       pairs.push(appendValue(own.pair, text))
     }
 
+    // A `=` in a flag's name would end the name there.
+    const encodeFlagValue = (value: string): string => {
+      return isStrict
+        ? encodeStrictValue(value)
+        : encodePrettyQueryValue(value).replaceAll('=', '%3D')
+    }
+
+    for (const { text } of nameFlags) {
+      pairs.push(toPair(fillQueryValue(text, values, encodeFlagValue)))
+    }
+
     for (const name of parsed.optionalNames) {
       const value = values[name]
 
@@ -1279,6 +1342,7 @@ export const compileTemplate = (
   return {
     ...parsed,
     params,
+    nameFlags,
     readPathSource,
     rawPathSource: `${rawPathGuard}${rawPathSource}`,
     captureIn,

@@ -323,6 +323,22 @@ const unmarkedSemicolons = defineTable([
   { key: 'story', main: 'https://example.com/story.php?storyId={id}&ft={format}' },
 ])
 
+const nameFlags = defineTable(
+  [
+    {
+      key: 'article',
+      main: 'https://example.com/spip.php?article{id}',
+      aliases: ['https://old.example.com/articles/{id}'],
+    },
+    { key: 'section', main: 'https://example.com/spip.php?rubrique{id}' },
+    { key: 'feed', main: 'https://example.com/spip.php?page=backend&id_article={id}' },
+    { key: 'thread', main: 'https://forum.example.com/showthread.php?{id}-{slug}' },
+    { key: 'clip', main: 'https://video.example.com/watch/?{id}/' },
+    { key: 'page', main: 'https://page.example.com/{id}?article{id}' },
+  ],
+  { checks: { id: digitsRegex } },
+)
+
 const joined = defineTable([{ key: 'plain', main: 'https://example.com/search?q={first}{second}' }])
 
 const escapedFlag = defineTable([
@@ -2514,6 +2530,154 @@ describe('defineTable', () => {
       marked.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with a value in the name of a flag', () => {
+    it('should read the value from the name of a flag', () => {
+      const value = 'https://example.com/spip.php?article12'
+      const expected = {
+        id: '12',
+      }
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the row whose fixed text of the name the flag holds', () => {
+      const value = 'https://example.com/spip.php?rubrique3'
+      const expected = 'section'
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a flag written with an equals sign and no value as exact', () => {
+      const value = 'https://example.com/spip.php?article12='
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should read a flag beside a pair the row does not name', () => {
+      const value = 'https://example.com/spip.php?lang=fr&article12'
+      const expected = {
+        id: '12',
+      }
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read two values in the name split by the check of the first', () => {
+      const value = 'https://forum.example.com/showthread.php?123-My-Topic'
+      const expected = {
+        id: '123',
+        slug: 'My-Topic',
+      }
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a value in front of fixed text in the name', () => {
+      const value = 'https://video.example.com/watch/?123/'
+      const expected = {
+        id: '123',
+      }
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read fixed text of the name in another case as not exact', () => {
+      const value = 'https://example.com/spip.php?ARTICLE12'
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should read a name that holds another value than the path as not exact', () => {
+      const value = 'https://page.example.com/12?article13'
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should return undefined for a name whose value fails its check', () => {
+      const value = 'https://example.com/spip.php?articlex'
+
+      expect(nameFlags.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a pair with a value under the name', () => {
+      const value = 'https://example.com/spip.php?article12=1'
+
+      expect(nameFlags.readUrl(value)).toBeUndefined()
+    })
+
+    it('should build the value into the name of the flag', () => {
+      const value = {
+        id: '12',
+      }
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.buildUrl('article', value)).toBe(expected)
+    })
+
+    it('should build a value with characters that would split the pair encoded', () => {
+      const value = {
+        id: '1',
+        slug: 'a b&c=d',
+      }
+      const expected = 'https://forum.example.com/showthread.php?1-a%20b%26c%3Dd'
+
+      expect(nameFlags.buildUrl('thread', value)).toBe(expected)
+    })
+
+    it('should build a value in the name of a flag strictly', () => {
+      const value = {
+        id: '1',
+        slug: "it's",
+      }
+      const expected = 'https://forum.example.com/showthread.php?1-it%27s'
+
+      expect(nameFlags.buildUrl('thread', value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should rewrite a flag written with an equals sign without it', () => {
+      const value = 'https://example.com/spip.php?article12='
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite an alias to the main URL with the value in the name', () => {
+      const value = 'http://old.example.com/articles/12'
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep a pair the row does not name beside the flag', () => {
+      const value = 'http://example.com/spip.php?lang=fr&article12'
+      const expected = 'https://example.com/spip.php?article12&lang=fr'
+
+      expect(nameFlags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should throw for a value in the name of a pair with a value', () => {
+      const value = [{ key: 'item', main: 'https://example.com/items?{id}=1' }]
+      const throwing = () => defineTable(value)
+
+      expect(throwing).toThrow('Not a URL template: https://example.com/items?{id}=1')
+    })
+
+    it('should throw for a value in the name of a flag written escaped', () => {
+      const value = [{ key: 'item', main: 'https://example.com/items?%7Bid%7D' }]
+      const throwing = () => defineTable(value)
+
+      expect(throwing).toThrow('Not a URL template: https://example.com/items?%7Bid%7D')
     })
   })
 
