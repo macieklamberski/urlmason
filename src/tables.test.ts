@@ -574,8 +574,7 @@ const files = defineTable([
 ])
 
 const sourceRegex = /^https?:\/\/\S+$/
-// Options that end in the one every URL closes them with.
-const optionsRegex = /^(?:[a-z]+=\w+\/)*fit$/
+const optionsRegex = /^[a-z]+=\w+(?:\/[a-z]+=\w+)*$/
 
 const images = defineTable(
   [
@@ -596,6 +595,11 @@ const sizedImages = defineTable([
     checks: { options: (value) => optionsRegex.test(value) },
   },
 ])
+
+const checkedImages = defineTable(
+  [{ key: 'image', main: 'https://cdn.example.com{/options*}/{+source}' }],
+  { checks: { options: optionsRegex, source: sourceRegex } },
+)
 
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
@@ -3917,7 +3921,7 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should read the fewest list segments of two splits that pass', () => {
+    it('should read the fewest list segments of two splits that pass, with no check of the list', () => {
       const value = 'https://cdn.example.com/w=1/https://example.org/https://example.net/a'
       const expected = {
         options: ['w=1'],
@@ -3928,15 +3932,43 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should split by a check of the list, given as a function', () => {
-      const value = 'https://cdn.example.com/w=100/h=50/fit/example.org/a=b/c.jpg'
+    it('should read every segment a checked list takes, given as a function', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/example.org/a.jpg'
       const expected = {
-        options: ['w=100', 'h=50', 'fit'],
-        source: 'example.org/a=b/c.jpg',
+        options: ['w=100', 'h=50'],
+        source: 'example.org/a.jpg',
       }
       const match = sizedImages.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should leave one segment to the value behind a list that takes every one', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/q=80'
+      const expected = {
+        options: ['w=100', 'h=50'],
+        source: 'q=80',
+      }
+      const match = sizedImages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the most list segments where both values pass their checks', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/https://example.org/a.jpg'
+      const expected = {
+        options: ['w=100', 'h=50'],
+        source: 'https://example.org/a.jpg',
+      }
+      const match = checkedImages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined where the list passes and the value behind it never does', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/example.org/a.jpg'
+
+      expect(checkedImages.readUrl(value)).toBeUndefined()
     })
 
     it('should read the split behind a base on any host', () => {

@@ -727,8 +727,9 @@ const compileRowTemplate = (
     return true
   }
 
-  // Each split of the segments a list and the reserved value behind it share is tried, the fewest
-  // list segments first, and the first one every check passes is read.
+  // Each split of the segments a list and the reserved value behind it share is tried, and the
+  // first one every check passes is read. The value with the check takes all it can: a checked
+  // list its most segments first, and the value behind an unchecked list the fewest list segments.
   const readListSplit = (
     split: ListSplit,
     match: RegExpExecArray,
@@ -748,8 +749,10 @@ const compileRowTemplate = (
     }
 
     const segments = match.input.slice(listRange[0], reservedRange[1]).split('/')
+    const hasListCheck = (checks[split.list] ?? rowChecks[split.list]) !== undefined
+    const counts = [...segments.keys()]
 
-    for (const count of segments.keys()) {
+    for (const count of hasListCheck ? counts.reverse() : counts) {
       const listSegments = segments.slice(0, count)
       const start = listRange[0] + listSegments.join('/').length + 1
       const list = listSegments.filter((segment) => segment).map(decodePercent)
