@@ -130,15 +130,13 @@ const forums = defineTable([
   { key: 'forum', main: '{scheme}://{host}{/base*}/feed.php' },
 ])
 
-forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', {
-  isAnyHost: true,
-})
+forums.readUrl('https://example.org/community/viewtopic.php?t=42', { isAnyHost: true })
 // {
 //   key: 'topic',
 //   values: {
 //     topic: '42',
 //     scheme: 'https',
-//     host: 'board.example.org',
+//     host: 'example.org',
 //     base: ['community'],
 //   },
 //   row: {…},
@@ -146,10 +144,10 @@ forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', {
 //   isExact: false,
 // }
 
-const site = forums.forSite('https://board.example.org/community/')
+const site = forums.forSite('https://example.org/community/')
 
 site?.buildUrl('forum', { base: ['community'] })
-// 'https://board.example.org/community/feed.php'
+// 'https://example.org/community/feed.php'
 ```
 
 ### Read a URL inside a URL
