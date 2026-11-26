@@ -78,6 +78,8 @@ import type {
 type RowTemplate = {
   rowIndex: number
   isAlias: boolean
+  // The placeholders but the open tail, a list as `name*`.
+  names: Array<string>
   // The query parameters the template sets itself, and the ones a URL may carry, as `{?q}`.
   ownNames: Array<string>
   optionalNames: Array<string>
@@ -943,6 +945,7 @@ const compileRowTemplate = (
   return {
     rowIndex,
     isAlias,
+    names: built.names,
     ownNames,
     optionalNames: parsed.optionalNames,
     hostNames: [...host.matchAll(placeholderRegex)].map(([, name]) => name),
@@ -998,6 +1001,20 @@ const createTable = <const Row extends UrlRow>(
     })
   })
   const compiled = compiledRows.flat()
+
+  // A name written as a list in one template and as one value in another builds the list joined
+  // in the one-value slot, as `/events,RSS/RSS` from values read beside the list.
+  const listNames = new Set(
+    compiled.flatMap((template) => template.names.filter(isMultiSegment).map(toBareName)),
+  )
+
+  for (const candidate of compiled) {
+    const name = candidate.names.find((name) => listNames.has(name))
+
+    if (name) {
+      throw new Error(t(locales.errors.mixedListName, { key: rows[candidate.rowIndex].key, name }))
+    }
+  }
 
   // A template without an open tail is read before one with it, and of two with one the deeper
   // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes

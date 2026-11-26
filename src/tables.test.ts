@@ -2019,9 +2019,9 @@ describe('defineTable', () => {
   describe('with a map as a value', () => {
     const filters = defineTable([
       { key: 'slot', main: 'https://example.com/filter/{facets}' },
-      { key: 'list', main: 'https://example.com/filter{/facets*}' },
       { key: 'query', main: 'https://example.com/filter?f={facets}' },
     ])
+    const listFilters = defineTable([{ key: 'list', main: 'https://example.com/filter{/facets*}' }])
 
     it('should write a map in a slot of one value as its names and values joined by commas', () => {
       const value = { facets: { lang: 'en', tag: 'a,b' } }
@@ -2034,7 +2034,7 @@ describe('defineTable', () => {
       const value = { facets: { lang: 'en', tag: 'news' } }
       const expected = 'https://example.com/filter/lang=en/tag=news'
 
-      expect(filters.buildUrl('list', value)).toBe(expected)
+      expect(listFilters.buildUrl('list', value)).toBe(expected)
     })
 
     it('should write a map in a query value as its names and values joined by commas', () => {
@@ -3706,6 +3706,46 @@ describe('defineTable', () => {
       }
 
       expect(throwing).toThrow('The repo row names a value tail, which {/tail*} is read as')
+    })
+
+    it('should throw for a name written as a list in one row and as one value in another', () => {
+      const throwing = () => {
+        return defineTable([
+          { key: 'events', main: 'https://example.com{/path*}/RSS' },
+          { key: 'page', main: 'https://example.com/page/{path}/RSS' },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The page row writes path as one value, which another template writes as a list',
+      )
+    })
+
+    it('should throw for a name written as a list in an alias and as one value in its main', () => {
+      const throwing = () => {
+        return defineTable([
+          {
+            key: 'page',
+            main: 'https://example.com/page/{path}/RSS',
+            aliases: ['https://example.com/widget{/path*}/RSS'],
+          },
+        ])
+      }
+
+      expect(throwing).toThrow(
+        'The page row writes path as one value, which another template writes as a list',
+      )
+    })
+
+    it('should not throw for a name written as a list in two rows', () => {
+      const throwing = () => {
+        return defineTable([
+          { key: 'events', main: 'https://example.com{/path*}/RSS' },
+          { key: 'page', main: 'https://example.com/widget{/path*}/RSS' },
+        ])
+      }
+
+      expect(throwing).not.toThrow()
     })
 
     it('should read a path of 20,000 segments within a second', () => {

@@ -145,7 +145,7 @@ A template is a full URL with placeholders. Each one reads from and builds into 
 | `{/base*}` | The folder a site sits in, possibly empty | `{scheme}://{host}{/base*}/feed.php` |
 | `{/tail*}` | Any segments at the end of the path, possibly empty | `https://example.com/{user}{/tail*}` |
 
-A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
+A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A name is a list everywhere in a table or nowhere, so `{/path*}` in one row and `{path}` in another throw when the table is defined, since values read from the first would build the second joined. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
 
 ### Rows
 

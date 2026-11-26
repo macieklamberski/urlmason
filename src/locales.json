@@ -13,6 +13,7 @@
     "unsupportedTemplateExpression": "The template {{template}} writes {{expression}}, an operator or modifier no template takes",
     "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes",
     "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}",
+    "mixedListName": "The {{key}} row writes {{name}} as one value, which another template writes as a list",
     "unbalancedBrace": "The template {{template}} writes a brace outside a complete expression"
   }
 }
