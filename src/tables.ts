@@ -1530,12 +1530,17 @@ const createTable = <const Row extends UrlRow>(
     })
   }
 
-  const readUrl: UrlTable<Key, Row>['readUrl'] = (url, readOptions) => {
-    if (readOptions?.base !== undefined || readOptions?.isAnyHost) {
-      return readRooted(url, readOptions)
-    }
+  // The values a read under any host or a given base adds are typed from the options given.
+  const readUrl: UrlTable<Key, Row>['readUrl'] = <Options extends UrlReadOptions | undefined>(
+    url: string,
+    readOptions?: Options,
+  ) => {
+    const match =
+      readOptions?.base !== undefined || readOptions?.isAnyHost
+        ? readRooted(url, readOptions)
+        : readOwn(url)
 
-    return readOwn(url)
+    return match as UrlMatch<Key, Row, Options> | undefined
   }
 
   // The URL a template read, written as its row's main URL, or undefined where it cannot be.
