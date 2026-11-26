@@ -199,6 +199,37 @@ const pages = defineTable(
 
 Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
 
+### Checks
+
+A check says which values a placeholder takes. A value that fails its check is neither read nor built:
+
+```typescript
+const reserved = ['about', 'login', 'settings']
+const locales = ['en', 'de', 'pl']
+
+const pages = defineTable(
+  [
+    { key: 'docs', main: 'https://example.com/{locale}/docs' },
+    { key: 'user', main: 'https://example.com/{user}' },
+  ],
+  {
+    checks: {
+      // A pattern, anchored at both ends.
+      id: /^\d+$/,
+      // A list of the values a slot takes.
+      locale: (value) => locales.includes(value),
+      // A list of the values it never takes.
+      user: (value) => !reserved.includes(value),
+    },
+  },
+)
+
+pages.readUrl('https://example.com/login')
+// undefined
+```
+
+A list that only says yes or no to a value belongs here, in the table. A list that changes the URL, as a map from one name to another, stays in the code that calls the table. A row can add its own `checks` beside the table's, and a function there also gets the row's other values.
+
 ### Hosts
 
 `hosts.exact` lists the hosts a `{host}` placeholder stands for, and `hosts.tenant` the domains that `{domain}` stands for and that tenants live under. `hosts.subdomain` lists domains that `{host}` stands for together with every host under them, so `example.com` covers `player.eu.example.com` too. An entry is a string, a pattern anchored at both ends, or a function that takes a host. A fixed host matches with or without `www`.
