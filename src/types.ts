@@ -13,8 +13,9 @@ export type UrlRow<Key extends string = string> = {
   // scheme, `{/name*}` one or more path segments, `{/base*}` behind the host the folder the site
   // sits in, and `{/tail*}` at the end of the path any segments. The base and the tail may be
   // empty. `{+name}` is path text as written, slashes included, up to the next fixed text, and at
-  // the end of a template with no query the rest of the URL. A `{host}` row of a table without
-  // hosts reads only on any host.
+  // the end of a template with no query or fragment the rest of the URL. A fragment is written
+  // behind a `#`, as `#!/video/{id}`, or whole as `{#name}`, and a URL then has to carry it. A
+  // `{host}` row of a table without hosts reads only on any host.
   main: string
   // Other URLs that serve the same thing, such as a legacy host, written as `main` is.
   aliases?: Array<string>
@@ -133,7 +134,7 @@ type QueryName = `?${string}`
 
 type ValueName<Name> = Name extends `/${infer Bare extends string}*`
   ? Bare
-  : Name extends `${'?' | '+'}${infer Bare extends string}`
+  : Name extends `${'?' | '+' | '#'}${infer Bare extends string}`
     ? Bare
     : Name extends string
       ? Name

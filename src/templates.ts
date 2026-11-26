@@ -24,7 +24,7 @@ import {
 } from './queries.js'
 import type { UrlEncoding, UrlMap, UrlValue, UrlValues } from './types.js'
 
-export type TemplatePart = 'host' | 'path' | 'query'
+export type TemplatePart = 'host' | 'path' | 'query' | 'fragment'
 
 export type MapText = (text: string) => string
 
@@ -80,6 +80,9 @@ export type ParsedTemplate = {
   restName?: string
   // A list right in front of a reserved value, as `{/options*}/{+source}`, which share segments.
   listSplit?: ListSplit
+  // The fragment without its `#`, as `!/video/{id}`, each reserved value written as `{name}`.
+  fragment?: string
+  fragmentReservedNames: Array<string>
 }
 
 export type ListSplit = {
@@ -114,6 +117,10 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params'> & {
   getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
   fill: (values: Record<string, UrlValue>, encoding?: UrlEncoding) => string | undefined
+  // The values of a fragment the template takes, given without its `#`: decoded, and as written
+  // for a URL read in its own spelling.
+  readFragment: (hash: string) => Record<string, UrlValue> | undefined
+  readRawFragment: (hash: string) => Record<string, string> | undefined
 }
 
 // A list holds the slash in front of it, `{/name*}`, which the name leaves out.
@@ -143,6 +150,11 @@ const reservedExpressionRegex = /^\+\w+$/
 const reservedRegex = /\{\+(\w+)\}/g
 const reservedAnywhereRegex = /\{\+[^{}]*\}/
 const listSplitRegex = /\{\/(\w+)\*\}\/\{\+(\w+)\}/
+// The whole fragment as one value, which ends a template: `{#section}`.
+const fragmentExpressionRegex = /^#\w+$/
+const fragmentSuffixRegex = /\{#(\w+)\}$/
+// A list and query names are no part of a fragment.
+const fragmentRefusedRegex = /\{[/?&#]/
 const tripletRegex = /^%[0-9a-f]{2}$/i
 // An escape, kept by `split`.
 const singleEscapeRegex = /(%[0-9a-f]{2})/i
@@ -716,7 +728,7 @@ const checkExpressions = (template: string): void => {
       continue
     }
 
-    if (reservedExpressionRegex.test(body)) {
+    if (reservedExpressionRegex.test(body) || fragmentExpressionRegex.test(body)) {
       continue
     }
 
@@ -729,13 +741,37 @@ const checkExpressions = (template: string): void => {
   }
 }
 
-// A template as its scheme, host, path and query parameters.
+// A template without its fragment, and the fragment: the text behind a `#`, or `{#name}` at the
+// end, which is the whole fragment as a reserved value.
+const cutFragment = (template: string): [body: string, fragment?: string] => {
+  const suffix = fragmentSuffixRegex.exec(template)
+
+  if (suffix) {
+    return [template.slice(0, suffix.index), `{+${suffix[1]}}`]
+  }
+
+  const index = template.indexOf('#')
+
+  return index === -1 ? [template] : [template.slice(0, index), template.slice(index + 1)]
+}
+
+// A template as its scheme, host, path, query parameters and fragment.
 export const parseTemplate = (template: string): ParsedTemplate => {
   checkExpressions(template)
 
+  const [body, givenFragment] = cutFragment(template)
+  const isFragmentRefused =
+    givenFragment !== undefined && (!givenFragment || fragmentRefusedRegex.test(givenFragment))
+  // A `#` inside an expression cuts it in two, as `{#section}` in front of more of the template.
+  const isCutExpression = braceRegex.test(body.replace(expressionRegex, ''))
+
+  if (isFragmentRefused || isCutExpression || body.includes('#')) {
+    throw new Error(t(locales.errors.invalidTemplate, { template }))
+  }
+
   // The optional names close the template: `{?a,b}` where it has no query, `{&a,b}` behind one.
-  const optional = optionalQueryRegex.exec(template)
-  const base = optional ? template.slice(0, optional.index) : template
+  const optional = optionalQueryRegex.exec(body)
+  const base = optional ? body.slice(0, optional.index) : body
   const match = templateRegex.exec(base)
 
   if (!match || base.includes('{?') || base.includes('{&')) {
@@ -795,10 +831,17 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     return param
   })
   const paramNames = [...params.map((param) => param.name), ...optionalNames]
-  const placeholderNames = [...base.matchAll(placeholderRegex)].map(([, name]) => toBareName(name))
+  const fragmentText = givenFragment ?? ''
+  const fragmentReservedNames = [...fragmentText.matchAll(reservedRegex)].map(([, name]) => name)
+  const fragment = givenFragment?.replace(reservedRegex, '{$1}')
+  const placeholderNames = [...`${base}${fragmentText}`.matchAll(placeholderRegex)].map(
+    ([, name]) => toBareName(name),
+  )
 
   // A name read from the query and a placeholder of the same name would give one value two sources.
-  if (optionalNames.some((name) => [...placeholderNames, ...reservedNames].includes(name))) {
+  const allReservedNames = [...reservedNames, ...fragmentReservedNames]
+
+  if (optionalNames.some((name) => [...placeholderNames, ...allReservedNames].includes(name))) {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
@@ -810,8 +853,8 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const plainPath = givenPath.replace(reservedRegex, '{$1}')
   const path = isOpen ? plainPath.slice(0, -openTailSuffix.length) : plainPath
   // A name read as written and decoded, or as written twice, would give one value two sources.
-  const isRepeated = reservedNames.some((name, index) => {
-    return placeholderNames.includes(name) || reservedNames.indexOf(name) !== index
+  const isRepeated = allReservedNames.some((name, index) => {
+    return placeholderNames.includes(name) || allReservedNames.indexOf(name) !== index
   })
 
   if (isRepeated) {
@@ -819,7 +862,9 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   }
 
   const lastName = reservedNames.at(-1)
-  const isRest = !search && !optional && givenPath.endsWith(`{+${lastName}}`)
+  // A template that writes a query or a fragment keeps the URL's own for itself.
+  const isClosed = Boolean(search) || optional !== null || fragment !== undefined
+  const isRest = !isClosed && givenPath.endsWith(`{+${lastName}}`)
 
   return {
     text: template,
@@ -828,14 +873,16 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     path,
     search,
     isOpen,
-    names: [...`${scheme}${host}${path}${search ?? ''}`.matchAll(placeholderRegex)].map(
-      ([, name]) => name,
-    ),
+    names: [
+      ...`${scheme}${host}${path}${search ?? ''}${fragment ?? ''}`.matchAll(placeholderRegex),
+    ].map(([, name]) => name),
     params,
     optionalNames,
     reservedNames,
     restName: isRest ? lastName : undefined,
     listSplit,
+    fragment,
+    fragmentReservedNames,
   }
 }
 
@@ -921,6 +968,103 @@ export const compileTemplate = (
   const readPathSource = isOpen
     ? `${pathGuard}${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
     : `${pathGuard}${pathSource}`
+
+  const { fragment, fragmentReservedNames } = parsed
+  const fragmentCaptures = Object.fromEntries(
+    fragmentReservedNames.map((name) => [name, reservedCapture]),
+  )
+  // A fragment is read as a path is: a value up to the next slash, a reserved one as written.
+  const toFragmentRegex = (
+    capture: Capture,
+    mapLiteral: MapText,
+    maxLength: number,
+    flags: string,
+  ): RegExp | undefined => {
+    if (fragment === undefined) {
+      return
+    }
+
+    const source = toRegexSource(
+      fragment,
+      captureIn('fragment'),
+      capture,
+      fragmentCaptures,
+      mapLiteral,
+      {},
+      fragmentReservedNames,
+    )
+    const guard = fragmentReservedNames.length > 1 ? toLengthGuard(maxLength) : ''
+
+    return new RegExp(`^${guard}${source}$`, flags)
+  }
+  const fragmentRegex = toFragmentRegex(pathCapture, decodePath, sharedPartMaxLength, 'di')
+  const rawFragmentRegex = toFragmentRegex(
+    writtenPathCapture,
+    encodeLiteral,
+    writtenPartMaxLength,
+    'd',
+  )
+
+  const readFragment: CompiledTemplate['readFragment'] = (hash) => {
+    const match = fragmentRegex?.exec(decodePath(hash))
+
+    if (!match) {
+      return
+    }
+
+    const values: Record<string, UrlValue> = {}
+
+    // Every group of a fragment pattern is a value of the template, and set.
+    for (const [group, [from, to]] of Object.entries(match.indices?.groups ?? {})) {
+      const name = getCaptured(group)?.name ?? group
+
+      // A name the fragment holds twice keeps the first value read.
+      if (values[name] !== undefined) {
+        continue
+      }
+
+      if (!fragmentReservedNames.includes(name)) {
+        values[name] = decodePercent(match.input.slice(from, to))
+
+        continue
+      }
+
+      const start = toWrittenOffset(hash, from)
+      const end = toWrittenOffset(hash, to)
+
+      // A match that ends inside a character as written has no text of its own there.
+      if (start === undefined || end === undefined) {
+        return
+      }
+
+      values[name] = hash.slice(start, end)
+    }
+
+    return values
+  }
+
+  // A name the fragment holds twice reads one value, so two different ones read nothing.
+  const readRawFragment: CompiledTemplate['readRawFragment'] = (hash) => {
+    const match = rawFragmentRegex?.exec(hash)
+
+    if (!match) {
+      return
+    }
+
+    const values: Record<string, string> = {}
+
+    for (const [group, value] of Object.entries(match.groups ?? {})) {
+      const name = getCaptured(group)?.name ?? group
+
+      if (values[name] !== undefined && values[name] !== value) {
+        return
+      }
+
+      values[name] = value
+    }
+
+    return values
+  }
 
   // A name the template holds twice keeps the first value read.
   const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
@@ -1017,6 +1161,7 @@ export const compileTemplate = (
 
   // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
   const writtenPath = encodeLiteral(path)
+  const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
     let isMoved = false
@@ -1029,10 +1174,11 @@ export const compileTemplate = (
 
         // A reserved value is written the same in both encodings, as RFC 6570 writes it. One with
         // a `?` or a `#` in front of more of the path would move that path into a query.
-        if (reservedNames.includes(name)) {
+        if (reservedNames.includes(name) || fragmentReservedNames.includes(name)) {
           const written = encodeReservedSlot(value)
+          const isInPath = reservedNames.includes(name) && name !== restName
 
-          if (name !== restName && reservedEndRegex.test(written)) {
+          if (isInPath && reservedEndRegex.test(written)) {
             isMoved = true
           }
 
@@ -1101,7 +1247,11 @@ export const compileTemplate = (
     }
 
     const base = writeBase(`${filledScheme}://${filledHost}${filledPath}`, pairs)
-    const url = `${base}${writeQuery(sortPairs(pairs))}`
+    const filledFragment =
+      writtenFragment === undefined
+        ? ''
+        : `#${fillPlaceholders(writtenFragment, isStrict ? encodeStrict : encodePath)}`
+    const url = `${base}${writeQuery(sortPairs(pairs))}${filledFragment}`
     const parsedUrl = parseUrl(url)
 
     // A scheme or host value can move the URL to another scheme or host that still parses, as the
@@ -1128,5 +1278,7 @@ export const compileTemplate = (
     read,
     getValues,
     fill,
+    readFragment,
+    readRawFragment,
   }
 }

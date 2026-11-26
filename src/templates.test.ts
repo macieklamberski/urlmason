@@ -5,7 +5,8 @@ import { parseTemplate } from './templates.js'
 const unsupportedExpressions = [
   '{+path,x}',
   '{+path*}',
-  '{#section}',
+  '{#section,part}',
+  '{#section*}',
   '{.format}',
   '{;id}',
   '{id:3}',
@@ -39,6 +40,17 @@ const repeatedReservedTemplates: Array<string> = [
   'https://example.com/{url}/{+url}',
   'https://example.com/{+url}/-/{+url}',
   'https://example.com/{+url}{?url}',
+]
+
+// A fragment holds fixed text, values and reserved values, and `{#name}` ends a template.
+const refusedFragmentTemplates: Array<string> = [
+  'https://example.com/feed#',
+  'https://example.com/feed#tags{/tags*}',
+  'https://example.com/feed#page{?page}',
+  'https://example.com/feed#top{#section}',
+  'https://example.com/{#section}/feed',
+  'https://example.com/{+url}#{+url}',
+  'https://example.com/{name}#{+name}',
 ]
 
 const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
@@ -158,6 +170,32 @@ describe('parseTemplate', () => {
     const value = '{scheme}://{host}{/base*}/{+source}'
 
     expect(parseTemplate(value).listSplit).toBeUndefined()
+  })
+
+  it.each(refusedFragmentTemplates)('should throw for the fragment of %s', (value) => {
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
+  it('should read the text behind a hash as the fragment', () => {
+    const value = 'https://example.com/app?v={id}#!/video/{id}/{+rest}'
+    const expected = '!/video/{id}/{rest}'
+
+    expect(parseTemplate(value).fragment).toBe(expected)
+  })
+
+  it('should read a fragment expression as the whole fragment, a reserved value', () => {
+    const value = 'https://example.com/{page}{?lang}{#section}'
+    const expected = ['section']
+
+    expect(parseTemplate(value).fragmentReservedNames).toEqual(expected)
+  })
+
+  it('should read a reserved value in front of a fragment as no rest', () => {
+    const value = 'https://example.com/{+path}#top'
+
+    expect(parseTemplate(value).restName).toBeUndefined()
   })
 
   it('should read a reserved value in front of a query as no rest', () => {
@@ -343,6 +381,7 @@ describe('defineTable with the URI Templates spelling', () => {
     { key: 'search', main: 'https://example.com/search{?q}' },
     { key: 'feed', main: 'https://example.com/feed?alt=rss{&page,limit}' },
     { key: 'proxy', main: 'https://proxy.example.com/{+url}' },
+    { key: 'guide', main: 'https://guide.example.com/{page}{#section}' },
   ])
 
   it('should type a list as its segments', () => {
@@ -361,6 +400,15 @@ describe('defineTable with the URI Templates spelling', () => {
     const url: string | undefined = match?.key === 'proxy' ? match.values.url : undefined
 
     expect(url).toBe(expected)
+  })
+
+  it('should type the whole fragment as a string under its name', () => {
+    const value = 'https://guide.example.com/setup#install'
+    const expected = 'install'
+    const match = table.readUrl(value)
+    const section: string | undefined = match?.key === 'guide' ? match.values.section : undefined
+
+    expect(section).toBe(expected)
   })
 
   it('should leave the open tail out of the values', () => {
