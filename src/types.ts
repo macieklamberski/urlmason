@@ -148,13 +148,24 @@ type KeyRows<Key, Row> = [Extract<Row, { key: Key }>] extends [never]
 
 type KeyValues<Key, Row> = TemplateValues<RowTemplates<KeyRows<Key, Row>>>
 
-export type UrlMatch<Key extends string, Row> = Key extends Key ? UrlKeyMatch<Key, Row> : never
+// The values the read options add: a read under any host or a given base reads the scheme of a row
+// that writes its own, a read of the table's own hosts adds none, and options that do not say which
+// read it is may add it.
+type OptionValues<Options> = [Options] extends [{ isAnyHost: true } | { base: UrlValue }]
+  ? { scheme: string }
+  : [Options] extends [undefined | { isAnyHost?: false; base?: undefined }]
+    ? unknown
+    : { scheme?: string }
 
-export type UrlKeyMatch<Key extends string, Row> = {
+export type UrlMatch<Key extends string, Row, Options = undefined> = Key extends Key
+  ? UrlKeyMatch<Key, Row, Options>
+  : never
+
+export type UrlKeyMatch<Key extends string, Row, Options = undefined> = {
   key: Key
   // The values read, decoded. The segments a row's `{/tail*}` took are no value: only the checks
   // see them, as `tail`. A URL with a tail is not exact and has no main URL.
-  values: KeyValues<Key, Row>
+  values: KeyValues<Key, Row> & OptionValues<Options>
   row: Row
   isAlias: boolean
   // Whether the URL is written as the row writes it, or in a spelling its marks cover: the same
@@ -186,7 +197,10 @@ export type UrlTable<Key extends string, Row> = {
   rows: Array<Row>
   buildUrl: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => string | undefined
   buildUrls: (key: Key, values?: UrlValues, options?: UrlBuildOptions<Row>) => Array<string>
-  readUrl: (url: string, options?: UrlReadOptions) => UrlMatch<Key, Row> | undefined
+  readUrl: <Options extends UrlReadOptions | undefined = undefined>(
+    url: string,
+    options?: Options,
+  ) => UrlMatch<Key, Row, Options> | undefined
   getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
   forSite: (url: string) => Pick<UrlTable<Key, Row>, 'buildUrl' | 'buildUrls'> | undefined
 }

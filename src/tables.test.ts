@@ -3803,6 +3803,16 @@ describe('defineTable', () => {
   })
 
   describe('with a base given', () => {
+    it('should read the scheme of a row that writes its own', () => {
+      const table = defineTable([{ key: 'feed', main: 'https://{host}/feed' }])
+      const value = 'https://example.org/feed'
+      const match = table.readUrl(value, { base: [] })
+      const values = match?.values
+      const expected: typeof values = { scheme: 'https', host: 'example.org' }
+
+      expect(values).toEqual(expected)
+    })
+
     it('should read a URL under a base with no base path', () => {
       const value = 'https://example.org/viewtopic.php?t=5'
       const options = { base: [] }
@@ -4014,6 +4024,16 @@ describe('defineTable', () => {
   })
 
   describe('with a base the URL shows', () => {
+    it('should read the scheme of a row that writes its own', () => {
+      const table = defineTable([{ key: 'feed', main: 'https://{host}/feed' }])
+      const value = 'https://example.org/feed'
+      const match = table.readUrl(value, { isAnyHost: true })
+      const values = match?.values
+      const expected: typeof values = { scheme: 'https', host: 'example.org' }
+
+      expect(values).toEqual(expected)
+    })
+
     it('should return undefined for a URL that is not http', () => {
       const value = 'ftp://example.org/viewtopic.php?t=5'
       const options = { isAnyHost: true }
@@ -5092,7 +5112,7 @@ describe('defineTable', () => {
       it('should pass a refused URL to the next row under the base given', () => {
         const value = 'https://example.org/forum/alice/followers'
         const options = { base: '/forum' }
-        const expected: Record<string, UrlValue> = {
+        const expected = {
           username: 'alice',
           scheme: 'https',
           host: 'example.org',
