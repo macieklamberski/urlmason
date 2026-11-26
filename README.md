@@ -130,11 +130,24 @@ const forums = defineTable([
   { key: 'forum', main: '{scheme}://{host}{/base*}/feed.php' },
 ])
 
-forums.readUrl('https://board.example.org/community/viewtopic.php?t=42', { isAnyHost: true })
-// { key: 'topic', values: { topic: '42', scheme: 'https', host: 'board.example.org', base: ['community'] }, … }
+forums.readUrl('https://example.org/community/viewtopic.php?t=42', { isAnyHost: true })
+// {
+//   key: 'topic',
+//   values: {
+//     topic: '42',
+//     scheme: 'https',
+//     host: 'example.org',
+//     base: ['community'],
+//   },
+//   row: {…},
+//   isAlias: false,
+//   isExact: false,
+// }
 
-forums.forSite('https://board.example.org/community/')?.buildUrl('forum', { base: ['community'] })
-// 'https://board.example.org/community/feed.php'
+const site = forums.forSite('https://example.org/community/')
+
+site?.buildUrl('forum', { base: ['community'] })
+// 'https://example.org/community/feed.php'
 ```
 
 ### Read a URL inside a URL
@@ -144,7 +157,9 @@ const snapshots = defineTable([
   { key: 'snapshot', main: 'https://archive.example.com/web/{time}/{+url}' },
 ])
 
-snapshots.readUrl('https://archive.example.com/web/2020/https://example.org/feed?page=2')?.values
+const snapshot = 'https://archive.example.com/web/2020/https://example.org/feed?page=2'
+
+snapshots.readUrl(snapshot)?.values
 // { time: '2020', url: 'https://example.org/feed?page=2' }
 
 snapshots.buildUrl('snapshot', { time: '2020', url: 'https://example.org/feed?page=2' })
@@ -286,7 +301,11 @@ Compiles the rows and returns a table. A template it can't read throws here, so 
 
 ```typescript
 const table = defineTable(rows, {
-  hosts: { exact: ['example.com'], tenant: ['example.org'], subdomain: ['example.net'] },
+  hosts: {
+    exact: ['example.com'],
+    tenant: ['example.org'],
+    subdomain: ['example.net'],
+  },
   // A check per placeholder: a pattern anchored at both ends, or a function.
   checks: { id: /^\d+$/, locale: (value) => value.length === 2 },
   // Values read in any letter case, which a main URL writes in lowercase.
