@@ -94,9 +94,16 @@ export type UrlReadOptions = {
   isAnyHost?: boolean
 }
 
+// The names of a `{?a,b}` or `{&a,b}` list, each as `?a`.
+type QueryNames<List extends string> = List extends `${infer Name},${infer Rest}`
+  ? `?${Name}` | QueryNames<Rest>
+  : `?${List}`
+
 // The names of a template's placeholders.
 type TemplateNames<Template extends string> =
-  Template extends `${string}{${infer Name}}${infer Rest}` ? Name | TemplateNames<Rest> : never
+  Template extends `${string}{${infer Name}}${infer Rest}`
+    ? (Name extends `${'?' | '&'}${infer List}` ? QueryNames<List> : Name) | TemplateNames<Rest>
+    : never
 
 // The templates of a row: its main URL and its aliases.
 type RowTemplates<Row> = Row extends { main: infer Main extends string }
@@ -112,32 +119,36 @@ type CommonNames<Template extends string> = (
   ? Names
   : never
 
-// The open tail is no value, and the base is absent where it is empty.
+// The open tail is no value, the base is absent where it is empty, and a query name where the URL
+// leaves it out.
 type TailName = '/tail*'
 type BaseName = '/base*'
+type QueryName = `?${string}`
 
 type ValueName<Name> = Name extends `/${infer Bare extends string}*`
   ? Bare
-  : Name extends string
-    ? Name
-    : never
+  : Name extends `?${infer Bare extends string}`
+    ? Bare
+    : Name extends string
+      ? Name
+      : never
 
 type NameValue<Name> = Name extends `${string}*` ? Array<string> : string
 
 // The values the templates of a key read: a `{/name*}` value a list, every other name a string,
-// and the open tail none. A name only some templates hold may be absent. A template the type does
-// not spell out reads any value.
+// and the open tail none. A query name, and a name only some templates hold, may be absent. A
+// template the type does not spell out reads any value.
 type TemplateValues<Template extends string> = string extends Template
   ? Record<string, UrlValue | undefined>
   : {
       [Name in Exclude<
         CommonNames<Template>,
-        TailName | BaseName
+        TailName | BaseName | QueryName
       > as ValueName<Name>]: NameValue<Name>
     } & {
       [Name in Exclude<
         TemplateNames<Template>,
-        TailName | Exclude<CommonNames<Template>, BaseName>
+        TailName | Exclude<CommonNames<Template>, BaseName | QueryName>
       > as ValueName<Name>]?: NameValue<Name>
     }
 

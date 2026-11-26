@@ -3866,10 +3866,9 @@ describe('defineTable', () => {
     })
 
     it('should read an optional query name under a base', () => {
-      const rows: Array<UrlRow> = [
+      const table = defineTable([
         { key: 'image', main: '{scheme}://{host}{/base*}/_next/image{?url}' },
-      ]
-      const table = defineTable(rows)
+      ])
       const value = 'https://example.org/blog/_next/image?url=photo.jpg'
       const options = { base: '/blog' }
       const expected = {
@@ -4225,10 +4224,9 @@ describe('defineTable', () => {
     })
 
     it('should read an optional query name', () => {
-      const rows: Array<UrlRow> = [
+      const table = defineTable([
         { key: 'image', main: '{scheme}://{host}{/base*}/_next/image{?url}' },
-      ]
-      const table = defineTable(rows)
+      ])
       const value = 'https://example.org/_next/image?url=photo.jpg'
       const options = { isAnyHost: true }
       const expected = {
@@ -4242,10 +4240,9 @@ describe('defineTable', () => {
     })
 
     it('should read an optional query name behind a fixed query', () => {
-      const rows: Array<UrlRow> = [
+      const table = defineTable([
         { key: 'search', main: '{scheme}://{host}{/base*}/feed?type=rss{&q}' },
-      ]
-      const table = defineTable(rows)
+      ])
       const value = 'https://example.org/feed?type=rss&q=news'
       const options = { isAnyHost: true }
       const expected = {
@@ -4259,10 +4256,9 @@ describe('defineTable', () => {
     })
 
     it('should read an optional query name behind an open tail', () => {
-      const rows: Array<UrlRow> = [
+      const table = defineTable([
         { key: 'tag', main: '{scheme}://{host}{/base*}/tag{/tail*}{?page}' },
-      ]
-      const table = defineTable(rows)
+      ])
       const value = 'https://example.org/tag/news/2024?page=2'
       const options = { isAnyHost: true }
       const expected = {
@@ -4276,14 +4272,13 @@ describe('defineTable', () => {
     })
 
     it('should read an optional query name of an alias', () => {
-      const rows: Array<UrlRow> = [
+      const table = defineTable([
         {
           key: 'feed',
           main: '{scheme}://{host}{/base*}/feed{?category}',
           aliases: ['{scheme}://{host}{/base*}/rss{?category}'],
         },
-      ]
-      const table = defineTable(rows)
+      ])
       const value = 'https://example.org/rss?category=news'
       const options = { isAnyHost: true }
       const expected = {
