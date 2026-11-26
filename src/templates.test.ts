@@ -266,6 +266,8 @@ describe('defineTable with the URI Templates spelling', () => {
   const table = defineTable([
     { key: 'docs', main: 'https://example.com/docs{/path*}' },
     { key: 'repo', main: 'https://example.com/{owner}{/tail*}' },
+    { key: 'search', main: 'https://example.com/search{?q}' },
+    { key: 'feed', main: 'https://example.com/feed?alt=rss{&page,limit}' },
   ])
 
   it('should type a list as its segments', () => {
@@ -286,5 +288,23 @@ describe('defineTable with the URI Templates spelling', () => {
 
     expect(match?.values).toEqual(expected)
     expect(tail).toBeUndefined()
+  })
+
+  it('should type a query name as a value that may be absent', () => {
+    const value = 'https://example.com/search'
+    const match = table.readUrl(value)
+    const values = match?.key === 'search' ? match.values : undefined
+    const expected: typeof values = {}
+
+    expect(values).toEqual(expected)
+  })
+
+  it('should type each name of a query list as its own value', () => {
+    const value = 'https://example.com/feed?alt=rss&page=2'
+    const match = table.readUrl(value)
+    const values = match?.key === 'feed' ? match.values : undefined
+    const expected: typeof values = { page: '2' }
+
+    expect(values).toEqual(expected)
   })
 })
