@@ -28,10 +28,11 @@ const misplacedReservedTemplates: Array<[string, string]> = [
   ['https://{+host}/feed', '{+host}'],
   ['https://example.com/feed?url={+url}', '{+url}'],
   ['https://example.com/feed?alt=rss/{+url}', '{+url}'],
-  ['https://example.com{/options*}/{+url}', '{+url}'],
+  ['https://example.com{/options*}/to/{+url}', '{+url}'],
+  ['https://example.com{/options*}-{+url}', '{+url}'],
   ['https://example.com/{+url}{/options*}', '{+url}'],
   ['https://example.com/{+url}{/tail*}', '{+url}'],
-  ['{scheme}://{host}{/base*}{/options*}/{+url}', '{+url}'],
+  ['https://example.com{/sizes*}/x{/options*}/{+url}', '{+url}'],
 ]
 
 const repeatedReservedTemplates: Array<string> = [
@@ -141,6 +142,22 @@ describe('parseTemplate', () => {
     const value = 'https://example.com/{+path}/feed.xml'
 
     expect(parseTemplate(value).restName).toBeUndefined()
+  })
+
+  it('should read a list right in front of a reserved value as sharing its segments', () => {
+    const value = '{scheme}://{host}{/base*}/cdn{/options*}/{+source}'
+    const expected = {
+      list: 'options',
+      reserved: 'source',
+    }
+
+    expect(parseTemplate(value).listSplit).toEqual(expected)
+  })
+
+  it('should read the base in front of a reserved value as sharing no segment', () => {
+    const value = '{scheme}://{host}{/base*}/{+source}'
+
+    expect(parseTemplate(value).listSplit).toBeUndefined()
   })
 
   it('should read a reserved value in front of a query as no rest', () => {

@@ -78,6 +78,13 @@ export type ParsedTemplate = {
   reservedNames: Array<string>
   // The one that ends a template with no query, and takes the rest of a URL, its query included.
   restName?: string
+  // A list right in front of a reserved value, as `{/options*}/{+source}`, which share segments.
+  listSplit?: ListSplit
+}
+
+export type ListSplit = {
+  list: string
+  reserved: string
 }
 
 export type CompiledParam = TemplateParam & {
@@ -135,6 +142,7 @@ const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*)\}$/
 const reservedExpressionRegex = /^\+\w+$/
 const reservedRegex = /\{\+(\w+)\}/g
 const reservedAnywhereRegex = /\{\+[^{}]*\}/
+const listSplitRegex = /\{\/(\w+)\*\}\/\{\+(\w+)\}/
 const tripletRegex = /^%[0-9a-f]{2}$/i
 // An escape, kept by `split`.
 const singleEscapeRegex = /(%[0-9a-f]{2})/i
@@ -168,6 +176,8 @@ const captureGroupPrefix = 'p'
 const multiSegmentCapture = '[^/]+(?:/[^/]+)*'
 // A reserved value takes the least text that lets the rest of the template read.
 const reservedCapture = '[^]+?'
+// A list in front of a reserved value takes the fewest segments, the first split to try.
+const shortMultiSegmentCapture = '[^/]+(?:/[^/]+)*?'
 // Two values side by side make a pattern retry every split of the text they share, so a part of a
 // URL holding two or more is read only up to this length. No real path segment comes near it.
 export const sharedPartMaxLength = 1000
@@ -734,11 +744,16 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
   const [, scheme, host, givenPath = '', search] = match
   const reservedNames = [...givenPath.matchAll(reservedRegex)].map(([, name]) => name)
-  const lists = [...base.matchAll(placeholderRegex)].filter(([, name]) => isMultiSegment(name))
+  const split = listSplitRegex.exec(givenPath)
+  const hasSplit = split !== null && `{/${split[1]}*}` !== basePlaceholder
+  const listSplit = hasSplit ? { list: split[1], reserved: split[2] } : undefined
+  const baseNames = givenPath.startsWith(basePlaceholder) ? ['base*'] : []
+  const splitNames = listSplit ? [`${listSplit.list}*`] : []
   // A list or an open tail shares the path with a reserved value by a guess, so only the base
-  // sits beside one.
-  const hasListBeside =
-    lists.length > 1 || (lists.length === 1 && !givenPath.startsWith(basePlaceholder))
+  // sits beside one, and a list right in front of it, which the checks tell from it.
+  const hasListBeside = [...base.matchAll(placeholderRegex)].some(([, name]) => {
+    return isMultiSegment(name) && ![...baseNames, ...splitNames].includes(name)
+  })
   // A reserved value sits in the path alone: a host takes no slash, and a query value reads whole.
   const misplaced = reservedAnywhereRegex.exec(
     reservedNames.length > 0 && hasListBeside ? template : `${scheme}${host}${search ?? ''}`,
@@ -820,6 +835,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     optionalNames,
     reservedNames,
     restName: isRest ? lastName : undefined,
+    listSplit,
   }
 }
 
@@ -868,8 +884,12 @@ export const compileTemplate = (
   const multiSegmentCaptures = Object.fromEntries(
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
   )
+  const splitCaptures = parsed.listSplit
+    ? { [`${parsed.listSplit.list}*`]: shortMultiSegmentCapture }
+    : {}
   const pathCaptures = {
     ...multiSegmentCaptures,
+    ...splitCaptures,
     ...Object.fromEntries(reservedNames.map((name) => [name, reservedCapture])),
   }
   // Two lists share the whole path, as two reserved values do.
