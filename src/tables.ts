@@ -381,8 +381,15 @@ const isListedIn = (value: string, entries: Array<HostEntry> = []): boolean => {
   })
 }
 
-// Whether a host, with or without `www`, is an exact host or one label under a tenant domain.
-// `www` is that label only where it can be a tenant.
+// A host and every domain above it, as `a.b.example.com`, `b.example.com`, `example.com`, `com`.
+const toParentDomains = (host: string): Array<string> => {
+  const labels = host.split('.')
+
+  return labels.map((_label, index) => labels.slice(index).join('.'))
+}
+
+// Whether a host, with or without `www`, is an exact host, one label under a tenant domain, or a
+// subdomain entry or any host under one. `www` is a tenant's label only where it can be a tenant.
 const isListedHost = (host: string, options: UrlTableOptions): boolean => {
   const bareHost = stripWww(host)
   const tenantHosts = options.isWwwTenant ? [host, bareHost] : [bareHost]
@@ -391,7 +398,8 @@ const isListedHost = (host: string, options: UrlTableOptions): boolean => {
   return (
     isListedIn(host, options.hosts?.exact) ||
     isListedIn(bareHost, options.hosts?.exact) ||
-    parentDomains.some((domain) => isListedIn(domain, options.hosts?.tenant))
+    parentDomains.some((domain) => isListedIn(domain, options.hosts?.tenant)) ||
+    toParentDomains(host).some((domain) => isListedIn(domain, options.hosts?.subdomain))
   )
 }
 
@@ -468,8 +476,9 @@ const compileRowTemplate = (
   // One host label other than `www` unless `www` is a tenant.
   const tenantSource = options.isWwwTenant ? '[^./]+' : '(?!www\\.)[^./]+'
 
-  const hasHosts = hosts.length > 0 || tenantDomains.length > 0
-  const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? [])].some(isFunction)
+  const subdomains = options.hosts?.subdomain ?? []
+  const hasHosts = hosts.length > 0 || tenantDomains.length > 0 || subdomains.length > 0
+  const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? []), ...subdomains].some(isFunction)
 
   if (host.includes('{domain}') && tenantDomains.length === 0) {
     throw new Error(t(locales.errors.missingHosts, { key }))
@@ -563,6 +572,8 @@ const compileRowTemplate = (
         return `${wwwSource}${toEntrySource(isString(value) ? normalize(value) : value)}`
       }),
       ...(tenantDomains.length > 0 ? [`${tenantWwwSource}${tenantSource}\\.${domainSource}`] : []),
+      // A subdomain entry is itself and any host under it, at any depth.
+      ...subdomains.map((value) => `(?:[^./]+\\.)*${toEntrySource(value)}`),
     ]
     const isFixedHost = !host.startsWith('{') || host.startsWith('{domain}')
     const bareHost = stripWww(host)
@@ -650,16 +661,22 @@ const compileRowTemplate = (
     if (host === hostPlaceholder || host.includes('{domain}')) {
       const isHostOnly = host === hostPlaceholder
 
-      if (!tenantEntries.every(isString) || (isHostOnly && !hosts.every(isString))) {
+      const hostEntries = isHostOnly ? [...hosts, ...subdomains] : []
+
+      if (!tenantEntries.every(isString) || !hostEntries.every(isString)) {
         return
       }
 
       const domains = tenantEntries.filter(isString).map((domain) => domain.toLowerCase())
-      const names = isHostOnly ? hosts.filter(isString).flatMap(toHostNames) : []
+      const names = hostEntries.filter(isString).flatMap(toHostNames)
+      // A host under a subdomain entry ends in it, as one under a tenant domain does.
+      const parents = isHostOnly
+        ? subdomains.filter(isString).map((entry) => entry.toLowerCase())
+        : []
 
       return {
         names: [...names, ...domains.flatMap(toHostNames)],
-        suffixes: domains.map((domain) => `.${domain}`),
+        suffixes: [...domains, ...parents].map((domain) => `.${domain}`),
       }
     }
 

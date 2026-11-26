@@ -55,6 +55,10 @@ export type UrlHosts = {
   // `/^blogspot\.(?:com|com\.[a-z]{2})$/`, anchored at both ends, and a function for the domains
   // it accepts.
   tenant?: Array<string | RegExp | UrlHostCheck>
+  // The domains a `{host}` placeholder stands for together with every host under them, at any
+  // depth, as `example.com` for `example.com`, `blog.example.com` and `a.b.example.com`. A pattern
+  // and a function stand for the domains they accept.
+  subdomain?: Array<string | RegExp | UrlHostCheck>
 }
 
 // A check sees a list value as its segments joined by `/`, as `a/b/c` for `['a/b', 'c']`.
