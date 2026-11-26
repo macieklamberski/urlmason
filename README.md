@@ -40,7 +40,10 @@ const feeds = defineTable(
     {
       key: 'user',
       main: 'https://example.com/@{user}/feed.xml{?page}',
-      aliases: ['https://example.com/u/{user}/rss', 'https://old.example.com/{user}/feed'],
+      aliases: [
+        'https://example.com/u/{user}/rss',
+        'https://old.example.com/{user}/feed',
+      ],
     },
     { key: 'tag', main: 'https://example.com/tags{/tags*}.xml' },
     { key: 'post', main: 'https://example.com/@{user}/{id}/comments.xml' },
@@ -53,7 +56,23 @@ const feeds = defineTable(
 
 ```typescript
 feeds.readUrl('https://old.example.com/alice/feed')
-// { key: 'user', values: { user: 'alice' }, isAlias: true, isExact: true, row: {…} }
+// {
+//   key: 'user',
+//   values: { user: 'alice' },
+//   row: {…},
+//   isAlias: true,
+//   isExact: true,
+// }
+
+// A list takes every segment it covers:
+feeds.readUrl('https://example.com/tags/news/tech.xml')
+// {
+//   key: 'tag',
+//   values: { tags: ['news', 'tech'] },
+//   row: {…},
+//   isAlias: false,
+//   isExact: true,
+// }
 
 // No row matches, or a value fails its check:
 feeds.readUrl('https://example.com/@alice/abc/comments.xml')
