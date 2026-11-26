@@ -177,7 +177,8 @@ A template is a full URL with placeholders. Each one reads from and builds into 
 | `{domain}` | A tenant domain the table lists | `https://{blog}.{domain}/feed` |
 | `{/base*}` | The folder a site sits in, possibly empty | `{scheme}://{host}{/base*}/feed.php` |
 | `{/tail*}` | Any segments at the end of the path, possibly empty | `https://example.com/{user}{/tail*}` |
-| `{+name}` | The rest of the URL behind the path, its query and fragment included | `https://example.com/proxy/{+url}` |
+| `{+name}` | Path text as written, slashes included, up to the next fixed text | `https://example.com/raw/{+path}/feed.xml` |
+| `{+name}` | At the end of a template with no query, the rest of the URL | `https://example.com/proxy/{+url}` |
 
 A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A name is a list everywhere in a table or nowhere, so `{/path*}` in one row and `{path}` in another throw when the table is defined, since values read from the first would build the second joined. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
 
@@ -204,7 +205,7 @@ Rows are read most specific first: a template without `{/tail*}` before one with
 
 ### Limits
 
-A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read.
+A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists or two `{+name}` values.
 
 ## Encoding
 
@@ -224,7 +225,7 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - Query pairs are written sorted by name, so one URL has one spelling.
 - `{?a,b}` ends a URL with no query, and `{&a,b}` one behind a query.
 - A list slot given an empty list builds no URL, so a missing value never builds a URL that names nothing.
-- `{+x}` is the last path segment of a template with no list and no query. It reads the rest of the URL as written, so a URL inside a URL comes back whole, and builds the same under both encodings.
+- `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings, and sits beside no list.
 - Operators beyond these, such as `{#x}`, `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API

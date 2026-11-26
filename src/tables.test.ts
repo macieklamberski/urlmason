@@ -561,6 +561,18 @@ const snapshots = defineTable(
   { checks: { time: digitsRegex } },
 )
 
+const files = defineTable([
+  {
+    key: 'raw',
+    main: 'https://example.com/raw/{+path}/feed.xml{?page}',
+    aliases: ['https://old.example.com/{+path}/rss'],
+  },
+  { key: 'file', main: 'https://files.example.com/{+path}.{extension}' },
+  { key: 'pair', main: 'https://pair.example.com/{+left}/-/{+right}' },
+  { key: 'link', main: 'https://link.example.com/go/url:{+url}' },
+  { key: 'keyed', main: 'https://keyed.example.com/{+path}/get?key={key}' },
+])
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -3716,6 +3728,145 @@ describe('defineTable', () => {
       const expected = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1#top'
 
       expect(snapshots.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with a reserved value in front of fixed text', () => {
+    it('should read the segments up to the fixed text as written', () => {
+      const value = 'https://example.com/raw/a%20b/c%2Fd/feed.xml?page=2'
+      const expected = {
+        path: 'a%20b/c%2Fd',
+        page: '2',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the shortest value that lets the whole URL read', () => {
+      const value = 'https://example.com/raw/a/feed.xml/b/feed.xml'
+      const expected = {
+        path: 'a/feed.xml/b',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should stop at fixed text inside a segment', () => {
+      const value = 'https://files.example.com/docs/caf%C3%A9.v2.pdf'
+      const expected = {
+        path: 'docs/caf%C3%A9',
+        extension: 'v2.pdf',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read two values around fixed text, the first as the shortest', () => {
+      const value = 'https://pair.example.com/a/b/-/c/-/d'
+      const expected = {
+        left: 'a/b',
+        right: 'c/-/d',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the rest of the URL behind fixed text inside a segment', () => {
+      const value = 'https://link.example.com/go/url:https://example.org/a?b=1#c'
+      const expected = {
+        url: 'https://example.org/a?b=1#c',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the value behind fixed text written with an escape', () => {
+      const value = 'https://link.example.com/go/url%3Ahttps://example.org/a?b=1'
+      const expected = {
+        url: 'https://example.org/a?b=1',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should leave the query to a template that writes one', () => {
+      const value = 'https://keyed.example.com/a/b/get?key=1'
+      const expected = {
+        path: 'a/b',
+        key: '1',
+      }
+      const match = files.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a URL without the fixed text', () => {
+      const value = 'https://example.com/raw/a/b/feed.json'
+
+      expect(files.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for two values in a path past the length limit', () => {
+      const value = `https://pair.example.com/${'a/'.repeat(600)}-/b`
+
+      expect(files.readUrl(value)).toBeUndefined()
+    })
+
+    it('should build the value in front of the fixed text', () => {
+      const value = {
+        path: 'a%20b/c%2Fd',
+        page: '2',
+      }
+      const expected = 'https://example.com/raw/a%20b/c%2Fd/feed.xml?page=2'
+
+      expect(files.buildUrl('raw', value)).toBe(expected)
+    })
+
+    it('should build a value beside another one in its segment', () => {
+      const value = {
+        path: 'docs/café',
+        extension: 'pdf',
+      }
+      const expected = 'https://files.example.com/docs/caf%C3%A9.pdf'
+
+      expect(files.buildUrl('file', value)).toBe(expected)
+    })
+
+    it('should return undefined for a value whose question mark would start the query', () => {
+      const value = {
+        path: 'a?b',
+      }
+
+      expect(files.buildUrl('raw', value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value whose hash would start the fragment', () => {
+      const value = {
+        path: 'a#b',
+      }
+
+      expect(files.buildUrl('raw', value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value with a dot segment', () => {
+      const value = {
+        path: 'a/../b',
+      }
+
+      expect(files.buildUrl('raw', value)).toBeUndefined()
+    })
+
+    it('should rewrite an alias to the main URL with the value as written', () => {
+      const value = 'http://old.example.com/a%20b/c/rss?utm_source=feed#top'
+      const expected = 'https://example.com/raw/a%20b/c/feed.xml#top'
+
+      expect(files.getMainUrl(value)).toBe(expected)
     })
   })
 
