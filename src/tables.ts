@@ -1304,10 +1304,12 @@ const createTable = <const Row extends UrlRow>(
 
       for (const [index, template] of [row.main, ...(row.aliases ?? [])].entries()) {
         const parsed = parseTemplate(template)
-        const hasBase = parsed.path.startsWith(basePlaceholder)
-        const path = hasBase ? parsed.path.slice(basePlaceholder.length) : parsed.path
-        const tail = parsed.isOpen ? openTailSuffix : ''
-        const standIn = parseTemplate(`${standInOrigin}${path}${tail}${parsed.search ?? ''}`)
+        // Everything behind the host as written, the query names of `{?url}` and `{&q}` included.
+        const rest = parsed.text.slice(`${parsed.scheme}://${parsed.host}`.length)
+        const hasBase = rest.startsWith(basePlaceholder)
+        const standIn = parseTemplate(
+          `${standInOrigin}${hasBase ? rest.slice(basePlaceholder.length) : rest}`,
+        )
         const isTaken =
           isAnyOf(parsed.host, hostPlaceholder) &&
           (hasBase || !isBaseNeeded) &&

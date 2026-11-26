@@ -3774,6 +3774,24 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should read an optional query name under a base', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'image', main: '{scheme}://{host}{/base*}/_next/image{?url}' },
+      ]
+      const table = defineTable(rows)
+      const value = 'https://example.org/blog/_next/image?url=photo.jpg'
+      const options = { base: '/blog' }
+      const expected = {
+        url: 'photo.jpg',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['blog'],
+      }
+      const match = table.readUrl(value, options)
+
+      expect(match?.values).toEqual(expected)
+    })
+
     it('should mark a URL an alias reads under a base as an alias', () => {
       const value = 'https://example.org/community/topic/5'
       const options = { base: '/community' }
@@ -4111,6 +4129,78 @@ describe('defineTable', () => {
         host: 'example.org',
       }
       const match = openBoards.readUrl(value, options)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query name', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'image', main: '{scheme}://{host}{/base*}/_next/image{?url}' },
+      ]
+      const table = defineTable(rows)
+      const value = 'https://example.org/_next/image?url=photo.jpg'
+      const options = { isAnyHost: true }
+      const expected = {
+        url: 'photo.jpg',
+        scheme: 'https',
+        host: 'example.org',
+      }
+      const match = table.readUrl(value, options)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query name behind a fixed query', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'search', main: '{scheme}://{host}{/base*}/feed?type=rss{&q}' },
+      ]
+      const table = defineTable(rows)
+      const value = 'https://example.org/feed?type=rss&q=news'
+      const options = { isAnyHost: true }
+      const expected = {
+        q: 'news',
+        scheme: 'https',
+        host: 'example.org',
+      }
+      const match = table.readUrl(value, options)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query name behind an open tail', () => {
+      const rows: Array<UrlRow> = [
+        { key: 'tag', main: '{scheme}://{host}{/base*}/tag{/tail*}{?page}' },
+      ]
+      const table = defineTable(rows)
+      const value = 'https://example.org/tag/news/2024?page=2'
+      const options = { isAnyHost: true }
+      const expected = {
+        page: '2',
+        scheme: 'https',
+        host: 'example.org',
+      }
+      const match = table.readUrl(value, options)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query name of an alias', () => {
+      const rows: Array<UrlRow> = [
+        {
+          key: 'feed',
+          main: '{scheme}://{host}{/base*}/feed{?category}',
+          aliases: ['{scheme}://{host}{/base*}/rss{?category}'],
+        },
+      ]
+      const table = defineTable(rows)
+      const value = 'https://example.org/rss?category=news'
+      const options = { isAnyHost: true }
+      const expected = {
+        category: 'news',
+        scheme: 'https',
+        host: 'example.org',
+      }
+      const match = table.readUrl(value, options)
 
       expect(match?.values).toEqual(expected)
     })
