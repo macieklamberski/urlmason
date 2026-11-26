@@ -151,6 +151,22 @@ snapshots.buildUrl('snapshot', { time: '2020', url: 'https://example.org/feed?pa
 // 'https://archive.example.com/web/2020/https://example.org/feed?page=2'
 ```
 
+### Read a fragment
+
+```typescript
+const apps = defineTable([
+  { key: 'sheet', main: 'https://app.example.com/view#!/home/{book}/{sheet}' },
+  { key: 'home', main: 'https://app.example.com/view' },
+])
+
+apps.readUrl('https://app.example.com/view#!/home/sales/q1')
+// { key: 'sheet', values: { book: 'sales', sheet: 'q1' }, … }
+
+// A row that writes no fragment reads a URL whatever its fragment:
+apps.readUrl('https://app.example.com/view#about')?.key
+// 'home'
+```
+
 ### Read a tenant's URL
 
 ```typescript
@@ -178,7 +194,8 @@ A template is a full URL written in the [RFC 6570](https://www.rfc-editor.org/rf
 | `{/base*}` | The folder a site sits in, possibly empty | `{scheme}://{host}{/base*}/feed.php` |
 | `{/tail*}` | Any segments at the end of the path, possibly empty | `https://example.com/{user}{/tail*}` |
 | `{+name}` | Path text as written, slashes included, up to the next fixed text | `https://example.com/raw/{+path}/feed.xml` |
-| `{+name}` | At the end of a template with no query, the rest of the URL | `https://example.com/proxy/{+url}` |
+| `{+name}` | At the end of a template with no query or fragment, the rest of the URL | `https://example.com/proxy/{+url}` |
+| `{#name}` | The whole fragment as written, at the end of a template | `https://example.com/{page}{#section}` |
 
 A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A name is a list everywhere in a table or nowhere, so `{/path*}` in one row and `{path}` in another throw when the table is defined, since values read from the first would build the second joined. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
 
@@ -256,9 +273,10 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - Query pairs are written sorted by name, so one URL has one spelling.
 - `{?a,b}` ends a URL with no query, and `{&a,b}` one behind a query.
 - A list slot given an empty list builds no URL, so a missing value never builds a URL that names nothing.
-- `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings.
+- `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query and no fragment it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings.
 - A list right in front of a `{+x}`, as `{/options*}/{+source}`, shares its segments with it. A read takes the first split every check passes, and the value with the check takes all it can: a checked list its most segments, and the value behind an unchecked list the fewest list segments. A table throws where neither of the two has a check.
-- Operators beyond these, such as `{#x}`, `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
+- A template may write a fragment, as `#!/video/{id}` or `{#x}`, and then reads only a URL that carries it. A value in it stops at a slash, as in a path, and `{+x}` and `{#x}` read as written. A template without a fragment reads a URL whatever its fragment.
+- Operators beyond these, such as `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API
 

@@ -611,6 +611,19 @@ const subdomainPlayers = defineTable(
   { hosts: { subdomain: ['example.com', subdomainRegex, (host) => host === 'example.org'] } },
 )
 
+const apps = defineTable([
+  {
+    key: 'sheet',
+    main: 'https://app.example.com/view#!/home/{book}/{sheet}',
+    aliases: ['https://old.example.com/view/{book}/{sheet}'],
+  },
+  { key: 'home', main: 'https://app.example.com/view' },
+  { key: 'feed', main: 'https://reader.example.com/i/#subscription/feed/{+target}' },
+  { key: 'guide', main: 'https://docs.example.com/{page}{#section}' },
+  { key: 'clip', main: 'https://video.example.com/watch?v={id}#t={time}' },
+  { key: 'pair', main: 'https://pair.example.com/#{+left}/-/{+right}' },
+])
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -4134,6 +4147,179 @@ describe('defineTable', () => {
       const expected = 'https://player.eu.example.com/embed/42'
 
       expect(subdomainPlayers.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with a fragment', () => {
+    it('should read the values of a fragment with fixed text, decoded', () => {
+      const value = 'https://app.example.com/view#!/home/Sales%20Q1/Sheet1'
+      const expected = {
+        book: 'Sales Q1',
+        sheet: 'Sheet1',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL whose fragment is written as the row writes it as exact', () => {
+      const value = 'https://app.example.com/view#!/home/Sales%20Q1/Sheet1'
+      const match = apps.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should read fixed text of a fragment in another case as not exact', () => {
+      const value = 'https://app.example.com/view#!/HOME/Sales/Sheet1'
+      const match = apps.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should read a URL without a fragment as the row that writes none', () => {
+      const value = 'https://app.example.com/view'
+      const expected = 'home'
+      const match = apps.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL with a fragment no row writes as the row that writes none', () => {
+      const value = 'https://app.example.com/view#about'
+      const expected = 'home'
+      const match = apps.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a reserved value at the end of a fragment as written', () => {
+      const value = 'https://reader.example.com/i/#subscription/feed/https://example.org/a%20b?v=1'
+      const expected = {
+        target: 'https://example.org/a%20b?v=1',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the whole fragment as written, its slashes kept', () => {
+      const value = 'https://docs.example.com/setup#install/mac%20os'
+      const expected = {
+        page: 'setup',
+        section: 'install/mac%20os',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a fragment behind a query', () => {
+      const value = 'https://video.example.com/watch?v=abc#t=42'
+      const expected = {
+        id: 'abc',
+        time: '42',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read two reserved values of a fragment, the first as the shortest', () => {
+      const value = 'https://pair.example.com/#a/b/-/c/-/d'
+      const expected = {
+        left: 'a/b',
+        right: 'c/-/d',
+      }
+      const match = apps.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a URL without the fragment its only row writes', () => {
+      const value = 'https://docs.example.com/setup'
+
+      expect(apps.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a fragment that lacks a value', () => {
+      const value = 'https://video.example.com/watch?v=abc#t='
+
+      expect(apps.readUrl(value)).toBeUndefined()
+    })
+
+    it('should build a fragment with each value encoded as a path segment', () => {
+      const value = {
+        book: 'Sales Q1',
+        sheet: 'a/b',
+      }
+      const expected = 'https://app.example.com/view#!/home/Sales%20Q1/a%2Fb'
+
+      expect(apps.buildUrl('sheet', value)).toBe(expected)
+    })
+
+    it('should build a fragment strictly', () => {
+      const value = {
+        book: "it's",
+        sheet: 'Sheet1',
+      }
+      const expected = 'https://app.example.com/view#!/home/it%27s/Sheet1'
+
+      expect(apps.buildUrl('sheet', value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should build the whole fragment with its reserved characters kept', () => {
+      const value = {
+        page: 'setup',
+        section: 'install/mac os?step=2',
+      }
+      const expected = 'https://docs.example.com/setup#install/mac%20os?step=2'
+
+      expect(apps.buildUrl('guide', value)).toBe(expected)
+    })
+
+    it('should build a fragment behind a query', () => {
+      const value = {
+        id: 'abc',
+        time: '42',
+      }
+      const expected = 'https://video.example.com/watch?v=abc#t=42'
+
+      expect(apps.buildUrl('clip', value)).toBe(expected)
+    })
+
+    it('should return undefined for a build without a value of the fragment', () => {
+      const value = {
+        page: 'setup',
+      }
+
+      expect(apps.buildUrl('guide', value)).toBeUndefined()
+    })
+
+    it('should rewrite an alias to a main URL that writes the values in its fragment', () => {
+      const value = 'http://old.example.com/view/Sales%20Q1/Sheet1#top'
+      const expected = 'https://app.example.com/view#!/home/Sales%20Q1/Sheet1'
+
+      expect(apps.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite a main URL under http with its fragment as written', () => {
+      const value = 'http://app.example.com/view#!/home/Sales%20Q1/Sheet1'
+      const expected = 'https://app.example.com/view#!/home/Sales%20Q1/Sheet1'
+
+      expect(apps.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite to a main URL with its fragment built strictly', () => {
+      const value = "https://old.example.com/view/it's/Sheet1"
+      const expected = 'https://app.example.com/view#!/home/it%27s/Sheet1'
+
+      expect(apps.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should return undefined for a main URL already written as the row writes it', () => {
+      const value = 'https://app.example.com/view#!/home/Sales/Sheet1'
+
+      expect(apps.getMainUrl(value)).toBeUndefined()
     })
   })
 

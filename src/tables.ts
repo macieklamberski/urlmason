@@ -129,6 +129,8 @@ type RowTemplate = {
   openDepth: number
   // The value that takes the rest of a URL, its query included, as `url` of `/proxy/{+url}`.
   restName?: string
+  // Whether the template writes a fragment, which a URL it takes has to carry.
+  hasFragment: boolean
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -159,6 +161,8 @@ type RawRead = {
 type RawUrl = {
   base: string
   pairs: Array<QueryPair>
+  // The fragment of a template that writes one, with its `#`.
+  hash?: string
 }
 
 // A URL as the templates read it: the host joined to the decoded path without its trailing slash,
@@ -803,6 +807,17 @@ const compileRowTemplate = (
       return
     }
 
+    // A template that writes a fragment takes only a URL with one it reads.
+    if (parsed.fragment !== undefined) {
+      const fragmentValues = compiled.readFragment(url.hash.slice(1))
+
+      if (!fragmentValues) {
+        return
+      }
+
+      Object.assign(params, { ...fragmentValues, ...params })
+    }
+
     // A function among the hosts matched any domain, so the host read is checked by it.
     if (hasHostCheck && ('host' in params || 'domain' in params)) {
       const isListed = isString(params.domain)
@@ -963,6 +978,21 @@ const compileRowTemplate = (
       }
     }
 
+    if (parsed.fragment !== undefined) {
+      const rawFragment = compiled.readRawFragment(url.hash.slice(1))
+      const hasOtherValue = Object.entries(rawFragment ?? {}).some(([name, value]) => {
+        return rawParams[name] !== undefined && rawParams[name].value !== value
+      })
+
+      if (!rawFragment || hasOtherValue) {
+        return
+      }
+
+      for (const [name, value] of Object.entries(rawFragment)) {
+        rawParams[name] = { value, part: 'fragment' }
+      }
+    }
+
     if ('host' in rawParams) {
       rawParams.host.value = url.host
     }
@@ -980,12 +1010,17 @@ const compileRowTemplate = (
 
   const getRawUrl = (rawParams: RawParams, keptPairs: Array<QueryPair>): RawUrl | undefined => {
     let isFilled = true
+    // A path and a fragment spell a value the same way.
+    const isSpelledAlike = (from: TemplatePart, to: TemplatePart): boolean => {
+      return from === to || [from, to].every((part) => isAnyOf(part, ['path', 'fragment']))
+    }
     // A value moved to another part of the URL is written only when it reads the same there.
     const fill = (text: string, part: TemplatePart, mapLiteral?: MapText): string => {
       const fillPlaceholder = (placeholder: string): string => {
         const rawParam = rawParams[toBareName(placeholder)]
+        const isMovable = rawParam && isSpelledAlike(rawParam.part, part)
 
-        if (!rawParam || (rawParam.part !== part && !plainValueRegex.test(rawParam.value))) {
+        if (!rawParam || (!isMovable && !plainValueRegex.test(rawParam.value))) {
           isFilled = false
 
           return ''
@@ -1005,6 +1040,10 @@ const compileRowTemplate = (
       return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
     const filledPath = fill(path, 'path', encodeLiteral)
+    const hash =
+      parsed.fragment === undefined
+        ? undefined
+        : `#${fill(parsed.fragment, 'fragment', encodeLiteral)}`
 
     // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
     if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
@@ -1016,6 +1055,7 @@ const compileRowTemplate = (
     return {
       base: writeBase(`${origin}${filledPath}`, writtenPairs),
       pairs: writtenPairs,
+      hash,
     }
   }
 
@@ -1101,6 +1141,7 @@ const compileRowTemplate = (
     shape,
     openDepth: isOpenEnded ? openDepth : Number.POSITIVE_INFINITY,
     restName,
+    hasFragment: parsed.fragment !== undefined,
     getUrl,
   }
 }
@@ -1163,7 +1204,12 @@ const createTable = <const Row extends UrlRow>(
       return b.openDepth - a.openDepth
     }
 
-    return b.ownNames.length - a.ownNames.length
+    if (a.ownNames.length !== b.ownNames.length) {
+      return b.ownNames.length - a.ownNames.length
+    }
+
+    // A template that writes a fragment is read before one that takes any.
+    return Number(b.hasFragment) - Number(a.hasFragment)
   })
   // A table that passes a refused URL on reads its rows in the order written.
   const inReadOrder = options.isFallThrough ? claimed : bySpecificity
@@ -1761,11 +1807,16 @@ const createTable = <const Row extends UrlRow>(
 
     // A value the main URL has no place for is left out, its query and fragment with it.
     if (hasReserved) {
-      return main.restName === undefined ? mainUrl : `${mainUrl}${reservedRest}`
+      return main.restName === undefined
+        ? `${mainUrl}${rawUrl.hash ?? ''}`
+        : `${mainUrl}${reservedRest}`
     }
 
+    // A fragment the alias writes is its own, and no part of a main URL that writes none.
+    const givenHash = template.hasFragment ? '' : url.hash
+
     // The fragment stays as given, as on a URL already on its main host.
-    return `${mainUrl}${url.hash}`
+    return `${mainUrl}${rawUrl.hash ?? givenHash}`
   }
 
   // A strict build of the values the main URL reads keeps its fixed text as the template writes it.
@@ -1786,14 +1837,18 @@ const createTable = <const Row extends UrlRow>(
       return builtUrl
     }
 
-    const queryStart = builtUrl.includes('?') ? builtUrl.indexOf('?') : builtUrl.length
+    // A fragment the main URL writes is built strictly too, and any other stays as given.
+    const hashStart = main.hasFragment ? builtUrl.indexOf('#') : builtUrl.length
+    const hash = main.hasFragment ? builtUrl.slice(hashStart) : parsedMainUrl.hash
+    const builtBody = builtUrl.slice(0, hashStart)
+    const queryStart = builtBody.includes('?') ? builtBody.indexOf('?') : builtBody.length
     const keptPairs = parseQuery(parsedMainUrl.search)
       .filter((pair) => pair.text && !isNamed(pair, main.ownNames))
       .map(toStrictPair)
-    const pairs = sortPairs([...parseQuery(builtUrl.slice(queryStart)), ...keptPairs])
-    const base = writeBase(builtUrl.slice(0, queryStart), pairs)
+    const pairs = sortPairs([...parseQuery(builtBody.slice(queryStart)), ...keptPairs])
+    const base = writeBase(builtBody.slice(0, queryStart), pairs)
 
-    return `${base}${writeQuery(pairs)}${parsedMainUrl.hash}`
+    return `${base}${writeQuery(pairs)}${hash}`
   }
 
   // A URL written as its row's main URL, every value as spelled but where a mark covers it. A main
