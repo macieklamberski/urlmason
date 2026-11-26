@@ -127,6 +127,8 @@ const queryExpressionRegex = /^\?\w+\*$/
 const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*$/
 const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*)\}$/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
+// A run of escapes, as `%E0%A4%85`, kept by `split`.
+const escapeRunRegex = /((?:%[0-9a-f]{2})+)/i
 // The characters `encodeURIComponent` leaves that RFC 6570 encodes outside the unreserved set.
 const subDelimiterRegex = /[!'()*]/g
 // A scheme and host with no path, where a parser reads the path `/` before a query.
@@ -249,23 +251,74 @@ export const toValueText = (value: UrlValue): string => {
   return Array.isArray(value) ? value.join('/') : value
 }
 
-// A value with its valid escapes decoded, so `Hello%21` and `Hello!` are one value. A `%` that
-// starts no escape stays as it is. A value that is no text past the types, as `true`, is its text.
-const decodeEscapes = (value: string): string => {
-  return decodePercent(String(value))
+// The bytes of the UTF-8 sequence a first byte opens, and 0 for a byte that opens none.
+const toSequenceLength = (byte: number): number => {
+  if (byte < 0x80) {
+    return 1
+  }
+
+  if (byte >= 0xc2 && byte < 0xe0) {
+    return 2
+  }
+
+  if (byte >= 0xe0 && byte < 0xf0) {
+    return 3
+  }
+
+  return byte >= 0xf0 && byte < 0xf5 ? 4 : 0
 }
 
-// A path value as pages link it: its escapes decoded, then every character a path segment allows
-// kept, a `%` written as `%25` and non-ASCII percent-encoded, so `caf%C3%A9` and `café` agree.
-const encodePathValue = (value: string): string => {
-  return encodePathSegment(decodeEscapes(value).replaceAll('%', '%25'))
+// A run of escapes with each character it holds written by `encode`. An escape that decodes to no
+// character, as `%E0%A4` of a cut-off `अ`, stays as written, as `{+x}` keeps it.
+const encodeEscapeRun = (run: string, encode: MapText): string => {
+  let written = ''
+  let index = 0
+
+  while (index < run.length) {
+    const length = toSequenceLength(Number.parseInt(run.slice(index + 1, index + 3), 16)) * 3
+    const sequence = run.slice(index, index + length)
+    // A sequence that decodes is one character. decodePercent keeps one that doesn't as written.
+    const decoded = decodePercent(sequence)
+
+    if (length === 0 || decoded === sequence || [...decoded].length > 1) {
+      written += run.slice(index, index + 3)
+      index += 3
+
+      continue
+    }
+
+    written += encode(decoded)
+    index += length
+  }
+
+  return written
+}
+
+// A value with its valid escapes decoded and written again by `encode`, so `Hello%21` and
+// `Hello!` are one value, and a URL read and built again is the URL it was. A value that is no
+// text past the types, as `true`, is its text.
+const encodeDecoded = (value: string, encode: MapText): string => {
+  return String(value)
+    .split(escapeRunRegex)
+    .map((piece, index) => (index % 2 === 0 ? encode(piece) : encodeEscapeRun(piece, encode)))
+    .join('')
+}
+
+// Text of a path segment as pages link it: every character a segment allows kept, a `%` written
+// as `%25` and non-ASCII percent-encoded, so `caf%C3%A9` and `café` agree.
+const encodePathText = (text: string): string => {
+  return encodePathSegment(text.replaceAll('%', '%25'))
     .replace(strayPercentRegex, '%25')
     .replace(nonAsciiRegex, encodeURIComponent)
 }
 
+const encodePathValue = (value: string): string => {
+  return encodeDecoded(value, encodePathText)
+}
+
 // A query value with its escapes decoded, then written as any query value.
 const encodeQueryValue = (value: string): string => {
-  return encodeText(decodeEscapes(value))
+  return encodeDecoded(value, encodeText)
 }
 
 // Values next to each other are encoded as one text, so a surrogate pair split across them is

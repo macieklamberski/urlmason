@@ -176,7 +176,7 @@ A URL part that holds two or more values, such as `{slug}-{id}` in one segment, 
 
 Builds come in two spellings, picked per call with `{ encoding }`:
 
-- **`pretty`, the default,** decodes a value's valid escapes, then writes every character the part allows, so `Ann Lee!` builds `/@Ann%20Lee!/feed`.
+- **`pretty`, the default,** decodes a value's valid escapes, then writes every character the part allows, so `Ann Lee!` builds `/@Ann%20Lee!/feed`. An escape that decodes to no character, as `%E0%A4` of a cut-off `अ`, stays as written, so a URL read and built again is the URL it was.
 - **`strict`** writes a value as RFC 6570 does, encoding everything outside the unreserved characters, so the same value builds `/@Ann%20Lee%21/feed`.
 
 `getMainUrl` takes the same option. Pretty keeps each value as the URL spelled it, and strict builds the main URL from the values it reads, so a strict main URL equals a strict build of the same values.
