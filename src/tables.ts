@@ -122,8 +122,11 @@ type RowTemplate = {
   // path has an open tail. Two templates of one shape differ only in their values, as two rows
   // for two values of `format`.
   shape: string
-  // The path segments in front of an open tail, and infinity for a template without one.
+  // The path segments in front of an open tail or a reserved value, and infinity for a template
+  // without one.
   openDepth: number
+  // The value that takes the rest of a URL, as `url` of `/proxy/{+url}`.
+  reservedName?: string
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -427,7 +430,9 @@ const compileRowTemplate = (
         names: built.names.filter((name) => name !== 'base*'),
       }
     : built
-  const { scheme, host, path, isOpen, names } = parsed
+  const { scheme, host, path, isOpen, names, reservedName } = parsed
+  // A reserved value ends a path as an open tail does: it takes whatever follows.
+  const isOpenEnded = isOpen || reservedName !== undefined
   const rest = `${host}${path}${parsed.search ?? ''}`
 
   // An open tail anywhere but at the end of the path, as `{/tail*}/feed`, has no end to read it to.
@@ -586,7 +591,7 @@ const compileRowTemplate = (
     return [...segment.matchAll(placeholderRegex)].length > 1
   })
   const toEndingGuard = (text: string, mapLiteral: MapText): string => {
-    if (!hasSharedSegment || isOpen) {
+    if (!hasSharedSegment || isOpenEnded) {
       return ''
     }
 
@@ -613,7 +618,7 @@ const compileRowTemplate = (
   const shapeQuery = shapeNames.join('&')
   const shapeHostPath = `${host}${path}`.replace(placeholderRegex, toShapePlaceholder)
   // A `#` is in no template, so an open template shares its shape with no template that is not.
-  const shape = `${shapeHostPath}${isOpen ? '#' : ''}?${shapeQuery}`
+  const shape = `${shapeHostPath}${isOpenEnded ? '#' : ''}?${shapeQuery}`
 
   const toHostNames = (value: string): Array<string> => {
     const bare = stripWww(value.toLowerCase())
@@ -656,6 +661,15 @@ const compileRowTemplate = (
   // A `{host}` row of a table without hosts serves any site, so nothing in its URL names the
   // platform, and only an any-host read takes it.
   const claimsUrls = !host.includes(hostPlaceholder) || hasHosts
+  const ownSegmentCount = splitPath(path).length
+  // A reserved value is read as the URL spells it, so a URL it holds stays that URL: the path
+  // behind the template's own segments, with the query and the fragment.
+  const readReserved = (tableUrl: TableUrl): string => {
+    const { pairs, hash } = readQuery(tableUrl)
+    const segments = tableUrl.url.pathname.replace(leadingSlashesRegex, '/').split('/')
+
+    return `${segments.slice(ownSegmentCount).join('/')}${writeQuery(pairs)}${hash}`
+  }
 
   const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
     const { url, hostPath } = tableUrl
@@ -689,6 +703,10 @@ const compileRowTemplate = (
 
     if (scheme === schemePlaceholder) {
       params.scheme = url.protocol.slice(0, -1)
+    }
+
+    if (reservedName !== undefined) {
+      params[reservedName] = readReserved(tableUrl)
     }
 
     // A row read under a base sits on the stand-in host, and its checks see the host and base.
@@ -868,7 +886,9 @@ const compileRowTemplate = (
 
       return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
-    const filledPath = fill(path, 'path', encodeLiteral)
+    const ownPath = fill(path, 'path', encodeLiteral)
+    const reserved = reservedName === undefined ? '' : `/${fill(`{${reservedName}}`, 'path')}`
+    const filledPath = `${ownPath}${reserved}`
 
     // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
     if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
@@ -963,7 +983,8 @@ const compileRowTemplate = (
     getHttpsOrigin,
     passesChecks,
     shape,
-    openDepth: isOpen ? splitPath(path).length : Number.POSITIVE_INFINITY,
+    openDepth: isOpenEnded ? ownSegmentCount : Number.POSITIVE_INFINITY,
+    reservedName,
     getUrl,
   }
 }
@@ -1551,7 +1572,10 @@ const createTable = <const Row extends UrlRow>(
   ): string | undefined => {
     const { url } = tableUrl
     const [main] = compiledRows[template.rowIndex]
-    const pairs = rawRead.pairs.filter((pair) => pair.text)
+    // The query and the fragment behind a reserved value are part of it, and stay as written.
+    const reservedRest = `${writeQuery(rawRead.pairs)}${readQuery(tableUrl).hash}`
+    const hasReserved = template.reservedName !== undefined
+    const pairs = hasReserved ? [] : rawRead.pairs.filter((pair) => pair.text)
     // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has
     // one, and never under `isQueryKept: false`.
     const isKept = (pair: QueryPair): boolean => {
@@ -1564,6 +1588,11 @@ const createTable = <const Row extends UrlRow>(
 
     if (!template.isAlias) {
       const origin = url.port ? undefined : main.getHttpsOrigin(rawRead.params)
+
+      if (hasReserved) {
+        return `${origin ?? url.origin}${rawRead.pathname}${reservedRest}`
+      }
+
       const stayingPairs = sortPairs(
         pairs.filter((pair) => isNamed(pair, main.ownNames) || isKept(pair)),
       )
@@ -1614,6 +1643,11 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
+    // A value the main URL has no place for is left out, its query and fragment with it.
+    if (hasReserved) {
+      return main.reservedName === undefined ? mainUrl : `${mainUrl}${reservedRest}`
+    }
+
     // The fragment stays as given, as on a URL already on its main host.
     return `${mainUrl}${url.hash}`
   }
@@ -1629,6 +1663,11 @@ const createTable = <const Row extends UrlRow>(
 
     if (!builtUrl || !parsedMainUrl) {
       return
+    }
+
+    // A reserved value holds the query, which stays as the value writes it.
+    if (main.reservedName !== undefined) {
+      return builtUrl
     }
 
     const queryStart = builtUrl.includes('?') ? builtUrl.indexOf('?') : builtUrl.length

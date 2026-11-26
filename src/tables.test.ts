@@ -547,6 +547,20 @@ const commitFiles = defineTable([
   { key: 'file', main: 'https://example.com{/project*}/-/commits/{branch}{/file*}' },
 ])
 
+const snapshots = defineTable(
+  [
+    {
+      key: 'snapshot',
+      main: 'https://archive.example.com/web/{time}/{+url}',
+      aliases: ['https://old.example.com/wayback/{time}/{+url}'],
+    },
+    { key: 'status', main: 'https://archive.example.com/web/{time}/status' },
+    { key: 'reader', main: 'https://reader.example.com/{+url}' },
+    { key: 'proxy', main: '{scheme}://{host}{/base*}/proxy/{+url}' },
+  ],
+  { checks: { time: digitsRegex } },
+)
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -3529,6 +3543,179 @@ describe('defineTable', () => {
       const expected = 'https://example.com/data/rss?tag=R%26D%20100%25'
 
       expect(tags.buildUrl('tag-feed', value)).toBe(expected)
+    })
+  })
+
+  describe('with a reserved value', () => {
+    it('should read the rest of the URL as written, its query and fragment included', () => {
+      const value = 'https://archive.example.com/web/2020/https://example.com/a%20b/?b=2&a=1#top'
+      const expected = {
+        time: '2020',
+        url: 'https://example.com/a%20b/?b=2&a=1#top',
+      }
+      const match = snapshots.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL written as the row writes it as exact', () => {
+      const value = 'https://archive.example.com/web/2020/https://example.com/feed?page=2'
+      const match = snapshots.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should read a value right behind the host', () => {
+      const value = 'https://reader.example.com/https://example.com/feed.xml?page=2'
+      const expected = {
+        url: 'https://example.com/feed.xml?page=2',
+      }
+      const match = snapshots.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should keep an encoded question mark apart from the query', () => {
+      const value = 'https://reader.example.com/https://example.com/a%3Fb'
+      const expected = {
+        url: 'https://example.com/a%3Fb',
+      }
+      const match = snapshots.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a row without the value before the one with it', () => {
+      const value = 'https://archive.example.com/web/2020/status'
+      const expected = 'status'
+      const match = snapshots.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a URL with nothing behind the path', () => {
+      const value = 'https://archive.example.com/web/2020/'
+
+      expect(snapshots.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a site with nothing behind its root', () => {
+      const value = 'https://reader.example.com/'
+
+      expect(snapshots.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read the value behind a base on any host', () => {
+      const value = 'https://example.org/tools/proxy/https://example.com/feed?page=2'
+      const expected = {
+        url: 'https://example.com/feed?page=2',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['tools'],
+      }
+      const match = snapshots.readUrl(value, { isAnyHost: true })
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build the value with its reserved characters kept', () => {
+      const value = {
+        time: '2020',
+        url: 'https://example.com/a%20b/?b=2&a=1#top',
+      }
+      const expected = 'https://archive.example.com/web/2020/https://example.com/a%20b/?b=2&a=1#top'
+
+      expect(snapshots.buildUrl('snapshot', value)).toBe(expected)
+    })
+
+    it('should build the value the same under strict encoding', () => {
+      const value = {
+        url: "https://example.com/it's(new)!?q=a+b",
+      }
+      const expected = "https://reader.example.com/https://example.com/it's(new)!?q=a+b"
+
+      expect(snapshots.buildUrl('reader', value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should encode a character outside the reserved and unreserved sets', () => {
+      const value = {
+        url: 'a b|"c"é[1]',
+      }
+      const expected = 'https://reader.example.com/a%20b%7C%22c%22%C3%A9[1]'
+
+      expect(snapshots.buildUrl('reader', value)).toBe(expected)
+    })
+
+    it('should keep an escape and encode a bare percent sign', () => {
+      const value = {
+        url: '100%/%41%zz',
+      }
+      const expected = 'https://reader.example.com/100%25/%41%25zz'
+
+      expect(snapshots.buildUrl('reader', value)).toBe(expected)
+    })
+
+    it('should build a list as its items joined by commas', () => {
+      const value = {
+        url: ['a,b', 'c'],
+      }
+      const expected = 'https://reader.example.com/a,b,c'
+
+      expect(snapshots.buildUrl('reader', value)).toBe(expected)
+    })
+
+    it('should return undefined for a value that would move the URL to another path', () => {
+      const value = {
+        url: '../admin',
+      }
+
+      expect(snapshots.buildUrl('reader', value)).toBeUndefined()
+    })
+
+    it('should return undefined for an empty value', () => {
+      const value = {
+        url: '',
+      }
+
+      expect(snapshots.buildUrl('reader', value)).toBeUndefined()
+    })
+
+    it('should build the value under a site and its base', () => {
+      const value = {
+        base: ['tools'],
+        url: 'https://example.com/feed?page=2',
+      }
+      const expected = 'https://example.org/tools/proxy/https://example.com/feed?page=2'
+      const site = snapshots.forSite('https://example.org/tools/')
+
+      expect(site?.buildUrl('proxy', value)).toBe(expected)
+    })
+
+    it('should rewrite an alias to the main URL with the query left in its order', () => {
+      const value = 'http://old.example.com/wayback/2020/https://example.com/feed?b=2&a=1#top'
+      const expected = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1#top'
+
+      expect(snapshots.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite an alias the same under strict encoding', () => {
+      const value = 'https://old.example.com/wayback/2020/https://example.com/feed?b=2&a=1'
+      const expected = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1'
+
+      expect(snapshots.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should return undefined for a main URL whose query is not sorted', () => {
+      const value = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1'
+
+      expect(snapshots.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should rewrite a main URL under http with the value as written', () => {
+      const value = 'http://archive.example.com/web/2020/https://example.com/feed?b=2&a=1#top'
+      const expected = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1#top'
+
+      expect(snapshots.getMainUrl(value)).toBe(expected)
     })
   })
 

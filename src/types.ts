@@ -12,7 +12,8 @@ export type UrlRow<Key extends string = string> = {
   // The row's URL. `{name}` is one host label, path segment or query value, `{scheme}` the page's
   // scheme, `{/name*}` one or more path segments, `{/base*}` behind the host the folder the site
   // sits in, and `{/tail*}` at the end of the path any segments. The base and the tail may be
-  // empty. A `{host}` row of a table without hosts reads only on any host.
+  // empty. `{+name}` as the last path segment is the rest of the URL, its query and fragment
+  // included. A `{host}` row of a table without hosts reads only on any host.
   main: string
   // Other URLs that serve the same thing, such as a legacy host, written as `main` is.
   aliases?: Array<string>
@@ -127,7 +128,7 @@ type QueryName = `?${string}`
 
 type ValueName<Name> = Name extends `/${infer Bare extends string}*`
   ? Bare
-  : Name extends `?${infer Bare extends string}`
+  : Name extends `${'?' | '+'}${infer Bare extends string}`
     ? Bare
     : Name extends string
       ? Name

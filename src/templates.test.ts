@@ -3,7 +3,8 @@ import { defineTable } from './tables.js'
 import { parseTemplate } from './templates.js'
 
 const unsupportedExpressions = [
-  '{+path}',
+  '{+path,x}',
+  '{+path*}',
   '{#section}',
   '{.format}',
   '{;id}',
@@ -20,6 +21,19 @@ const misplacedQueryTemplates: Array<string> = [
   'https://example.com/feed?alt=rss{?page}',
   'https://example.com/feed{?page}/more',
   'https://example.com/feeds{/path*}{?path}',
+]
+
+// A reserved value is the last path segment of a template with no list and no query.
+const misplacedReservedTemplates: Array<[string, string]> = [
+  ['https://example.com/{+path}/feed', '{+path}'],
+  ['https://example.com/feed-{+path}', '{+path}'],
+  ['https://example.com/feed//{+path}', '{+path}'],
+  ['https://example.com/feed?url={+url}', '{+url}'],
+  ['https://example.com/feed?alt=rss/{+url}', '{+url}'],
+  ['https://example.com{/options*}/{+url}', '{+url}'],
+  ['https://example.com/{user}{/tail*}/{+url}', '{+url}'],
+  ['https://example.com/{+url}{?page}', '{+url}'],
+  ['https://example.com/{+first}/{+second}', '{+first}'],
 ]
 
 const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
@@ -90,6 +104,31 @@ describe('parseTemplate', () => {
     expect(throwing).toThrow(
       `The template ${value} writes ${expression}, an operator or modifier no template takes`,
     )
+  })
+
+  it.each(misplacedReservedTemplates)(
+    'should throw for the misplaced reserved value of %s',
+    (value, expression) => {
+      const throwing = () => parseTemplate(value)
+
+      expect(throwing).toThrow(
+        `The template ${value} writes ${expression} elsewhere than as its last path segment, or beside a list or a query`,
+      )
+    },
+  )
+
+  it('should throw for a reserved value named as a placeholder of the template', () => {
+    const value = 'https://example.com/{url}/{+url}'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow('Not a URL template: https://example.com/{url}/{+url}')
+  })
+
+  it('should read a reserved value behind the base as the name it writes', () => {
+    const value = '{scheme}://{host}{/base*}/proxy/{+url}'
+    const expected = 'url'
+
+    expect(parseTemplate(value).reservedName).toBe(expected)
   })
 
   it('should throw for the old spelling of a passed query, naming no new one', () => {
@@ -268,6 +307,7 @@ describe('defineTable with the URI Templates spelling', () => {
     { key: 'repo', main: 'https://example.com/{owner}{/tail*}' },
     { key: 'search', main: 'https://example.com/search{?q}' },
     { key: 'feed', main: 'https://example.com/feed?alt=rss{&page,limit}' },
+    { key: 'proxy', main: 'https://proxy.example.com/{+url}' },
   ])
 
   it('should type a list as its segments', () => {
@@ -277,6 +317,15 @@ describe('defineTable with the URI Templates spelling', () => {
     const path: Array<string> | undefined = match?.key === 'docs' ? match.values.path : undefined
 
     expect(path).toEqual(expected)
+  })
+
+  it('should type a reserved value as a string under its name', () => {
+    const value = 'https://proxy.example.com/https://example.org/feed'
+    const expected = 'https://example.org/feed'
+    const match = table.readUrl(value)
+    const url: string | undefined = match?.key === 'proxy' ? match.values.url : undefined
+
+    expect(url).toBe(expected)
   })
 
   it('should leave the open tail out of the values', () => {
