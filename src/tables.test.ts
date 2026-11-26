@@ -601,6 +601,16 @@ const checkedImages = defineTable(
   { checks: { options: optionsRegex, source: sourceRegex } },
 )
 
+const subdomainRegex = /^example\.(?:de|fr)$/
+
+const subdomainPlayers = defineTable(
+  [
+    { key: 'embed', main: 'https://{host}/embed/{id}' },
+    { key: 'feed', main: '{scheme}://{host}/feed' },
+  ],
+  { hosts: { subdomain: ['example.com', subdomainRegex, (host) => host === 'example.org'] } },
+)
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -4021,6 +4031,109 @@ describe('defineTable', () => {
       expect(throwing).toThrow(
         'The image row writes options in front of source with a check on neither, so the two are split by a guess',
       )
+    })
+  })
+
+  describe('with subdomain hosts', () => {
+    it('should read a URL on the domain itself', () => {
+      const value = 'https://example.com/embed/42'
+      const expected = {
+        host: 'example.com',
+        id: '42',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL on a host one label under the domain', () => {
+      const value = 'https://www.example.com/embed/42'
+      const expected = {
+        host: 'www.example.com',
+        id: '42',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL on a host several labels under the domain', () => {
+      const value = 'https://player.eu.example.com/embed/42'
+      const expected = {
+        host: 'player.eu.example.com',
+        id: '42',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a host in any letter case, with its port', () => {
+      const value = 'https://Player.Example.com:8080/feed'
+      const expected = {
+        host: 'player.example.com:8080',
+        scheme: 'https',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a host under a domain a pattern takes', () => {
+      const value = 'https://player.example.de/embed/42'
+      const expected = {
+        host: 'player.example.de',
+        id: '42',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a host under a domain a function takes', () => {
+      const value = 'https://player.example.org/embed/42'
+      const expected = {
+        host: 'player.example.org',
+        id: '42',
+      }
+      const match = subdomainPlayers.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a host that only ends in the letters of the domain', () => {
+      const value = 'https://notexample.com/embed/42'
+
+      expect(subdomainPlayers.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a host that holds the domain in front of another', () => {
+      const value = 'https://example.com.example.net/embed/42'
+
+      expect(subdomainPlayers.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a host under a domain the function refuses', () => {
+      const value = 'https://player.example.net/embed/42'
+
+      expect(subdomainPlayers.readUrl(value)).toBeUndefined()
+    })
+
+    it('should build a URL on a host under the domain', () => {
+      const value = {
+        id: '42',
+      }
+      const expected = 'https://player.eu.example.com/embed/42'
+      const site = subdomainPlayers.forSite('https://player.eu.example.com/watch')
+
+      expect(site?.buildUrl('embed', value)).toBe(expected)
+    })
+
+    it('should rewrite a URL under http on a host under the domain', () => {
+      const value = 'http://player.eu.example.com/embed/42'
+      const expected = 'https://player.eu.example.com/embed/42'
+
+      expect(subdomainPlayers.getMainUrl(value)).toBe(expected)
     })
   })
 

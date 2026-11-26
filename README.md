@@ -201,7 +201,7 @@ Rows are read most specific first: a template without `{/tail*}` before one with
 
 ### Hosts
 
-`hosts.exact` lists the hosts a `{host}` placeholder stands for, and `hosts.tenant` the domains that `{domain}` stands for and that tenants live under. An entry is a string, a pattern anchored at both ends, or a function that takes a host. A fixed host matches with or without `www`.
+`hosts.exact` lists the hosts a `{host}` placeholder stands for, and `hosts.tenant` the domains that `{domain}` stands for and that tenants live under. `hosts.subdomain` lists domains that `{host}` stands for together with every host under them, so `example.com` covers `player.eu.example.com` too. An entry is a string, a pattern anchored at both ends, or a function that takes a host. A fixed host matches with or without `www`.
 
 ### Limits
 
@@ -237,7 +237,7 @@ Compiles the rows and returns a table. A template it can't read throws here, so 
 
 ```typescript
 const table = defineTable(rows, {
-  hosts: { exact: ['example.com'], tenant: ['example.org'] },
+  hosts: { exact: ['example.com'], tenant: ['example.org'], subdomain: ['example.net'] },
   // A check per placeholder: a pattern anchored at both ends, or a function.
   checks: { id: /^\d+$/, locale: (value) => value.length === 2 },
   // Values read in any letter case, which a main URL writes in lowercase.
