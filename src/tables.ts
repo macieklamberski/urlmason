@@ -41,6 +41,7 @@ import {
   dotSegmentRegex,
   encodeLiteral,
   isMultiSegment,
+  type ListSplit,
   type MapText,
   mapTemplate,
   openTailName,
@@ -431,7 +432,17 @@ const compileRowTemplate = (
         names: built.names.filter((name) => name !== 'base*'),
       }
     : built
-  const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
+  const { scheme, host, path, isOpen, names, reservedNames, restName, listSplit } = parsed
+  const hasSplitCheck = [listSplit?.list, listSplit?.reserved].some((name) => {
+    return name !== undefined && (checks[name] ?? rowChecks[name]) !== undefined
+  })
+
+  // A list in front of a reserved value shares its segments with it, and only a check tells where
+  // one ends.
+  if (listSplit && !hasSplitCheck) {
+    throw new Error(t(locales.errors.uncheckedListSplit, { key, ...listSplit }))
+  }
+
   // A reserved value that ends a template takes whatever follows, as an open tail does.
   const isOpenEnded = isOpen || restName !== undefined
   const rest = `${host}${path}${parsed.search ?? ''}`
@@ -668,14 +679,35 @@ const compileRowTemplate = (
   const openDepth = splitPath(path).length - (restName === undefined ? 0 : 1)
   // A reserved value is read as the URL spells it, so a URL it holds stays that URL: the text its
   // match took, and for the one that ends the template the query and the fragment behind it too.
+  const readWritten = (
+    tableUrl: TableUrl,
+    name: string,
+    range: [number, number],
+  ): string | undefined => {
+    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
+    const hostLength = tableUrl.hostname.length
+    const start = toWrittenOffset(writtenPath, range[0] - hostLength)
+    const end = toWrittenOffset(writtenPath, range[1] - hostLength)
+
+    // A match that ends inside a character as written has no text of its own there.
+    if (start === undefined || end === undefined) {
+      return
+    }
+
+    if (name !== restName) {
+      return writtenPath.slice(start, end)
+    }
+
+    const { pairs, hash } = readQuery(tableUrl)
+
+    return `${writtenPath.slice(start)}${writeQuery(pairs)}${hash}`
+  }
+
   const readReserved = (
     match: RegExpExecArray,
     tableUrl: TableUrl,
     params: Record<string, UrlValue>,
   ): boolean => {
-    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
-    const hostLength = tableUrl.hostname.length
-
     for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
       const name = getCaptured(group)?.name
 
@@ -683,26 +715,58 @@ const compileRowTemplate = (
         continue
       }
 
-      const start = toWrittenOffset(writtenPath, range[0] - hostLength)
-      const end = toWrittenOffset(writtenPath, range[1] - hostLength)
+      const value = readWritten(tableUrl, name, range)
 
-      // A match that ends inside a character as written has no text of its own there.
-      if (start === undefined || end === undefined) {
+      if (value === undefined) {
         return false
       }
 
-      if (name !== restName) {
-        params[name] = writtenPath.slice(start, end)
-
-        continue
-      }
-
-      const { pairs, hash } = readQuery(tableUrl)
-
-      params[name] = `${writtenPath.slice(start)}${writeQuery(pairs)}${hash}`
+      params[name] = value
     }
 
     return true
+  }
+
+  // Each split of the segments a list and the reserved value behind it share is tried, the fewest
+  // list segments first, and the first one every check passes is read.
+  const readListSplit = (
+    split: ListSplit,
+    match: RegExpExecArray,
+    tableUrl: TableUrl,
+    params: Record<string, UrlValue>,
+  ): Record<string, UrlValue> => {
+    const findRange = (name: string): [number, number] | undefined => {
+      const ranges = Object.entries(match.indices?.groups ?? {})
+
+      return ranges.find(([group, range]) => range && getCaptured(group)?.name === name)?.[1]
+    }
+    const listRange = findRange(split.list)
+    const reservedRange = findRange(split.reserved)
+
+    if (!listRange || !reservedRange) {
+      return params
+    }
+
+    const segments = match.input.slice(listRange[0], reservedRange[1]).split('/')
+
+    for (const count of segments.keys()) {
+      const listSegments = segments.slice(0, count)
+      const start = listRange[0] + listSegments.join('/').length + 1
+      const list = listSegments.filter((segment) => segment).map(decodePercent)
+      const reserved = readWritten(tableUrl, split.reserved, [start, reservedRange[1]])
+
+      if (list.length === 0 || !reserved) {
+        continue
+      }
+
+      const candidate = { ...params, [split.list]: list, [split.reserved]: reserved }
+
+      if (passesChecks(candidate)) {
+        return candidate
+      }
+    }
+
+    return params
   }
 
   const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
@@ -748,7 +812,7 @@ const compileRowTemplate = (
       Object.assign(params, base)
     }
 
-    return params
+    return listSplit ? readListSplit(listSplit, match, tableUrl, params) : params
   }
 
   // A name the template holds twice reads one value, so two different ones read nothing.

@@ -573,6 +573,30 @@ const files = defineTable([
   { key: 'keyed', main: 'https://keyed.example.com/{+path}/get?key={key}' },
 ])
 
+const sourceRegex = /^https?:\/\/\S+$/
+// Options that end in the one every URL closes them with.
+const optionsRegex = /^(?:[a-z]+=\w+\/)*fit$/
+
+const images = defineTable(
+  [
+    {
+      key: 'image',
+      main: 'https://cdn.example.com{/options*}/{+source}',
+      aliases: ['https://old.example.com/img{/options*}/{+source}'],
+    },
+    { key: 'proxied', main: '{scheme}://{host}{/base*}/cdn{/options*}/{+source}' },
+  ],
+  { checks: { source: sourceRegex } },
+)
+
+const sizedImages = defineTable([
+  {
+    key: 'image',
+    main: 'https://cdn.example.com{/options*}/{+source}',
+    checks: { options: (value) => optionsRegex.test(value) },
+  },
+])
+
 const openPages = defineTable([
   { key: 'user', main: 'https://example.com/{owner}{/tail*}' },
   { key: 'repo', main: 'https://example.com/{owner}/{repo}{/tail*}' },
@@ -3867,6 +3891,104 @@ describe('defineTable', () => {
       const expected = 'https://example.com/raw/a%20b/c/feed.xml#top'
 
       expect(files.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with a list in front of a reserved value', () => {
+    it('should read one list segment where the value behind it passes its check', () => {
+      const value = 'https://cdn.example.com/w=100/https://example.org/a.jpg?v=1'
+      const expected = {
+        options: ['w=100'],
+        source: 'https://example.org/a.jpg?v=1',
+      }
+      const match = images.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read more list segments until the value behind them passes its check', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/fit/https://example.org/a/b.jpg#top'
+      const expected = {
+        options: ['w=100', 'h=50', 'fit'],
+        source: 'https://example.org/a/b.jpg#top',
+      }
+      const match = images.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the fewest list segments of two splits that pass', () => {
+      const value = 'https://cdn.example.com/w=1/https://example.org/https://example.net/a'
+      const expected = {
+        options: ['w=1'],
+        source: 'https://example.org/https://example.net/a',
+      }
+      const match = images.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should split by a check of the list, given as a function', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/fit/example.org/a=b/c.jpg'
+      const expected = {
+        options: ['w=100', 'h=50', 'fit'],
+        source: 'example.org/a=b/c.jpg',
+      }
+      const match = sizedImages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the split behind a base on any host', () => {
+      const value = 'https://example.org/tools/cdn/w=1/q=2/https://example.net/a'
+      const expected = {
+        options: ['w=1', 'q=2'],
+        source: 'https://example.net/a',
+        scheme: 'https',
+        host: 'example.org',
+        base: ['tools'],
+      }
+      const match = images.readUrl(value, { isAnyHost: true })
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined where no split passes the checks', () => {
+      const value = 'https://cdn.example.com/w=100/h=50/example.org/a.jpg'
+
+      expect(images.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value with no list segment in front of it', () => {
+      const value = 'https://cdn.example.com/https://example.org/a.jpg'
+
+      expect(images.readUrl(value)).toBeUndefined()
+    })
+
+    it('should build the list in front of the value', () => {
+      const value = {
+        options: ['w=100', 'h=50'],
+        source: 'https://example.org/a.jpg?v=1',
+      }
+      const expected = 'https://cdn.example.com/w=100/h=50/https://example.org/a.jpg?v=1'
+
+      expect(images.buildUrl('image', value)).toBe(expected)
+    })
+
+    it('should rewrite an alias to the main URL with the split it read', () => {
+      const value = 'https://old.example.com/img/w=100/h=50/https://example.org/a.jpg?b=2&a=1'
+      const expected = 'https://cdn.example.com/w=100/h=50/https://example.org/a.jpg?b=2&a=1'
+
+      expect(images.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should throw for a list and a value behind it with a check on neither', () => {
+      const value = [{ key: 'image', main: 'https://cdn.example.com{/options*}/{+source}' }]
+      const throwing = () => defineTable(value)
+
+      expect(throwing).toThrow(
+        'The image row writes options in front of source with a check on neither, so the two are split by a guess',
+      )
     })
   })
 

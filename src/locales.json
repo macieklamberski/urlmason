@@ -14,6 +14,7 @@
     "unsupportedPassedQuery": "The template {{template}} writes {{expression}}, a passed query, which no template takes",
     "oldTemplateSpelling": "The template {{template}} writes {{expression}}, which is spelled {{spelling}}",
     "misplacedReserved": "The template {{template}} writes {{expression}} outside its path, or beside a list or an open tail",
+    "uncheckedListSplit": "The {{key}} row writes {{list}} in front of {{reserved}} with a check on neither, so the two are split by a guess",
     "mixedListName": "The {{key}} row writes {{name}} as one value, which another template writes as a list",
     "unbalancedBrace": "The template {{template}} writes a brace outside a complete expression"
   }

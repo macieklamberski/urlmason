@@ -205,7 +205,7 @@ Rows are read most specific first: a template without `{/tail*}` before one with
 
 ### Limits
 
-A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists or two `{+name}` values.
+A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists, two `{+name}` values, or a list and a `{+name}`.
 
 ## Encoding
 
@@ -225,7 +225,8 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - Query pairs are written sorted by name, so one URL has one spelling.
 - `{?a,b}` ends a URL with no query, and `{&a,b}` one behind a query.
 - A list slot given an empty list builds no URL, so a missing value never builds a URL that names nothing.
-- `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings, and sits beside no list.
+- `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings.
+- A list right in front of a `{+x}`, as `{/options*}/{+source}`, shares its segments with it. A read tries each split, the fewest list segments first, and takes the first one every check passes, so a table throws where neither of the two has a check.
 - Operators beyond these, such as `{#x}`, `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API
