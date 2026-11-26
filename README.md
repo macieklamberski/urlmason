@@ -181,7 +181,7 @@ const pages = defineTable(
 )
 ```
 
-Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as an Atom and an RSS spelling of one feed, and a build uses the first one the values fill.
+Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
 
 ### Hosts
 
@@ -239,11 +239,11 @@ Returns the row a URL is and its values, or `undefined`. `isAlias` says the URL 
 
 ### `table.buildUrl(key, values, options?)`
 
-Builds the first URL of the key's rows that the values fill, or `undefined`. A value that would move the URL to another path, scheme or host returns `undefined`. `{ select }` limits the rows to the ones a function picks, and `{ encoding }` picks the spelling.
+Builds the first URL the values fill, or `undefined`. The key's rows are tried in order, each row's main URL before its aliases. A value that would move the URL to another path, scheme or host returns `undefined`. `{ select }` limits the rows to the ones a function picks, and `{ encoding }` picks the spelling.
 
 ### `table.buildUrls(key, values, options?)`
 
-Builds every spelling of the first row the values fill: its main URL, then each alias.
+Builds every spelling the values fill of the first row that has one: its main URL, then each alias.
 
 ### `table.getMainUrl(url, options?)`
 
