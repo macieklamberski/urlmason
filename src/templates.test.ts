@@ -23,17 +23,21 @@ const misplacedQueryTemplates: Array<string> = [
   'https://example.com/feeds{/path*}{?path}',
 ]
 
-// A reserved value is the last path segment of a template with no list and no query.
+// A reserved value sits in the path, beside no list but the base and no open tail.
 const misplacedReservedTemplates: Array<[string, string]> = [
-  ['https://example.com/{+path}/feed', '{+path}'],
-  ['https://example.com/feed-{+path}', '{+path}'],
-  ['https://example.com/feed//{+path}', '{+path}'],
+  ['https://{+host}/feed', '{+host}'],
   ['https://example.com/feed?url={+url}', '{+url}'],
   ['https://example.com/feed?alt=rss/{+url}', '{+url}'],
   ['https://example.com{/options*}/{+url}', '{+url}'],
-  ['https://example.com/{user}{/tail*}/{+url}', '{+url}'],
-  ['https://example.com/{+url}{?page}', '{+url}'],
-  ['https://example.com/{+first}/{+second}', '{+first}'],
+  ['https://example.com/{+url}{/options*}', '{+url}'],
+  ['https://example.com/{+url}{/tail*}', '{+url}'],
+  ['{scheme}://{host}{/base*}{/options*}/{+url}', '{+url}'],
+]
+
+const repeatedReservedTemplates: Array<string> = [
+  'https://example.com/{url}/{+url}',
+  'https://example.com/{+url}/-/{+url}',
+  'https://example.com/{+url}{?url}',
 ]
 
 const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
@@ -112,23 +116,37 @@ describe('parseTemplate', () => {
       const throwing = () => parseTemplate(value)
 
       expect(throwing).toThrow(
-        `The template ${value} writes ${expression} elsewhere than as its last path segment, or beside a list or a query`,
+        `The template ${value} writes ${expression} outside its path, or beside a list or an open tail`,
       )
     },
   )
 
-  it('should throw for a reserved value named as a placeholder of the template', () => {
-    const value = 'https://example.com/{url}/{+url}'
-    const throwing = () => parseTemplate(value)
+  it.each(repeatedReservedTemplates)(
+    'should throw for the reserved value of %s, named twice',
+    (value) => {
+      const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow('Not a URL template: https://example.com/{url}/{+url}')
-  })
+      expect(throwing).toThrow(`Not a URL template: ${value}`)
+    },
+  )
 
-  it('should read a reserved value behind the base as the name it writes', () => {
+  it('should read a reserved value that ends a template behind the base as the rest', () => {
     const value = '{scheme}://{host}{/base*}/proxy/{+url}'
     const expected = 'url'
 
-    expect(parseTemplate(value).reservedName).toBe(expected)
+    expect(parseTemplate(value).restName).toBe(expected)
+  })
+
+  it('should read a reserved value in front of fixed text as no rest', () => {
+    const value = 'https://example.com/{+path}/feed.xml'
+
+    expect(parseTemplate(value).restName).toBeUndefined()
+  })
+
+  it('should read a reserved value in front of a query as no rest', () => {
+    const value = 'https://example.com/{+path}{?page}'
+
+    expect(parseTemplate(value).restName).toBeUndefined()
   })
 
   it('should throw for the old spelling of a passed query, naming no new one', () => {

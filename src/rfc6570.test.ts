@@ -53,6 +53,7 @@ const builtCases: Array<string> = [
   'Level 1 Examples: {hello}',
   'Level 2 Examples: {+var}',
   'Level 2 Examples: {+hello}',
+  'Level 2 Examples: {+path}/here',
   'Level 3 Examples: {?x,y}',
   'Level 3 Examples: ?fixed=yes{&x}',
   'Level 4 Examples: {list}',

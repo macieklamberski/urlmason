@@ -58,6 +58,7 @@ import {
   toSegments,
   toStrictPair,
   toValueText,
+  toWrittenOffset,
   trailingSlashRegex,
   writeBase,
 } from './templates.js'
@@ -125,8 +126,8 @@ type RowTemplate = {
   // The path segments in front of an open tail or a reserved value, and infinity for a template
   // without one.
   openDepth: number
-  // The value that takes the rest of a URL, as `url` of `/proxy/{+url}`.
-  reservedName?: string
+  // The value that takes the rest of a URL, its query included, as `url` of `/proxy/{+url}`.
+  restName?: string
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -430,9 +431,9 @@ const compileRowTemplate = (
         names: built.names.filter((name) => name !== 'base*'),
       }
     : built
-  const { scheme, host, path, isOpen, names, reservedName } = parsed
-  // A reserved value ends a path as an open tail does: it takes whatever follows.
-  const isOpenEnded = isOpen || reservedName !== undefined
+  const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
+  // A reserved value that ends a template takes whatever follows, as an open tail does.
+  const isOpenEnded = isOpen || restName !== undefined
   const rest = `${host}${path}${parsed.search ?? ''}`
 
   // An open tail anywhere but at the end of the path, as `{/tail*}/feed`, has no end to read it to.
@@ -606,8 +607,10 @@ const compileRowTemplate = (
   const readEndingGuard = toEndingGuard(path.replace(trailingSlashRegex, ''), decodePath)
   const readPathSource = `${readEndingGuard}${compiled.readPathSource}`
   const rawPathSource = `${toEndingGuard(path, encodeLiteral)}${compiled.rawPathSource}`
-  const asGivenRegex = toHostPathRegex(false, readPathSource, 'i')
-  const optionalWwwRegex = toHostPathRegex(true, readPathSource, 'i')
+  // A reserved value is read from where its match sits in the URL.
+  const readFlags = reservedNames.length > 0 ? 'di' : 'i'
+  const asGivenRegex = toHostPathRegex(false, readPathSource, readFlags)
+  const optionalWwwRegex = toHostPathRegex(true, readPathSource, readFlags)
   // Matched on the path as given, with the indices a case mark lowercases.
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
@@ -661,14 +664,45 @@ const compileRowTemplate = (
   // A `{host}` row of a table without hosts serves any site, so nothing in its URL names the
   // platform, and only an any-host read takes it.
   const claimsUrls = !host.includes(hostPlaceholder) || hasHosts
-  const ownSegmentCount = splitPath(path).length
-  // A reserved value is read as the URL spells it, so a URL it holds stays that URL: the path
-  // behind the template's own segments, with the query and the fragment.
-  const readReserved = (tableUrl: TableUrl): string => {
-    const { pairs, hash } = readQuery(tableUrl)
-    const segments = tableUrl.url.pathname.replace(leadingSlashesRegex, '/').split('/')
+  // The segments in front of whatever ends the path open.
+  const openDepth = splitPath(path).length - (restName === undefined ? 0 : 1)
+  // A reserved value is read as the URL spells it, so a URL it holds stays that URL: the text its
+  // match took, and for the one that ends the template the query and the fragment behind it too.
+  const readReserved = (
+    match: RegExpExecArray,
+    tableUrl: TableUrl,
+    params: Record<string, UrlValue>,
+  ): boolean => {
+    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
+    const hostLength = tableUrl.hostname.length
 
-    return `${segments.slice(ownSegmentCount).join('/')}${writeQuery(pairs)}${hash}`
+    for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
+      const name = getCaptured(group)?.name
+
+      if (!range || name === undefined || !reservedNames.includes(name)) {
+        continue
+      }
+
+      const start = toWrittenOffset(writtenPath, range[0] - hostLength)
+      const end = toWrittenOffset(writtenPath, range[1] - hostLength)
+
+      // A match that ends inside a character as written has no text of its own there.
+      if (start === undefined || end === undefined) {
+        return false
+      }
+
+      if (name !== restName) {
+        params[name] = writtenPath.slice(start, end)
+
+        continue
+      }
+
+      const { pairs, hash } = readQuery(tableUrl)
+
+      params[name] = `${writtenPath.slice(start)}${writeQuery(pairs)}${hash}`
+    }
+
+    return true
   }
 
   const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
@@ -705,8 +739,8 @@ const compileRowTemplate = (
       params.scheme = url.protocol.slice(0, -1)
     }
 
-    if (reservedName !== undefined) {
-      params[reservedName] = readReserved(tableUrl)
+    if (reservedNames.length > 0 && !readReserved(match, tableUrl, params)) {
+      return
     }
 
     // A row read under a base sits on the stand-in host, and its checks see the host and base.
@@ -886,9 +920,7 @@ const compileRowTemplate = (
 
       return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
-    const ownPath = fill(path, 'path', encodeLiteral)
-    const reserved = reservedName === undefined ? '' : `/${fill(`{${reservedName}}`, 'path')}`
-    const filledPath = `${ownPath}${reserved}`
+    const filledPath = fill(path, 'path', encodeLiteral)
 
     // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
     if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
@@ -983,8 +1015,8 @@ const compileRowTemplate = (
     getHttpsOrigin,
     passesChecks,
     shape,
-    openDepth: isOpenEnded ? ownSegmentCount : Number.POSITIVE_INFINITY,
-    reservedName,
+    openDepth: isOpenEnded ? openDepth : Number.POSITIVE_INFINITY,
+    restName,
     getUrl,
   }
 }
@@ -1574,7 +1606,7 @@ const createTable = <const Row extends UrlRow>(
     const [main] = compiledRows[template.rowIndex]
     // The query and the fragment behind a reserved value are part of it, and stay as written.
     const reservedRest = `${writeQuery(rawRead.pairs)}${readQuery(tableUrl).hash}`
-    const hasReserved = template.reservedName !== undefined
+    const hasReserved = template.restName !== undefined
     const pairs = hasReserved ? [] : rawRead.pairs.filter((pair) => pair.text)
     // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has
     // one, and never under `isQueryKept: false`.
@@ -1645,7 +1677,7 @@ const createTable = <const Row extends UrlRow>(
 
     // A value the main URL has no place for is left out, its query and fragment with it.
     if (hasReserved) {
-      return main.reservedName === undefined ? mainUrl : `${mainUrl}${reservedRest}`
+      return main.restName === undefined ? mainUrl : `${mainUrl}${reservedRest}`
     }
 
     // The fragment stays as given, as on a URL already on its main host.
@@ -1666,7 +1698,7 @@ const createTable = <const Row extends UrlRow>(
     }
 
     // A reserved value holds the query, which stays as the value writes it.
-    if (main.reservedName !== undefined) {
+    if (main.restName !== undefined) {
       return builtUrl
     }
 
