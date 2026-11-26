@@ -9,6 +9,7 @@ import {
   isPlainObject,
   isSameText,
   isString,
+  omit,
   parseUrl,
   startsWithAnyOf,
   stripWww,
@@ -1467,9 +1468,7 @@ const createTable = <const Row extends UrlRow>(
 
     const row = rows[found.template.rowIndex]
     // The tail is read for the checks alone: no feed is built from it.
-    const params = { ...found.params }
-
-    delete params[openTailName]
+    const params = omit(found.params, [openTailName])
 
     return toMatch({
       key: row.key,
@@ -1567,9 +1566,7 @@ const createTable = <const Row extends UrlRow>(
   // The pairs no row names are spelled strictly too.
   const writeStrictMainUrl = (readBack: FoundTemplate, mainUrl: string): string | undefined => {
     const [main] = compiledRows[readBack.template.rowIndex]
-    const values = { ...readBack.params }
-
-    delete values[openTailName]
+    const values = omit(readBack.params, [openTailName])
 
     const builtUrl = main.getUrl(values, 'strict')
     const parsedMainUrl = parseUrl(mainUrl)
