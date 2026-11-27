@@ -4,10 +4,10 @@ import {
   cutHref,
   decodeQueryValue,
   type HrefParts,
+  isNamed,
   parseQuery,
   type QueryPair,
   readAmpersandEntities,
-  sortPairs,
   toPair,
   toSearchParams,
   writeQuery,
@@ -180,37 +180,29 @@ describe('writeQuery', () => {
   })
 })
 
-describe('sortPairs', () => {
-  it('should sort pairs by name', () => {
-    const value = parseQuery('?type=rss&alt=rss')
-    const expected = '?alt=rss&type=rss'
-    const sorted = sortPairs(value)
+describe('isNamed', () => {
+  it('should take a pair under a name as URLSearchParams reads it', () => {
+    const value = toPair('%61lt=rss')
 
-    expect(writeQuery(sorted)).toBe(expected)
+    expect(isNamed(value, 'alt')).toBe(true)
   })
 
-  it('should keep the order of one name in two cases', () => {
-    const value = parseQuery('?b=2&B=1&a=3')
-    const expected = '?a=3&b=2&B=1'
-    const sorted = sortPairs(value)
+  it('should take a pair under a name with an escape that is no UTF-8 as written', () => {
+    const value = toPair('%FF=rss')
 
-    expect(writeQuery(sorted)).toBe(expected)
+    expect(isNamed(value, '%FF')).toBe(true)
   })
 
-  it('should sort a percent-encoded name as the name it decodes to', () => {
-    const value = parseQuery('?b=2&%61=1')
-    const expected = '?%61=1&b=2'
-    const sorted = sortPairs(value)
+  it('should take a pair under a name in another case', () => {
+    const value = toPair('ALT=rss')
 
-    expect(writeQuery(sorted)).toBe(expected)
+    expect(isNamed(value, ['alt', 'type'])).toBe(true)
   })
 
-  it('should drop an empty pair', () => {
-    const value = parseQuery('?b=2&&a=1&')
-    const expected = '?a=1&b=2'
-    const sorted = sortPairs(value)
+  it('should leave a pair under another name', () => {
+    const value = toPair('type=rss')
 
-    expect(writeQuery(sorted)).toBe(expected)
+    expect(isNamed(value, 'alt')).toBe(false)
   })
 })
 

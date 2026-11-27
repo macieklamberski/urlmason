@@ -22,12 +22,12 @@ import {
   encodeText,
   entityPrefix,
   isEntityPair,
+  isNamed,
   parseQuery,
   type QueryPair,
   readAmpersandEntities,
   readSemicolons,
   readUrlQuery,
-  sortPairs,
   toPair,
   toUrlQuery,
   type UrlQuery,
@@ -147,6 +147,8 @@ type RowTemplate = {
   // The flags whose name holds a value, as `?article{id}`, and whether a pair is one of them.
   nameFlagCount: number
   isFlagPair: (pair: QueryPair) => boolean
+  // The pairs in the order the template writes them, and every other pair behind them as given.
+  orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
   // The value that takes every pair no other part names, as `query` of `{?query*}`.
   passedName?: string
   // Every value the template writes, the names a check or a case mark may give.
@@ -209,12 +211,6 @@ const hostPlaceholder = '{host}'
 // An install sits at most a few segments deep, and each base tried is one more pass over the URL.
 const maxBasePathSegments = 8
 const anyDomainSource = '[^./]+(?:\\.[^./]+)+'
-
-// A pair is under a name as `URLSearchParams` reads it, or with an escape that is no UTF-8 as
-// written, which is how some servers read it.
-const isNamed = (pair: QueryPair, names: string | Array<string>): boolean => {
-  return isAnyOf(pair.name, names) || isAnyOf(pair.sortName, names)
-}
 
 // A placeholder in a template's shape: its name left out, its reach over several segments kept.
 const toShapePlaceholder = (_: string, name: string): string => {
@@ -1189,7 +1185,7 @@ const compileRowTemplate = (
       return
     }
 
-    const writtenPairs = [...pairs, ...keptPairs]
+    const writtenPairs = compiled.orderPairs([...pairs, ...keptPairs])
 
     return {
       base: writeBase(`${origin}${filledPath}`, writtenPairs),
@@ -1291,6 +1287,7 @@ const compileRowTemplate = (
     isFlagPair: (pair) => {
       return !pair.rawValue && compiled.nameFlags.some((flag) => flag.regex.test(pair.name))
     },
+    orderPairs: compiled.orderPairs,
     getUrl,
   }
 }
@@ -1892,7 +1889,7 @@ const createTable = <const Row extends UrlRow>(
         return `${origin ?? url.origin}${rawRead.pathname}${reservedRest}`
       }
 
-      const stayingPairs = sortPairs(
+      const stayingPairs = main.orderPairs(
         pairs.filter((pair) => {
           return isNamed(pair, main.ownNames) || main.isFlagPair(pair) || isKept(pair)
         }),
@@ -1919,8 +1916,7 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    const mainPairs = sortPairs(rawUrl.pairs)
-    const mainUrl = `${rawUrl.base}${writeQuery(mainPairs)}`
+    const mainUrl = `${rawUrl.base}${writeQuery(rawUrl.pairs)}`
 
     // A port the main URL cannot keep, as one on a host it writes itself, leaves the URL as it is.
     if (url.port && parseUrl(mainUrl)?.port !== url.port) {
@@ -1933,7 +1929,7 @@ const createTable = <const Row extends UrlRow>(
     }
 
     // A query of 50,000 pairs under one own name is looked up 50,000 times.
-    const mainTexts = new Set([...mainPairs.map((pair) => pair.text), ...main.flagTexts])
+    const mainTexts = new Set([...rawUrl.pairs.map((pair) => pair.text), ...main.flagTexts])
     const hasOtherValue = pairs.some((pair) => {
       const isMainPair = isNamed(pair, main.ownNames) && !isNamed(pair, template.ownNames)
       const isMainFlag = main.isFlagPair(pair) && !template.isFlagPair(pair)
@@ -1996,7 +1992,7 @@ const createTable = <const Row extends UrlRow>(
         )
       })
       .map(toStrictPair)
-    const pairs = sortPairs([...parseQuery(builtBody.slice(queryStart)), ...keptPairs])
+    const pairs = [...parseQuery(builtBody.slice(queryStart)), ...keptPairs]
     const base = writeBase(builtBody.slice(0, queryStart), pairs)
 
     return `${base}${writeQuery(pairs)}${hash}`

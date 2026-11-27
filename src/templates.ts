@@ -14,10 +14,10 @@ import {
   appendValue,
   encodeText,
   entityPrefix,
+  isNamed,
   nonAsciiRegex,
   parseQuery,
   type QueryPair,
-  sortPairs,
   toPair,
   toSearchParams,
   writeQuery,
@@ -117,6 +117,8 @@ export type ParsedTemplate = {
   fragmentReservedNames: Array<string>
   // The flags whose name holds a value, as `article{id}` of `?article{id}`.
   nameFlags: Array<string>
+  // The names of the query as written, a flag whose name holds a value included.
+  queryOrder: Array<string>
   // The pairs no other part of the template names, as `query` of `{?query*}`.
   passedName?: string
 }
@@ -165,6 +167,8 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   // for a URL read in its own spelling.
   readFragment: (hash: string) => Record<string, UrlValue> | undefined
   readRawFragment: (hash: string) => Record<string, string> | undefined
+  // The pairs in the order the template writes them, and every other pair behind them as given.
+  orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
 }
 
 // A list holds the slash in front of it, `{/name*}`, which the name leaves out.
@@ -891,6 +895,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     fragment,
     fragmentReservedNames,
     nameFlags,
+    queryOrder: entries.map(([name]) => name),
     passedName,
   }
 }
@@ -961,6 +966,28 @@ export const compileTemplate = (
       rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
     }
   })
+  // A pair's place is the first part of the query that takes it: a fixed pair or a flag as
+  // written, then an optional name.
+  const queryParts = [
+    ...parsed.queryOrder.map((name) => {
+      const flag = nameFlags[parsed.nameFlags.indexOf(name)]
+
+      if (!flag) {
+        return (pair: QueryPair) => isNamed(pair, name)
+      }
+
+      return (pair: QueryPair) => !pair.rawValue && flag.regex.test(pair.name)
+    }),
+    ...parsed.optionalNames.map((name) => (pair: QueryPair) => isNamed(pair, name)),
+  ]
+  const toQueryPlace = (pair: QueryPair): number => {
+    const place = queryParts.findIndex((isPart) => isPart(pair))
+
+    return place === -1 ? queryParts.length : place
+  }
+  const orderPairs: CompiledTemplate['orderPairs'] = (pairs) => {
+    return [...pairs].sort((left, right) => toQueryPlace(left) - toQueryPlace(right))
+  }
   const multiSegmentCaptures = Object.fromEntries(
     names.filter(isMultiSegment).map((name) => [name, multiSegmentCapture]),
   )
@@ -1418,7 +1445,7 @@ export const compileTemplate = (
       writtenFragment === undefined
         ? ''
         : `#${fillPlaceholders(writtenFragment, isStrict ? encodeStrict : encodePath)}`
-    const url = `${base}${writeQuery(sortPairs(pairs))}${filledFragment}`
+    const url = `${base}${writeQuery(orderPairs(pairs))}${filledFragment}`
     const parsedUrl = parseUrl(url)
 
     // A scheme or host value can move the URL to another scheme or host that still parses, as the
@@ -1448,5 +1475,6 @@ export const compileTemplate = (
     fill,
     readFragment,
     readRawFragment,
+    orderPairs,
   }
 }
