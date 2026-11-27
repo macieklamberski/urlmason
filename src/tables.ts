@@ -1624,9 +1624,9 @@ const createTable = <const Row extends UrlRow>(
       readableUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
     }
 
-    const hasSemicolon = readableUrl.url.search.includes(';')
+    const hasSemicolon = lenient.semicolon === true && readableUrl.url.search.includes(';')
 
-    if (lenient.semicolon === true && hasSemicolon && takesHostPath()) {
+    if (hasSemicolon && takesHostPath()) {
       const { pairs, hash } = readQuery(readableUrl)
 
       readableUrl = { ...readableUrl, query: toUrlQuery(readSemicolons(pairs), hash) }
