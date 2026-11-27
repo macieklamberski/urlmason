@@ -1068,9 +1068,17 @@ const compileRowTemplate = (
       }
     }
 
-    // A flag whose name holds a value is the first pair with no value its name pattern takes.
+    const isFlagShaped = (pair: QueryPair): boolean => {
+      return !pair.rawValue && compiled.nameFlags.some((flag) => flag.rawRegex.test(pair.rawName))
+    }
+    const flagIndexes = new Set<number>()
+
+    // A flag whose name holds a value is the first pair with no value its name pattern takes that
+    // no earlier flag took.
     for (const flag of compiled.nameFlags) {
-      const index = pairs.findIndex((pair) => !pair.rawValue && flag.rawRegex.test(pair.rawName))
+      const index = pairs.findIndex((pair, pairIndex) => {
+        return !flagIndexes.has(pairIndex) && !pair.rawValue && flag.rawRegex.test(pair.rawName)
+      })
       const flagMatch = index === -1 ? null : flag.rawRegex.exec(pairs[index].rawName)
 
       if (!flagMatch) {
@@ -1085,6 +1093,12 @@ const compileRowTemplate = (
 
       // A flag written with an equals sign and no value, as `?article12=`, is the flag.
       respelledPairs[index] = toPair(respelledName.text)
+      flagIndexes.add(index)
+    }
+
+    // A flag given twice, as `?article12&article13`, is read differently from server to server.
+    if (pairs.some((pair, index) => !flagIndexes.has(index) && isFlagShaped(pair))) {
+      return
     }
 
     if (parsed.fragment !== undefined) {
@@ -1326,8 +1340,11 @@ const createTable = <const Row extends UrlRow>(
       return b.openDepth - a.openDepth
     }
 
-    if (a.ownNames.length !== b.ownNames.length) {
-      return b.ownNames.length + b.nameFlagCount - (a.ownNames.length + a.nameFlagCount)
+    const aNameCount = a.ownNames.length + a.nameFlagCount
+    const bNameCount = b.ownNames.length + b.nameFlagCount
+
+    if (aNameCount !== bNameCount) {
+      return bNameCount - aNameCount
     }
 
     // A template that writes a fragment is read before one that takes any.
@@ -1902,15 +1919,14 @@ const createTable = <const Row extends UrlRow>(
     // A query of 50,000 pairs under one own name is looked up 50,000 times.
     const mainTexts = new Set([...mainPairs.map((pair) => pair.text), ...main.flagTexts])
     const hasOtherValue = pairs.some((pair) => {
-      return (
-        isNamed(pair, main.ownNames) &&
-        !isNamed(pair, template.ownNames) &&
-        !mainTexts.has(main.getWrittenText(pair))
-      )
+      const isMainPair = isNamed(pair, main.ownNames) && !isNamed(pair, template.ownNames)
+      const isMainFlag = main.isFlagPair(pair) && !template.isFlagPair(pair)
+
+      return (isMainPair || isMainFlag) && !mainTexts.has(main.getWrittenText(pair))
     })
 
-    // A parameter the main URL sets, given under another value, is read differently from server
-    // to server.
+    // A parameter or a flag the main URL sets, given under another value, is read differently
+    // from server to server.
     if (hasOtherValue) {
       return
     }
@@ -1952,9 +1968,16 @@ const createTable = <const Row extends UrlRow>(
     const hash = main.hasFragment ? builtUrl.slice(hashStart) : parsedMainUrl.hash
     const builtBody = builtUrl.slice(0, hashStart)
     const queryStart = builtBody.includes('?') ? builtBody.indexOf('?') : builtBody.length
-    // A passed query took every pair the row doesn't name, and the build wrote them.
+    // A passed query took every pair the row doesn't name, and the build wrote them and the flags.
     const keptPairs = parseQuery(parsedMainUrl.search)
-      .filter((pair) => pair.text && !isNamed(pair, main.ownNames) && main.passedName === undefined)
+      .filter((pair) => {
+        return (
+          pair.text &&
+          !isNamed(pair, main.ownNames) &&
+          !main.isFlagPair(pair) &&
+          main.passedName === undefined
+        )
+      })
       .map(toStrictPair)
     const pairs = sortPairs([...parseQuery(builtBody.slice(queryStart)), ...keptPairs])
     const base = writeBase(builtBody.slice(0, queryStart), pairs)
