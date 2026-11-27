@@ -764,10 +764,21 @@ const rowChecked = defineTable(
       main: 'https://example.com/{locale}/docs',
       checks: { locale: regionLocaleRegex },
     },
+    {
+      key: 'archive',
+      main: 'https://example.com/archive{?page}',
+      checks: { page: digitsRegex },
+    },
+    {
+      key: 'section',
+      main: 'https://example.com/{group}/{topic}',
+      aliases: ['http://old.example.com/{group}/{topic}'],
+      checks: { topic: (topic, values) => topic === 'Main' || values.group !== 'news' },
+    },
   ],
   {
     checks: { hash: hexRegex },
-    lenient: { case: ['locale'] },
+    lenient: { case: ['locale', 'group', 'topic'] },
   },
 )
 
@@ -5762,6 +5773,41 @@ describe('defineTable', () => {
     it('should write a value as spelled where the check of the row refuses its lowercase', () => {
       const value = 'http://example.com/en-US/docs'
       const expected = 'https://example.com/en-US/docs'
+
+      expect(rowChecked.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value as spelled in a strict main URL where the check of the row refuses its lowercase', () => {
+      const value = 'http://example.com/en-US/docs'
+      const options = { encoding: 'strict' } as const
+      const expected = 'https://example.com/en-US/docs'
+
+      expect(rowChecked.getMainUrl(value, options)).toBe(expected)
+    })
+
+    it('should build a URL from a value as spelled where the check of the row refuses its lowercase', () => {
+      const value = { locale: 'en-US' }
+      const expected = 'https://example.com/en-US/docs'
+
+      expect(rowChecked.buildUrl('docs', value)).toBe(expected)
+    })
+
+    it('should build a URL from an optional value the check of the row takes', () => {
+      const value = { page: '2' }
+      const expected = 'https://example.com/archive?page=2'
+
+      expect(rowChecked.buildUrl('archive', value)).toBe(expected)
+    })
+
+    it('should build no URL from an optional value the check of the row refuses', () => {
+      const value = { page: 'latest' }
+
+      expect(rowChecked.buildUrl('archive', value)).toBeUndefined()
+    })
+
+    it('should rewrite an alias where the check of the row reads a value the case mark lowercased', () => {
+      const value = 'http://old.example.com/NEWS/Main'
+      const expected = 'https://example.com/news/Main'
 
       expect(rowChecked.getMainUrl(value)).toBe(expected)
     })
