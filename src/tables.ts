@@ -53,6 +53,7 @@ import {
   sharedPartMaxLength,
   splitPath,
   type TemplatePart,
+  toAsciiHost,
   toBareName,
   toLengthGuard,
   toRegexSource,
@@ -66,6 +67,7 @@ import {
 import type {
   UrlEncoding,
   UrlHostCheck,
+  UrlHosts,
   UrlKeyMatch,
   UrlLenient,
   UrlMatch,
@@ -427,6 +429,23 @@ const toEntrySource = (entry: HostEntry): string => {
   }
 
   return isString(entry) ? escapeRegex(entry) : `(?:${entry.source.replace(anchorsRegex, '')})`
+}
+
+// The host strings as a parsed URL spells them, so one written in Unicode or capitals matches.
+const toAsciiHosts = (hosts: UrlHosts | undefined): UrlHosts | undefined => {
+  if (!hosts) {
+    return
+  }
+
+  const toAsciiEntries = (entries: Array<HostEntry> | undefined): Array<HostEntry> | undefined => {
+    return entries?.map((entry) => (isString(entry) ? toAsciiHost(entry) : entry))
+  }
+
+  return {
+    exact: toAsciiEntries(hosts.exact),
+    tenant: toAsciiEntries(hosts.tenant),
+    subdomain: toAsciiEntries(hosts.subdomain),
+  }
 }
 
 const isListedIn = (value: string, entries: Array<HostEntry> = []): boolean => {
@@ -1247,13 +1266,17 @@ const compileRowTemplate = (
 
 const createTable = <const Row extends UrlRow>(
   givenRows: Array<Row>,
-  options: UrlTableOptions = {},
+  givenOptions: UrlTableOptions = {},
 ): TableParts<Row['key'], Row> => {
   type Key = Row['key']
   type Select = (row: Row) => boolean
 
   // The given rows are copied and never written to.
   const rows = givenRows.map((row) => copyRow<Row>(row))
+  const options: UrlTableOptions = {
+    ...givenOptions,
+    hosts: toAsciiHosts(givenOptions.hosts),
+  }
 
   // A case mark in another form than a list, as `case: true` past the types, is no mark.
   const lenient: UrlLenient = {

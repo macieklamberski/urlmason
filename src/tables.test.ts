@@ -672,6 +672,23 @@ const checkedImages = defineTable(
 
 const subdomainRegex = /^example\.(?:de|fr)$/
 
+const unicodeHosts = defineTable(
+  [
+    { key: 'book', main: 'https://bücher.example/{id}' },
+    { key: 'shop', main: 'https://{host}/shop/{id}' },
+    { key: 'blog', main: 'https://{blog}.{domain}/feed' },
+  ],
+  {
+    hosts: {
+      exact: ['läden.example'],
+      subdomain: ['märkte.example'],
+      tenant: ['blogs.bücher.example'],
+    },
+  },
+)
+
+const capitalHosts = defineTable([{ key: 'book', main: 'https://Books.Example.com/{id}' }])
+
 const subdomainPlayers = defineTable(
   [
     { key: 'embed', main: 'https://{host}/embed/{id}' },
@@ -4642,6 +4659,81 @@ describe('defineTable', () => {
       }
 
       expect(performance.now() - startedAt).toBeLessThan(200)
+    })
+  })
+
+  describe('with a host outside ASCII', () => {
+    it('should read a URL on the host of a template as a parser spells it', () => {
+      const value = 'https://xn--bcher-kva.example/42'
+      const expected = 'book'
+      const match = unicodeHosts.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL on the host of a template as written', () => {
+      const value = 'https://bücher.example/42'
+      const expected = 'book'
+      const match = unicodeHosts.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should build a URL on the host of a template in punycode', () => {
+      const value = { id: '42' }
+      const expected = 'https://xn--bcher-kva.example/42'
+
+      expect(unicodeHosts.buildUrl('book', value)).toBe(expected)
+    })
+
+    it('should read a URL on an exact host', () => {
+      const value = 'https://läden.example/shop/42'
+      const expected = {
+        host: 'xn--lden-loa.example',
+        id: '42',
+      }
+      const match = unicodeHosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL on a host under a subdomain entry', () => {
+      const value = 'https://shop.märkte.example/shop/42'
+      const expected = {
+        host: 'shop.xn--mrkte-gra.example',
+        id: '42',
+      }
+      const match = unicodeHosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL on a tenant domain', () => {
+      const value = 'https://alice.blogs.bücher.example/feed'
+      const expected = {
+        blog: 'alice',
+        domain: 'blogs.xn--bcher-kva.example',
+      }
+      const match = unicodeHosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build a URL on a host value as written in punycode', () => {
+      const value = {
+        host: 'läden.example',
+        id: '42',
+      }
+      const expected = 'https://xn--lden-loa.example/shop/42'
+
+      expect(unicodeHosts.buildUrl('shop', value)).toBe(expected)
+    })
+
+    it('should read a URL on the host of a template written in capitals as exact', () => {
+      const value = 'https://books.example.com/42'
+      const match = capitalHosts.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
     })
   })
 
