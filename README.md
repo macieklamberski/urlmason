@@ -341,4 +341,7 @@ Returns `buildUrl` and `buildUrls` with `{scheme}`, `{host}` and `{domain}` fill
 
 ## Thanks
 
-The [uritemplate-test](https://github.com/uri-templates/uritemplate-test) suite checks every build urlmason shares with RFC 6570, and [url-template](https://github.com/bramstein/url-template) checks builds on inputs the suite lacks. Both run in the tests only, since they build URLs and urlmason also reads them.
+- [uritemplate-test](https://github.com/uri-templates/uritemplate-test) suite checks every build urlmason shares with RFC 6570,
+- [url-template](https://github.com/bramstein/url-template) checks builds on inputs the suite lacks.
+
+Both run in the tests only, since they build URLs and urlmason also reads them.
