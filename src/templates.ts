@@ -1224,8 +1224,12 @@ export const compileTemplate = (
       delete values[openTailName]
     }
 
+    // A query value keeps its spaces, as a path and a fragment do, so it reads back as built.
     for (const { name, isFlag, regex } of params) {
-      const [value] = getQueryParamValues(getSearchParams(), name, { preserveEmptyValues: isFlag })
+      const [value] = getQueryParamValues(getSearchParams(), name, {
+        preserveEmptyValues: isFlag,
+        trimValues: false,
+      })
 
       if (value === undefined) {
         return
@@ -1257,7 +1261,7 @@ export const compileTemplate = (
     }
 
     for (const name of parsed.optionalNames) {
-      const [value] = getQueryParamValues(getSearchParams(), name)
+      const [value] = getQueryParamValues(getSearchParams(), name, { trimValues: false })
 
       if (value !== undefined) {
         values[name] = value

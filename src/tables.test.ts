@@ -1124,6 +1124,53 @@ describe('defineTable', () => {
       expect(players.readUrl(value)).toBeUndefined()
     })
 
+    it('should read a query value with the spaces around it', () => {
+      const value = 'https://feeds.example.com/tags.rss?tag=%20news%20'
+      const expected = {
+        tag: ' news ',
+      }
+      const match = spellings.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a query value of one space as the space', () => {
+      const value = 'https://feeds.example.com/tags.rss?tag=%20'
+      const expected = {
+        tag: ' ',
+      }
+      const match = spellings.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query value with the spaces around it', () => {
+      const value = 'https://example.com/@alice/feed.xml?page=%202%20'
+      const expected = {
+        user: 'alice',
+        page: ' 2 ',
+      }
+      const match = keptAliases.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional query name with an empty value as no value', () => {
+      const value = 'https://example.com/@alice/feed.xml?page='
+      const expected = {
+        user: 'alice',
+      }
+      const match = keptAliases.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a flag parameter given a space as its value', () => {
+      const value = 'https://feeds.example.com/list.php?xml=%20'
+
+      expect(flaggedMain.readUrl(value)).toBeUndefined()
+    })
+
     it('should read a URL as not exact when a value the row holds twice is spelled two ways', () => {
       const table = defineTable([{ key: 'item', main: 'https://example.com/{id}/feed?id={id}' }])
       const value = 'https://example.com/Abc/feed?id=abc'
