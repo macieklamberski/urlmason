@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
 import { defineTable } from './tables.js'
-import type { UrlMatch, UrlRow, UrlValue } from './types.js'
+import type { UrlMatch, UrlRow, UrlValue, UrlValues } from './types.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 
@@ -353,6 +353,16 @@ const passedQueries = defineTable([
 const casedPassedQueries = defineTable(
   [{ key: 'search', main: 'https://example.com/search{?query*}' }],
   { lenient: { case: ['query'] } },
+)
+
+const semicolonPassedQueries = defineTable(
+  [{ key: 'search', main: 'https://example.com/search{?query*}' }],
+  { lenient: { semicolon: true } },
+)
+
+const entityPassedQueries = defineTable(
+  [{ key: 'search', main: 'https://example.com/search{?query*}' }],
+  { lenient: { ampersandEntity: true } },
 )
 
 const unkeptPassedQueries = defineTable(
@@ -2675,6 +2685,98 @@ describe('defineTable', () => {
       const expected = 'https://example.com/search?a%20b=it%27s'
 
       expect(passedQueries.buildUrl('search', value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    const takenNames: Array<{ key: 'search' | 'feed' | 'article'; values: UrlValues }> = [
+      {
+        key: 'search',
+        values: {
+          q: 'a',
+          query: {
+            q: 'b',
+          },
+        },
+      },
+      {
+        key: 'feed',
+        values: {
+          query: {
+            alt: 'atom',
+          },
+        },
+      },
+      {
+        key: 'article',
+        values: {
+          id: '12',
+          query: {
+            article5: '',
+          },
+        },
+      },
+    ]
+
+    it.each(takenNames)(
+      'should build no URL whose passed query holds a name the template takes, as %o',
+      ({ key, values }) => {
+        expect(passedQueries.buildUrl(key, values)).toBeUndefined()
+      },
+    )
+
+    it('should build an equals sign in the name of a passed query escaped', () => {
+      const value = {
+        query: {
+          'c=d': '1',
+        },
+      }
+      const expected = 'https://example.com/search?c%3Dd=1'
+
+      expect(passedQueries.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should build a semicolon in a name escaped under the semicolon mark', () => {
+      const value = {
+        query: {
+          'y;z': '2',
+        },
+      }
+      const expected = 'https://example.com/search?y%3Bz=2'
+
+      expect(semicolonPassedQueries.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should build a name that starts with an entity escaped under the entity mark', () => {
+      const value = {
+        query: {
+          'amp;x': '1',
+          a: '2',
+        },
+      }
+      const expected = 'https://example.com/search?a=2&amp%3Bx=1'
+
+      expect(entityPassedQueries.buildUrl('search', value)).toBe(expected)
+    })
+
+    it('should read back a name that starts with an entity the same as built', () => {
+      const value = {
+        query: {
+          'amp;x': '1',
+          a: '2',
+        },
+      }
+      const url = entityPassedQueries.buildUrl('search', value) ?? ''
+      const match = entityPassedQueries.readUrl(url)
+
+      expect(match?.values).toEqual(value)
+    })
+
+    it('should read 600 kB of one name given again and again within a second', () => {
+      const value = `https://example.com/search?${'tag=a&'.repeat(100000)}`
+      const startedAt = performance.now()
+
+      passedQueries.readUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
 
     it('should build a URL read with a passed query back the same', () => {

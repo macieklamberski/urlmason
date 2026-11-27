@@ -15,6 +15,7 @@ import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
   encodeText,
+  entityPrefix,
   nonAsciiRegex,
   parseQuery,
   type QueryPair,
@@ -23,7 +24,7 @@ import {
   toSearchParams,
   writeQuery,
 } from './queries.js'
-import type { UrlEncoding, UrlMap, UrlValue, UrlValues } from './types.js'
+import type { UrlEncoding, UrlLenient, UrlMap, UrlValue, UrlValues } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query' | 'fragment'
 
@@ -922,8 +923,9 @@ export const compileTemplate = (
   parsed: ParsedTemplate,
   pathPatterns: Record<string, string> = {},
   writtenPathPatterns: Record<string, string> = pathPatterns,
-  // Whether a `;` in a query value is escaped, where the table reads it as a separator.
-  isSemicolonEscaped = false,
+  // The marks a table reads a query under, where a `;` or a leading `amp;` written in a name or a
+  // value would split its pair.
+  lenient: Pick<UrlLenient, 'semicolon' | 'ampersandEntity'> = {},
 ): CompiledTemplate => {
   const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
   const captured: Array<Captured> = []
@@ -1121,7 +1123,7 @@ export const compileTemplate = (
   const takenNames = [...parsed.params.map((param) => param.name), ...parsed.optionalNames]
   // The pairs no other part of the template takes, a name given twice as a list of its values.
   const readPassedQuery = (searchParams: URLSearchParams): UrlMap => {
-    const passed: UrlMap = {}
+    const lists = new Map<string, Array<string>>()
 
     for (const [name, value] of searchParams) {
       const isFlag = !value && nameFlags.some((flag) => flag.regex.test(name))
@@ -1130,12 +1132,20 @@ export const compileTemplate = (
         continue
       }
 
-      const prior = passed[name]
+      const list = lists.get(name)
 
-      passed[name] = prior === undefined ? value : [...coerceArray(prior), value]
+      if (!list) {
+        lists.set(name, [value])
+
+        continue
+      }
+
+      list.push(value)
     }
 
-    return passed
+    return Object.fromEntries(
+      [...lists].map(([name, list]) => [name, list.length === 1 ? list[0] : list]),
+    )
   }
 
   // A name the template holds twice keeps the first value read.
@@ -1257,10 +1267,22 @@ export const compileTemplate = (
 
   // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
   const writtenPath = encodeLiteral(path)
+  const isSemicolonEscaped = lenient.semicolon === true
   const encodePrettyQueryValue = (value: string): string => {
     const written = encodeQueryValue(value)
 
     return isSemicolonEscaped ? written.replaceAll(';', '%3B') : written
+  }
+  // A `=` in a name would end it there, and a leading `amp;` reads as `&` under the entity mark.
+  const encodePrettyQueryName = (name: string): string => {
+    const written = encodeText(name).replaceAll('=', '%3D')
+    const escaped = isSemicolonEscaped ? written.replaceAll(';', '%3B') : written
+
+    if (lenient.ampersandEntity === true && escaped.startsWith(entityPrefix)) {
+      return `amp%3B${escaped.slice(entityPrefix.length)}`
+    }
+
+    return escaped
   }
   const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
@@ -1334,7 +1356,7 @@ export const compileTemplate = (
         continue
       }
 
-      const writtenName = isStrict ? encodeStrictValue(name) : encodeText(name)
+      const writtenName = isStrict ? encodeStrictValue(name) : encodePrettyQueryName(name)
       const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodePrettyQueryValue)
 
       pairs.push(toPair(`${writtenName}=${writtenValue}`))
@@ -1348,7 +1370,12 @@ export const compileTemplate = (
       const map = isPlainObject(passed) ? passed : { [passedName]: passed }
 
       for (const [name, item] of toMapEntries(map)) {
-        const writtenName = isStrict ? encodeStrictValue(name) : encodeText(name)
+        // A name the template writes itself, or one a flag takes, would not read back into the map.
+        if (takenNames.includes(name) || nameFlags.some((flag) => flag.regex.test(name))) {
+          return
+        }
+
+        const writtenName = isStrict ? encodeStrictValue(name) : encodePrettyQueryName(name)
         const writtenValue = isStrict ? encodeStrictValue(item) : encodePrettyQueryValue(item)
 
         pairs.push(toPair(`${writtenName}=${writtenValue}`))
