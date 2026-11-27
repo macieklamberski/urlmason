@@ -672,6 +672,24 @@ const checkedImages = defineTable(
 
 const subdomainRegex = /^example\.(?:de|fr)$/
 
+const keptAliases = defineTable([
+  {
+    key: 'user',
+    main: 'https://example.com/@{user}/feed.xml{?page}',
+    aliases: ['https://old.example.com/{user}/feed'],
+  },
+  {
+    key: 'comments',
+    main: 'https://example.com/comments?alt=rss{&page}',
+    aliases: ['https://old.example.com/comments'],
+  },
+  {
+    key: 'search',
+    main: 'https://example.com/search{?query*}',
+    aliases: ['https://old.example.com/search'],
+  },
+])
+
 const unicodeHosts = defineTable(
   [
     { key: 'book', main: 'https://bücher.example/{id}' },
@@ -4659,6 +4677,36 @@ describe('defineTable', () => {
       }
 
       expect(performance.now() - startedAt).toBeLessThan(200)
+    })
+  })
+
+  describe('with an alias whose main URL names a parameter the alias does not', () => {
+    it('should rewrite the alias keeping an optional parameter of the main URL', () => {
+      const value = 'https://old.example.com/alice/feed?page=3'
+      const expected = 'https://example.com/@alice/feed.xml?page=3'
+
+      expect(keptAliases.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite the alias keeping only the parameters the main URL names', () => {
+      const value = 'https://old.example.com/alice/feed?page=3&utm_source=newsletter'
+      const expected = 'https://example.com/@alice/feed.xml?page=3'
+
+      expect(keptAliases.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite the alias keeping a parameter behind the fixed query', () => {
+      const value = 'https://old.example.com/comments?page=3'
+      const expected = 'https://example.com/comments?alt=rss&page=3'
+
+      expect(keptAliases.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite the alias keeping its query as the passed query', () => {
+      const value = 'https://old.example.com/search?tag=news'
+      const expected = 'https://example.com/search?tag=news'
+
+      expect(keptAliases.getMainUrl(value)).toBe(expected)
     })
   })
 

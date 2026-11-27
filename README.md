@@ -102,8 +102,8 @@ feeds.buildUrls('user', { user: 'alice' })
 
 ```typescript
 // The row writes {?page}, so `page` stays and every other query parameter goes:
-feeds.getMainUrl('http://old.example.com/alice/feed?utm_source=newsletter')
-// 'https://example.com/@alice/feed.xml'
+feeds.getMainUrl('http://old.example.com/alice/feed?page=2&utm_source=newsletter')
+// 'https://example.com/@alice/feed.xml?page=2'
 
 // Already the main URL:
 feeds.getMainUrl('https://example.com/@alice/feed.xml')
