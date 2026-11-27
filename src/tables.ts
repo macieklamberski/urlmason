@@ -6,8 +6,8 @@ import {
   isFunction,
   isHostOf,
   isHttpUrl,
+  isLooseMatch,
   isPlainObject,
-  isSameText,
   isString,
   omit,
   parseUrl,
@@ -1615,7 +1615,7 @@ const createTable = <const Row extends UrlRow>(
       const isUnder =
         urlBase.length === basePath.length &&
         urlBase.every((segment, index) => {
-          return isSameText(decodePath(segment), decodePath(basePath[index]))
+          return isLooseMatch(decodePath(segment), decodePath(basePath[index]))
         })
 
       if (!isUnder) {
@@ -1901,7 +1901,7 @@ const createTable = <const Row extends UrlRow>(
       const sourceValue = found.params[name]
 
       if (caseNames.includes(name)) {
-        return isSameValue(value, sourceValue, isSameText)
+        return isSameValue(value, sourceValue, isLooseMatch)
       }
 
       return isSameValue(value, sourceValue, (left, right) => left === right)
