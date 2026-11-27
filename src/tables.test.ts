@@ -2359,6 +2359,8 @@ describe('defineTable', () => {
       { key: 'search', main: 'https://example.com/search?q=tag-{query}' },
       { key: 'docs', main: 'https://example.com/docs{/path*}' },
       { key: 'site', main: '{scheme}://{host}/notes/{title}' },
+      { key: 'list', main: 'https://example.com/lists/{name}{?page,limit}' },
+      { key: 'events', main: 'https://example.com/events?type=rss{&page}' },
     ])
 
     it('should keep the characters a path segment allows when left out', () => {
@@ -2435,6 +2437,33 @@ describe('defineTable', () => {
       const expected = 'https://example.com/search?q=tag-a%20b%21'
 
       expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should write each optional pair of a main URL once', () => {
+      const value = 'http://example.com/lists/news?limit=5&page=2'
+      const expected = 'https://example.com/lists/news?limit=5&page=2'
+
+      expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should write a pair behind a fixed query once', () => {
+      const value = 'http://example.com/events?type=rss&page=2'
+      const expected = 'https://example.com/events?page=2&type=rss'
+
+      expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should write an optional pair once beside empty pairs', () => {
+      const value = 'http://example.com/lists/news?page=2&&'
+      const expected = 'https://example.com/lists/news?page=2'
+
+      expect(notes.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should return undefined for a main URL with optional pairs already spelled strictly', () => {
+      const value = 'https://example.com/lists/news?limit=5&page=2'
+
+      expect(notes.getMainUrl(value, strict)).toBeUndefined()
     })
 
     it('should keep fixed text of a main URL as the template writes it', () => {

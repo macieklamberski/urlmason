@@ -1984,12 +1984,13 @@ const createTable = <const Row extends UrlRow>(
     const hash = main.hasFragment ? builtUrl.slice(hashStart) : parsedMainUrl.hash
     const builtBody = builtUrl.slice(0, hashStart)
     const queryStart = builtBody.includes('?') ? builtBody.indexOf('?') : builtBody.length
-    // A passed query took every pair the row doesn't name, and the build wrote them and the flags.
+    // The build wrote every pair the row names, its optional ones and flags included, and a passed
+    // query took every other pair.
     const keptPairs = parseQuery(parsedMainUrl.search)
       .filter((pair) => {
         return (
           pair.text &&
-          !isNamed(pair, main.ownNames) &&
+          !isNamed(pair, [...main.ownNames, ...main.optionalNames]) &&
           !main.isFlagPair(pair) &&
           main.passedName === undefined
         )
