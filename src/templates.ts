@@ -1,4 +1,5 @@
 import {
+  coerceArray,
   decodePercent,
   encodePathSegment,
   escapeRegex,
@@ -6,9 +7,9 @@ import {
   isHttpUrl,
   isPlainObject,
   isString,
-  omitEmpty,
   parseUrl,
   t,
+  trimArray,
 } from 'trousse'
 import locales from './locales.json' with { type: 'json' }
 import {
@@ -263,7 +264,7 @@ const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue |
   // A list in a slot of one value is written as its items joined by commas, without empty ones, as
   // a list slot drops them, and no item left is no value.
   if (!isMultiSegment(placeholder)) {
-    return Array.isArray(value) ? omitEmpty(value) : value
+    return Array.isArray(value) ? trimArray(value) : value
   }
 
   const segments = toSegments(value)
@@ -507,7 +508,7 @@ const encodeReservedValue = (value: string): string => {
 
 // A reserved value in its slot. A list is its items joined by commas, each item's own kept.
 const encodeReservedSlot = (value: UrlValue): string => {
-  const items = isPlainObject(value) ? toMapItems(value) : [value].flat()
+  const items = isPlainObject(value) ? toMapItems(value) : coerceArray(value)
 
   return items.map(encodeReservedValue).join(',')
 }
@@ -518,7 +519,7 @@ const encodeStrict = (value: string | Array<string>): string => {
 
 // A path decoded segment by segment, so `%40` and `@` compare equal. A decoded `%` and `/` are
 // written back as `%25` and `%2F`, so `%252F` stays apart from `%2F` and no segment splits.
-const decodeSegment = (segment: string): string => {
+const decodeComparableSegment = (segment: string): string => {
   return decodePercent(segment).replaceAll('%', '%25').replaceAll('/', '%2F')
 }
 
@@ -527,7 +528,7 @@ export const decodePath = (path: string): string => {
     return path
   }
 
-  return path.split('/').map(decodeSegment).join('/')
+  return path.split('/').map(decodeComparableSegment).join('/')
 }
 
 // The text at an index of a segment that decodes on its own: a character, or the escapes of one.
@@ -559,7 +560,7 @@ const toWrittenLength = (segment: string, length: number): number | undefined =>
   while (decoded < length && written < segment.length) {
     const unit = toDecodedUnit(segment, written)
 
-    decoded += decodeSegment(unit).length
+    decoded += decodeComparableSegment(unit).length
     written += unit.length
   }
 
@@ -576,7 +577,7 @@ export const toWrittenOffset = (path: string, offset: number): number | undefine
   let decoded = 0
 
   for (const segment of path.split('/')) {
-    const decodedLength = decodeSegment(segment).length
+    const decodedLength = decodeComparableSegment(segment).length
 
     if (offset <= decoded + decodedLength) {
       const length = toWrittenLength(segment, offset - decoded)
