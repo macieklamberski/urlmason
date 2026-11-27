@@ -2,6 +2,7 @@ import { t } from 'trousse'
 import locales from './locales.json' with { type: 'json' }
 import { entityPrefix } from './queries.js'
 import {
+  basePlaceholder,
   isMultiSegment,
   type ListSplit,
   openTailName,
@@ -39,11 +40,20 @@ export type TemplateNames = {
   reservedNames: Array<string>
 }
 
+// The values each template of a table writes, and the names its row checks and case mark give.
+export type CheckNames = {
+  templates: Array<NamedTemplate & { rowIndex: number }>
+  rowCheckNames: Array<Array<string>>
+  caseNames: Array<string>
+}
+
 // A template whose list names every other template of the table must write as a list too.
 export type NamedTemplate = {
   key: string
   names: Array<string>
 }
+
+const hostPlaceholder = '{host}'
 
 const expressionRegex = /\{([^{}]*)\}/g
 const braceRegex = /[{}]/
@@ -62,6 +72,12 @@ const reservedAnywhereRegex = /\{\+[^{}]*\}/
 const fragmentExpressionRegex = /^#\w+$/
 // A list and query names are no part of a fragment.
 const fragmentRefusedRegex = /\{[/?&#]/
+// An expression with the next one right behind it, as `{first}` of `{first}{second}`.
+const adjacentExpressionRegex = /\{([^{}]*)\}(?=\{([^{}]*)\})/g
+// An expression a URL part ends at, the query and the fragment.
+const partExpressionRegex = /^[?&#]/
+// A backreference, as `\1` or `\k<name>`, and a named group, as `(?<name>`.
+const groupReferenceRegex = /(?<!\\)(?:\\\\)*\\(?:[1-9]|k<)|\(\?<(?![=!])/
 
 // The old spellings of the open tail anywhere else and of a passed query.
 const oldTail = '{*}'
@@ -122,6 +138,40 @@ export const validateFragment = (
 
   if (isFragmentRefused || isCutExpression || body.includes('#')) {
     throwInvalidTemplate(template)
+  }
+}
+
+// Two values with no fixed text between them, as `{first}{second}`, are split by a guess no check
+// settles. A list behind a value that takes no slash starts at a slash, and the base at any list.
+export const validateAdjacentValues = (template: string): void => {
+  for (const [expression, body, next] of template.matchAll(adjacentExpressionRegex)) {
+    if (partExpressionRegex.test(next)) {
+      continue
+    }
+
+    const isSlashTaken = body.startsWith('+') || body.startsWith('/')
+
+    if (next.startsWith('/') && (!isSlashTaken || expression === basePlaceholder)) {
+      continue
+    }
+
+    throw new Error(
+      t(locales.errors.adjacentValues, { template, expression: `${expression}{${next}}` }),
+    )
+  }
+}
+
+// `{host}` names the host, so elsewhere it would read the URL's own host.
+export const validateHostNames = (template: string, outsideNames: Array<string>): void => {
+  if (outsideNames.includes('host')) {
+    throw new Error(t(locales.errors.misplacedHostName, { template, expression: hostPlaceholder }))
+  }
+}
+
+// The base is read only on a `{host}` host, so behind any other no URL reads it.
+export const validateBasePlacement = (template: string, host: string, path: string): void => {
+  if (path.startsWith(basePlaceholder) && host !== hostPlaceholder) {
+    throw new Error(t(locales.errors.misplacedBase, { template }))
   }
 }
 
@@ -213,6 +263,39 @@ export const validateCheckRegex = (name: string, check: RegExp): void => {
 
   if (!check.source.startsWith('^') || !check.source.endsWith('$')) {
     throw new Error(t(locales.errors.unanchoredCheckRegex, { name }))
+  }
+
+  validatePatternGroups(name, check)
+}
+
+// A pattern joined with the others reads its groups by number among theirs, and a name may appear
+// once in a pattern, so a backreference or a named group would point at another one.
+export const validatePatternGroups = (name: string, pattern: RegExp): void => {
+  if (groupReferenceRegex.test(pattern.source)) {
+    throw new Error(t(locales.errors.checkRegexGroup, { name }))
+  }
+}
+
+// A case mark or a check of a row for a name no template writes would never run. A check of the
+// table may name more, so one set of checks serves several tables.
+export const validateCheckNames = (names: CheckNames): void => {
+  const tableNames = names.templates.flatMap((template) => template.names)
+  const caseName = names.caseNames.find((name) => !tableNames.includes(name))
+
+  if (caseName !== undefined) {
+    throw new Error(t(locales.errors.unknownCaseName, { name: caseName }))
+  }
+
+  for (const [rowIndex, rowCheckNames] of names.rowCheckNames.entries()) {
+    const rowTemplates = names.templates.filter((template) => template.rowIndex === rowIndex)
+    const rowNames = rowTemplates.flatMap((template) => template.names)
+    const rowName = rowCheckNames.find((name) => !rowNames.includes(name))
+
+    if (rowName !== undefined) {
+      const key = rowTemplates[0]?.key ?? ''
+
+      throw new Error(t(locales.errors.unknownRowCheckName, { key, name: rowName }))
+    }
   }
 }
 

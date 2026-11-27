@@ -216,6 +216,8 @@ A template is a full URL written in the [RFC 6570](https://www.rfc-editor.org/rf
 
 A value may be a string, a list or a map. A list in a slot of one value is written as its items joined by commas, and a map as its names and values joined by commas, as RFC 6570 writes them. A name is a list everywhere in a table or nowhere, so `{/path*}` in one row and `{path}` in another throw when the table is defined, since values read from the first would build the second joined. A row reads a URL only when every value passes its checks, and builds a URL only from values that do.
 
+A template a table could not read back throws when the table is defined. Two values with no fixed text between them, as `{first}{second}`, have no place where one ends, so they throw, while `{slug}-{id}` and a value in front of a list, as `{user}{/tail*}`, read fine. `{host}` outside the host throws, and so does `{/base*}` behind a host other than `{host}`.
+
 ### Rows
 
 ```typescript
@@ -262,7 +264,7 @@ pages.readUrl('https://example.com/login')
 // undefined
 ```
 
-A list that only says yes or no to a value belongs here, in the table. A list that changes the URL, as a map from one name to another, stays in the code that calls the table. A row can add its own `checks` beside the table's, and a function there also gets the row's other values.
+A list that only says yes or no to a value belongs here, in the table. A list that changes the URL, as a map from one name to another, stays in the code that calls the table. A row can add its own `checks` beside the table's, and a function there also gets the row's other values. A row check or a case mark that names a value none of the templates writes throws when the table is defined, while the table's checks may name more, so one set of checks can serve several tables. A pattern with a backreference or a named group throws too, since it is joined with the table's other patterns.
 
 ### Hosts
 

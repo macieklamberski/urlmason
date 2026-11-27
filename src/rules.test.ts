@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  type CheckNames,
   type NamedTemplate,
   type ReservedPlacement,
   type TemplateNames,
+  validateAdjacentValues,
+  validateBasePlacement,
   validateCaseMark,
+  validateCheckNames,
   validateCheckRegex,
   validateEntityNames,
   validateExpressions,
   validateFragment,
+  validateHostNames,
   validateListNames,
   validateListSplit,
   validateOpenTail,
   validateOpenTailPlacement,
   validateOptionalPlacement,
   validateParamNames,
+  validatePatternGroups,
   validateQueryPlaceholders,
   validateQueryValueNames,
   validateReservedNames,
@@ -26,10 +32,28 @@ import { parseTemplate } from './templates.js'
 
 const wholeTextRegex = /^(.+)$/
 const anchoredRegex = /^\d+$/i
+const backreferenceRegex = /^(\w)\1$/
 
 const statefulChecks: Array<RegExp> = [/^\d+$/g, /^\d+$/y]
 const unanchoredChecks: Array<RegExp> = [/\d+$/, /^\d+/]
 const splitCheckNames: Array<string> = ['options', 'url']
+const groupPatterns: Array<RegExp> = [/^(\w)\1$/, /^(?<letter>\w)\k<letter>$/, /^(?<year>\d{4})$/]
+const plainGroupPatterns: Array<RegExp> = [/^(\d+)-(\w+)$/, /^(?=\d)\w+$/, /^(?<=a)\w+$/, /^\\1$/]
+const separatedTemplates: Array<string> = [
+  'https://example.com/{slug}-{id}',
+  'https://example.com/{user}{/tail*}',
+  'https://example.com/{section}{/tags*}',
+  '{scheme}://{host}{/base*}/feed',
+  '{scheme}://{host}{/base*}{/path*}.atom',
+  'https://example.com/feed{?page}',
+  'https://example.com/feed?alt=rss{&page}',
+  'https://example.com/{page}{#section}',
+]
+
+type AdjacentCase = {
+  value: string
+  expected: string
+}
 
 type FragmentCase = {
   body: string
@@ -132,6 +156,109 @@ describe('validateExpressions', () => {
   it('should take every expression a template may write', () => {
     const value = 'https://example.com/{id}{/path*}/{+url}{?page,query*}{#section}'
     const throwing = () => validateExpressions(value)
+
+    expect(throwing).not.toThrow()
+  })
+})
+
+describe('validateAdjacentValues', () => {
+  const refusedTemplates: Array<AdjacentCase> = [
+    {
+      value: 'https://example.com/{first}{second}',
+      expected: '{first}{second}',
+    },
+    {
+      value: 'https://{blog}{site}.example.com/feed',
+      expected: '{blog}{site}',
+    },
+    {
+      value: 'https://example.com/search?q={first}{second}',
+      expected: '{first}{second}',
+    },
+    {
+      value: 'https://example.com/spip.php?article{id}{slug}',
+      expected: '{id}{slug}',
+    },
+    {
+      value: 'https://example.com/feed#{first}{second}',
+      expected: '{first}{second}',
+    },
+    {
+      value: 'https://example.com/{+path}{format}/feed',
+      expected: '{+path}{format}',
+    },
+    {
+      value: 'https://example.com{/sections*}{/tags*}',
+      expected: '{/sections*}{/tags*}',
+    },
+    {
+      value: 'https://example.com{/sections*}{slug}',
+      expected: '{/sections*}{slug}',
+    },
+  ]
+
+  it.each(refusedTemplates)('should throw for $value', ({ value, expected }) => {
+    const throwing = () => validateAdjacentValues(value)
+
+    expect(throwing).toThrow(
+      `The template ${value} writes ${expected}, two values with no fixed text between them, so the two are split by a guess`,
+    )
+  })
+
+  it.each(separatedTemplates)('should take %p', (value) => {
+    const throwing = () => validateAdjacentValues(value)
+
+    expect(throwing).not.toThrow()
+  })
+})
+
+describe('validateHostNames', () => {
+  it('should throw for `{host}` outside the host', () => {
+    const value = 'https://example.com/{host}/feed'
+    const throwing = () => validateHostNames(value, ['host'])
+
+    expect(throwing).toThrow(
+      'The template https://example.com/{host}/feed writes {host} outside its host, where it reads no host',
+    )
+  })
+
+  it('should take other names outside the host', () => {
+    const value = 'https://{host}/domain/{domain}/feed'
+    const throwing = () => validateHostNames(value, ['domain'])
+
+    expect(throwing).not.toThrow()
+  })
+})
+
+describe('validateBasePlacement', () => {
+  it('should throw for a base behind a fixed host', () => {
+    const value = 'https://example.com{/base*}/feed'
+    const throwing = () => validateBasePlacement(value, 'example.com', '{/base*}/feed')
+
+    expect(throwing).toThrow(
+      'The template https://example.com{/base*}/feed writes {/base*} behind a host other than {host}, where no URL reads it',
+    )
+  })
+
+  it('should throw for a base behind a tenant host', () => {
+    const value = 'https://{blog}.{domain}{/base*}/feed'
+    const throwing = () => validateBasePlacement(value, '{blog}.{domain}', '{/base*}/feed')
+
+    expect(throwing).toThrow(
+      'The template https://{blog}.{domain}{/base*}/feed writes {/base*} behind a host other than {host}, where no URL reads it',
+    )
+  })
+
+  it('should take a base behind `{host}`', () => {
+    const value = '{scheme}://{host}{/base*}/feed'
+    const throwing = () => validateBasePlacement(value, '{host}', '{/base*}/feed')
+
+    expect(throwing).not.toThrow()
+  })
+
+  it('should take a list named otherwise behind a fixed host', () => {
+    const value = 'https://example.com{/sections*}/feed'
+    const throwing = () => validateBasePlacement(value, 'example.com', '{/sections*}/feed')
 
     expect(throwing).not.toThrow()
   })
@@ -405,6 +532,78 @@ describe('validateCheckRegex', () => {
 
   it('should take an anchored pattern', () => {
     const throwing = () => validateCheckRegex('id', anchoredRegex)
+
+    expect(throwing).not.toThrow()
+  })
+
+  it('should throw for an anchored pattern with a backreference', () => {
+    const throwing = () => validateCheckRegex('id', backreferenceRegex)
+
+    expect(throwing).toThrow(
+      'The check of id is a pattern with a backreference or a named group, which points at another group once joined with other patterns',
+    )
+  })
+})
+
+describe('validatePatternGroups', () => {
+  it.each(groupPatterns)('should throw for %p', (value) => {
+    const throwing = () => validatePatternGroups('id', value)
+
+    expect(throwing).toThrow(
+      'The check of id is a pattern with a backreference or a named group, which points at another group once joined with other patterns',
+    )
+  })
+
+  it.each(plainGroupPatterns)('should take %p', (value) => {
+    const throwing = () => validatePatternGroups('id', value)
+
+    expect(throwing).not.toThrow()
+  })
+})
+
+describe('validateCheckNames', () => {
+  const templates: CheckNames['templates'] = [
+    {
+      key: 'post',
+      rowIndex: 0,
+      names: ['year', 'slug'],
+    },
+    {
+      key: 'user',
+      rowIndex: 1,
+      names: ['user'],
+    },
+  ]
+
+  it('should throw for a case mark of a value no template writes', () => {
+    const value: CheckNames = {
+      templates,
+      rowCheckNames: [[], []],
+      caseNames: ['locale'],
+    }
+    const throwing = () => validateCheckNames(value)
+
+    expect(throwing).toThrow('The case mark names locale, a value no template of the table writes')
+  })
+
+  it('should throw for a check of a row of a value only another row writes', () => {
+    const value: CheckNames = {
+      templates,
+      rowCheckNames: [['user'], []],
+      caseNames: [],
+    }
+    const throwing = () => validateCheckNames(value)
+
+    expect(throwing).toThrow('The post row checks user, a value none of its templates writes')
+  })
+
+  it('should take checks and a case mark of values the templates write', () => {
+    const value: CheckNames = {
+      templates,
+      rowCheckNames: [['slug'], ['user']],
+      caseNames: ['slug'],
+    }
+    const throwing = () => validateCheckNames(value)
 
     expect(throwing).not.toThrow()
   })

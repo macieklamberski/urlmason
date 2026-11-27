@@ -195,11 +195,38 @@ describe('parseTemplate', () => {
 
     expect(throwing).toThrow('Not a URL template: example.com/feed')
   })
+
+  it('should throw for two values with no fixed text between them', () => {
+    const value = 'https://example.com/{first}{second}'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(
+      `The template ${value} writes {first}{second}, two values with no fixed text between them, so the two are split by a guess`,
+    )
+  })
+
+  it('should throw for `{host}` in the path', () => {
+    const value = 'https://example.com/mirror/{host}'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(
+      `The template ${value} writes {host} outside its host, where it reads no host`,
+    )
+  })
+
+  it('should throw for a base behind a fixed host', () => {
+    const value = 'https://example.com{/base*}/feed.php'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(
+      `The template ${value} writes {/base*} behind a host other than {host}, where no URL reads it`,
+    )
+  })
 })
 
 describe('build with a URI Template', () => {
   const docs = defineTable([{ key: 'docs', main: 'https://example.com/docs{/path*}' }])
-  const feeds = defineTable([{ key: 'feed', main: 'https://example.com{/base*}/feed' }])
+  const feeds = defineTable([{ key: 'feed', main: 'https://{host}{/base*}/feed' }])
 
   it('should write a list as segments behind a slash', () => {
     const value = { path: ['guide', 'first steps'] }
@@ -228,20 +255,27 @@ describe('build with a URI Template', () => {
   })
 
   it('should write an empty base as nothing, its slash too', () => {
-    const value = { base: [] }
+    const value = {
+      host: 'example.com',
+      base: [],
+    }
     const expected = 'https://example.com/feed'
 
     expect(feeds.buildUrl('feed', value)).toBe(expected)
   })
 
   it('should write a missing base as an empty one', () => {
+    const value = { host: 'example.com' }
     const expected = 'https://example.com/feed'
 
-    expect(feeds.buildUrl('feed')).toBe(expected)
+    expect(feeds.buildUrl('feed', value)).toBe(expected)
   })
 
   it('should write a base as segments behind a slash', () => {
-    const value = { base: 'community/forum' }
+    const value = {
+      host: 'example.com',
+      base: 'community/forum',
+    }
     const expected = 'https://example.com/community/forum/feed'
 
     expect(feeds.buildUrl('feed', value)).toBe(expected)
