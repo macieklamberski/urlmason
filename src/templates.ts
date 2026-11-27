@@ -1103,26 +1103,14 @@ export const compileTemplate = (
   }
 
   const takenNames = [...parsed.params.map((param) => param.name), ...parsed.optionalNames]
-  // The pairs no other part of the template takes, a name given twice as a list of its values. A
-  // name the template takes given twice reads nothing, since the map could never build it back.
-  const readPassedQuery = (searchParams: URLSearchParams): UrlMap | undefined => {
+  // The pairs no other part of the template takes, a name given twice as a list of its values.
+  const readPassedQuery = (searchParams: URLSearchParams): UrlMap => {
     const lists = new Map<string, Array<string>>()
-    const seenNames = new Set<string>()
 
     for (const [name, value] of searchParams) {
       const isFlag = !value && nameFlags.some((flag) => flag.regex.test(name))
 
-      if (takenNames.includes(name) && seenNames.has(name)) {
-        return
-      }
-
-      if (takenNames.includes(name)) {
-        seenNames.add(name)
-
-        continue
-      }
-
-      if (isFlag) {
+      if (takenNames.includes(name) || isFlag) {
         continue
       }
 
@@ -1169,8 +1157,22 @@ export const compileTemplate = (
     })
   }
 
+  // A name the template takes has one value, so a URL that gives it two reads nothing.
+  const hasOneValue = (searchParams: URLSearchParams, name: string): boolean => {
+    const [first, ...rest] = getQueryParamValues(searchParams, name, {
+      preserveEmptyValues: true,
+      trimValues: false,
+    })
+
+    return rest.every((value) => value === first)
+  }
+
   const read: CompiledTemplate['read'] = (groups, getSearchParams) => {
     const values: Record<string, UrlValue> = {}
+
+    if (!takenNames.every((name) => hasOneValue(getSearchParams(), name))) {
+      return
+    }
 
     if (!readGroups(values, groups)) {
       return
@@ -1225,10 +1227,6 @@ export const compileTemplate = (
 
     if (parsed.passedName !== undefined) {
       const passed = readPassedQuery(getSearchParams())
-
-      if (!passed) {
-        return
-      }
 
       if (Object.keys(passed).length > 0) {
         values[parsed.passedName] = passed
