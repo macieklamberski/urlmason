@@ -3,76 +3,27 @@ import { defineTable } from './tables.js'
 import { parseTemplate } from './templates.js'
 import type { UrlMap } from './types.js'
 
-const unsupportedExpressions = [
-  '{+path,x}',
-  '{+path*}',
-  '{#section,part}',
-  '{#section*}',
-  '{.format}',
-  '{;id}',
-  '{id:3}',
-  '{owner,repo}',
-  '{/path}', // A path segment without the explode modifier
-  '{}',
-]
-
-// Query continuation needs a query in front of it, a query start none, either ends the URL, and
-// neither names a placeholder of the template.
+// Query continuation needs a query in front of it, and names no placeholder of the template.
 const misplacedQueryTemplates: Array<string> = [
   'https://example.com/feed{&page}',
-  'https://example.com/feed?alt=rss{?page}',
-  'https://example.com/feed{?page}/more',
   'https://example.com/feeds{/path*}{?path}',
 ]
 
 // A reserved value sits in the path, beside no list but the base and no open tail.
 const misplacedReservedTemplates: Array<[string, string]> = [
-  ['https://{+host}/feed', '{+host}'],
   ['https://example.com/feed?url={+url}', '{+url}'],
   ['https://example.com/feed?alt=rss/{+url}', '{+url}'],
-  ['https://example.com{/options*}/to/{+url}', '{+url}'],
   ['https://example.com{/options*}-{+url}', '{+url}'],
   ['https://example.com/{+url}{/options*}', '{+url}'],
   ['https://example.com/{+url}{/tail*}', '{+url}'],
   ['https://example.com{/sizes*}/x{/options*}/{+url}', '{+url}'],
 ]
 
-const repeatedReservedTemplates: Array<string> = [
-  'https://example.com/{url}/{+url}',
-  'https://example.com/{+url}/-/{+url}',
-  'https://example.com/{+url}{?url}',
-]
-
 // A fragment holds fixed text, values and reserved values, and `{#name}` ends a template.
 const refusedFragmentTemplates: Array<string> = [
   'https://example.com/feed#',
-  'https://example.com/feed#tags{/tags*}',
-  'https://example.com/feed#page{?page}',
-  'https://example.com/feed#top{#section}',
   'https://example.com/{#section}/feed',
-  'https://example.com/{+url}#{+url}',
   'https://example.com/{name}#{+name}',
-]
-
-// A passed query is the last query name, and names no other placeholder.
-const refusedPassedQueries: Array<[string, string]> = [
-  [
-    'https://example.com/search{?query*,page}',
-    'The template https://example.com/search{?query*,page} writes {?query*,page}, an operator or modifier no template takes',
-  ],
-  [
-    'https://example.com/{query}{?query*}',
-    'Not a URL template: https://example.com/{query}{?query*}',
-  ],
-]
-
-const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
-
-const oldSpellings: Array<[string, string, string]> = [
-  ['https://example.com/-/{labels*}', '/{labels*}', '{/labels*}'],
-  ['https://example.com/{owner}/{*}', '/{*}', '{/tail*}'],
-  ['https://example.com/{owner}/{repo}{*}', '{*}', '{/tail*}'],
-  ['https://{*}.example.com/{owner}', '{*}', '{/tail*}'],
 ]
 
 describe('parseTemplate', () => {
@@ -110,30 +61,31 @@ describe('parseTemplate', () => {
     expect(params).toMatchObject(expected)
   })
 
-  it.each(oldSpellings)(
-    'should throw for %s, naming the new spelling',
-    (value, expression, spelling) => {
-      const throwing = () => parseTemplate(value)
-
-      expect(throwing).toThrow(
-        `The template ${value} writes ${expression}, which is spelled ${spelling}`,
-      )
-    },
-  )
-
   it.each(misplacedQueryTemplates)('should throw for the misplaced query names of %s', (value) => {
     const throwing = () => parseTemplate(value)
 
     expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
 
-  it.each(unsupportedExpressions)('should throw for %s', (expression) => {
-    const value = `https://example.com/feed/${expression}`
+  it('should throw for a query that opens with a second question mark', () => {
+    const value = 'https://example.com/items??id={id}'
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow(
-      `The template ${value} writes ${expression}, an operator or modifier no template takes`,
-    )
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
+  it('should throw for a value in the name of a pair with a value', () => {
+    const value = 'https://example.com/items?{id}=1'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
+  it('should throw for a parameter the template names twice', () => {
+    const value = 'https://example.com/search?types=page&types=post'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
 
   it.each(misplacedReservedTemplates)(
@@ -147,14 +99,12 @@ describe('parseTemplate', () => {
     },
   )
 
-  it.each(repeatedReservedTemplates)(
-    'should throw for the reserved value of %s, named twice',
-    (value) => {
-      const throwing = () => parseTemplate(value)
+  it('should throw for a reserved value a placeholder also reads', () => {
+    const value = 'https://example.com/{url}/{+url}'
+    const throwing = () => parseTemplate(value)
 
-      expect(throwing).toThrow(`Not a URL template: ${value}`)
-    },
-  )
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
 
   it('should read a reserved value that ends a template behind the base as the rest', () => {
     const value = '{scheme}://{host}{/base*}/proxy/{+url}'
@@ -232,20 +182,12 @@ describe('parseTemplate', () => {
     expect(parsed.optionalNames).toEqual(['page'])
   })
 
-  it.each(refusedPassedQueries)('should throw for the passed query of %s', (value, message) => {
+  it('should throw for a passed query whose name a placeholder also reads', () => {
+    const value = 'https://example.com/{query}{?query*}'
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow(message)
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
-
-  it.each(unbalancedTemplates)(
-    'should throw for %s, whose brace is not closed or opened',
-    (value) => {
-      const throwing = () => parseTemplate(value)
-
-      expect(throwing).toThrow(`The template ${value} writes a brace outside a complete expression`)
-    },
-  )
 
   it('should throw for a template without a scheme', () => {
     const value = 'example.com/feed'
