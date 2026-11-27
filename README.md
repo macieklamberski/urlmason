@@ -298,7 +298,8 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - A list right in front of a `{+x}`, as `{/options*}/{+source}`, shares its segments with it. A read takes the first split every check passes, and the value with the check takes all it can: a checked list its most segments, and the value behind an unchecked list the fewest list segments. A table throws where neither of the two has a check.
 - A template may write a fragment, as `#!/video/{id}` or `{#x}`, and then reads only a URL that carries it. A value in it stops at a slash, as in a path, and `{+x}` and `{#x}` read as written. A template without a fragment reads a URL whatever its fragment.
 - `{?query*}` reads every pair the template doesn't name into a map, a name given twice as a list of its values, so a URL read and built again keeps every pair.
-- A map that holds a name the template writes itself, or one a flag in it takes, builds no URL, since the table would read that pair into the template's own value.
+- A map that holds a name the template writes itself, or one a flag in it takes, builds no URL, since the table would read that pair into the template's own value. A URL that gives such a name twice reads nothing on a row with `{?query*}`, since the map could never build it back.
+- A name a template writes twice, as `/{user}/{user}`, has one value, as RFC 6570 builds it, so a read of `/alice/bob` reads nothing. A list in place of the one value would build back as `/alice,bob/alice,bob`.
 - A value inside the name of a flag stops at a slash, as in a path, so a value with a slash builds no URL. Two flags whose names start alike each read their own pair, and a flag given twice reads as not exact.
 - Operators beyond these, such as `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
