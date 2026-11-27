@@ -835,14 +835,37 @@ const compileRowTemplate = (
     const listRange = findRange(split.list)
     const reservedRange = findRange(split.reserved)
     const segments = match.input.slice(listRange[0], reservedRange[1]).split('/')
+    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
+    const hostLength = tableUrl.hostname.length
+    // The row read the reserved value as written already, so both ends fall between characters.
+    const listStart = toWrittenOffset(writtenPath, listRange[0] - hostLength) as number
+    const end = toWrittenOffset(writtenPath, reservedRange[1] - hostLength) as number
+
+    // Decoding writes no slash, so the segments as written are the segments read, one for one.
+    const writtenSegments = writtenPath.slice(listStart, end).split('/')
+    const writtenStarts = [listStart + 1]
+
+    for (const [index, segment] of writtenSegments.entries()) {
+      writtenStarts.push(writtenStarts[index] + segment.length + (index > 0 ? 1 : 0))
+    }
+
+    let rest = ''
+
+    if (split.reserved === restName) {
+      const { pairs, hash } = readQuery(tableUrl)
+
+      rest = `${writtenPath.slice(end)}${writeQuery(pairs)}${hash}`
+    }
+
     const hasListCheck = (checks[split.list] ?? rowChecks[split.list]) !== undefined
     const counts = [...segments.keys()]
 
     for (const count of hasListCheck ? counts.reverse() : counts) {
-      const listSegments = segments.slice(0, count)
-      const start = listRange[0] + listSegments.join('/').length + 1
-      const list = listSegments.filter((segment) => segment).map(decodePercent)
-      const reserved = readWritten(tableUrl, split.reserved, [start, reservedRange[1]])
+      const list = segments
+        .slice(0, count)
+        .filter((segment) => segment)
+        .map(decodePercent)
+      const reserved = `${writtenPath.slice(writtenStarts[count], end)}${rest}`
 
       if (list.length === 0 || !reserved) {
         continue
