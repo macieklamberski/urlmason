@@ -839,6 +839,7 @@ const compileRowTemplate = (
     hasSlash !== undefined && (rowLenient?.trailingSlash ?? lenient?.trailingSlash) === true
   const isFixedCaseFree = lenient?.fixedCase === true
   const isPipeFree = (rowLenient?.escapedPipe ?? lenient?.escapedPipe) === true
+  const pipeNames = isPipeFree ? [...reservedNames, ...parsed.fragmentReservedNames] : []
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const flagShapes = parsed.nameFlags.map((text) =>
     text.replace(placeholderRegex, toShapePlaceholder),
@@ -1127,19 +1128,33 @@ const compileRowTemplate = (
     })
   }
 
-  // The text a match ran on and its values, in lowercase where the read holds them in lowercase.
-  const lowercaseValues = (match: RegExpExecArray, lowercaseNames: Array<string>) => {
+  // The text a match ran on and its values, in lowercase where the read holds them in lowercase,
+  // and with `%7C` as `|` where the escaped pipe mark covers them.
+  const respellValues = (match: RegExpExecArray, lowercaseNames: Array<string>) => {
     const groups = { ...match.groups }
     let text = match.input
+    // From the last value back, since a value written shorter moves every range behind it.
+    const ranges = Object.entries(match.indices?.groups ?? {}).sort(([, left], [, right]) => {
+      return (right?.[0] ?? 0) - (left?.[0] ?? 0)
+    })
 
-    for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
+    for (const [group, range] of ranges) {
       const captured = getCaptured(group)
 
-      if (!range || !captured || !lowercaseNames.includes(captured.name)) {
+      if (!range || !captured) {
         continue
       }
 
-      const value = toLowerCaseValue(text.slice(range[0], range[1]))
+      const isLowercased = lowercaseNames.includes(captured.name)
+      const isPiped = pipeNames.includes(captured.name)
+
+      if (!isLowercased && !isPiped) {
+        continue
+      }
+
+      const written = text.slice(range[0], range[1])
+      const lowercased = isLowercased ? toLowerCaseValue(written) : written
+      const value = isPiped ? lowercased.replace(escapedPipeRegex, '|') : lowercased
 
       groups[group] = value
       text = `${text.slice(0, range[0])}${value}${text.slice(range[1])}`
@@ -1181,7 +1196,7 @@ const compileRowTemplate = (
       return
     }
 
-    const respelledHostPath = lowercaseValues(match, lowercaseNames)
+    const respelledHostPath = respellValues(match, lowercaseNames)
 
     if (!readRawGroups(rawParams, respelledHostPath.groups)) {
       return
@@ -1264,7 +1279,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledValue = lowercaseValues(queryMatch, lowercaseNames)
+      const respelledValue = respellValues(queryMatch, lowercaseNames)
 
       if (!readRawGroups(rawParams, respelledValue.groups)) {
         return
@@ -1293,7 +1308,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledName = lowercaseValues(flagMatch, lowercaseNames)
+      const respelledName = respellValues(flagMatch, lowercaseNames)
 
       if (!readRawGroups(rawParams, respelledName.groups)) {
         return
@@ -1327,7 +1342,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledFragment = lowercaseValues(fragmentMatch, lowercaseNames)
+      const respelledFragment = respellValues(fragmentMatch, lowercaseNames)
 
       if (!readRawGroups(rawParams, respelledFragment.groups)) {
         return
@@ -1580,7 +1595,7 @@ const compileRowTemplate = (
     readRawParams,
     hasNonUtf8Value,
     isSlashFree,
-    pipeNames: isPipeFree ? [...reservedNames, ...parsed.fragmentReservedNames] : [],
+    pipeNames,
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
@@ -2264,9 +2279,13 @@ const createTable = <const Row extends UrlRow>(
   ): string | undefined => {
     const { url } = tableUrl
     const [main] = compiledRows[template.rowIndex]
-    // The query and the fragment behind a reserved value are part of it, and stay as written.
-    const reservedRest = readWrittenRest(tableUrl)
-    const hasReserved = template.restName !== undefined
+    // The query and the fragment behind a reserved value are part of it, and stay as written but
+    // where the escaped pipe mark reads `%7C` as `|`.
+    const writtenRest = readWrittenRest(tableUrl)
+    const { restName } = template
+    const hasReserved = restName !== undefined
+    const isRestPiped = hasReserved && template.pipeNames.includes(restName)
+    const reservedRest = isRestPiped ? writtenRest.replace(escapedPipeRegex, '|') : writtenRest
     const pairs = hasReserved ? [] : rawRead.pairs.filter((pair) => pair.text)
     // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has
     // one, and never under `isQueryKept: false`.

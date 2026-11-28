@@ -221,6 +221,8 @@ const tripletRegex = /^%[0-9a-f]{2}$/i
 const singleEscapeRegex = /(%[0-9a-f]{2})/i
 // The ASCII characters outside RFC 6570's unreserved and reserved sets, but the control ones.
 const unreservedOtherRegex = /[^\w\-.~:/?#[\]@!$&'()*+,;=\P{ASCII}\p{Cc}]/gu
+// The same but `|`, which a URL parser keeps as it is in the path, the query and the fragment.
+const prettyOtherRegex = /[^\w\-.~:/?#[\]@!$&'()*+,;=|\P{ASCII}\p{Cc}]/gu
 const reservedEndRegex = /[?#]/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 // A run of escapes, as `%E0%A4%85`, kept by `split`.
@@ -578,8 +580,10 @@ export const toStrictPair = (pair: QueryPair): QueryPair => {
 }
 
 // A value as RFC 6570 writes a reserved one: the reserved characters and every escape kept, so a
-// URL stays a URL, and everything else outside the unreserved set encoded.
-const encodeReservedValue = (value: string): string => {
+// URL stays a URL, and everything else outside the unreserved set encoded. A pretty one keeps `|`.
+const encodeReservedValue = (value: string, isStrict: boolean): string => {
+  const otherRegex = isStrict ? unreservedOtherRegex : prettyOtherRegex
+
   return value
     .split(singleEscapeRegex)
     .map((piece, index) => {
@@ -587,18 +591,16 @@ const encodeReservedValue = (value: string): string => {
         return piece
       }
 
-      return piece
-        .replace(unreservedOtherRegex, toPercentEscape)
-        .replace(nonAsciiRegex, encodeURIComponent)
+      return piece.replace(otherRegex, toPercentEscape).replace(nonAsciiRegex, encodeURIComponent)
     })
     .join('')
 }
 
 // A reserved value in its slot. A list is its items joined by commas, each item's own kept.
-const encodeReservedSlot = (value: UrlValue): string => {
+const encodeReservedSlot = (value: UrlValue, isStrict: boolean): string => {
   const items = isPlainObject(value) ? toMapItems(value) : coerceArray(value)
 
-  return items.map(encodeReservedValue).join(',')
+  return items.map((item) => encodeReservedValue(item, isStrict)).join(',')
 }
 
 const encodeStrict = (value: string | Array<string>): string => {
@@ -1429,10 +1431,10 @@ export const compileTemplate = (
       return text.replace(placeholderRegex, (_placeholder, name: string) => {
         const value = values[name]
 
-        // A reserved value is written the same in both encodings, as RFC 6570 writes it. One with
+        // A reserved value is written as RFC 6570 writes it, and a pretty one keeps `|`. One with
         // a `?` or a `#` in front of more of the path would move that path into a query.
         if (reservedNames.includes(name) || fragmentReservedNames.includes(name)) {
-          const written = encodeReservedSlot(value)
+          const written = encodeReservedSlot(value, isStrict)
           const isInPath = reservedNames.includes(name) && name !== restName
 
           if (isInPath && reservedEndRegex.test(written)) {
