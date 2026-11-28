@@ -72,6 +72,23 @@ export type TemplateParam = {
   isFilled: boolean
 }
 
+// A value as its group reads it. The path is matched with a decoded `%` and `/` written as `%25` and
+// `%2F`, so a value there decodes once more, and a list is cut at the slashes left.
+const toGroupValue = (captured: Captured, value: string): UrlValue => {
+  if (captured.part !== 'path') {
+    return value
+  }
+
+  if (!captured.isList) {
+    return decodePercent(value)
+  }
+
+  return value
+    .split('/')
+    .filter((segment) => segment)
+    .map(decodePercent)
+}
+
 // A template read into its parts. Its text writes a list as `{/name*}` and the open tail as
 // `{/tail*}`.
 export type ParsedTemplate = {
@@ -1037,27 +1054,26 @@ export const compileTemplate = (
     // Every group of a fragment pattern is a value of the template, and set.
     for (const [group, [from, to]] of Object.entries(match.indices?.groups ?? {})) {
       const name = getCaptured(group)?.name ?? group
+      let value = decodePercent(match.input.slice(from, to))
 
-      // A name the fragment holds twice keeps the first value read.
-      if (values[name] !== undefined) {
-        continue
+      if (fragmentReservedNames.includes(name)) {
+        const start = toWrittenOffset(hash, from)
+        const end = toWrittenOffset(hash, to)
+
+        // A match that ends inside a character as written has no text of its own there.
+        if (start === undefined || end === undefined) {
+          return
+        }
+
+        value = hash.slice(start, end)
       }
 
-      if (!fragmentReservedNames.includes(name)) {
-        values[name] = decodePercent(match.input.slice(from, to))
-
-        continue
-      }
-
-      const start = toWrittenOffset(hash, from)
-      const end = toWrittenOffset(hash, to)
-
-      // A match that ends inside a character as written has no text of its own there.
-      if (start === undefined || end === undefined) {
+      // A name the fragment holds twice has one value, so two different ones read nothing.
+      if (values[name] !== undefined && values[name] !== value) {
         return
       }
 
-      values[name] = hash.slice(start, end)
+      values[name] = value
     }
 
     return values
@@ -1114,37 +1130,53 @@ export const compileTemplate = (
     )
   }
 
-  // A name the template holds twice keeps the first value read.
-  const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
-    for (const [group, value] of Object.entries(groups)) {
+  // A name the template holds twice has one value, as RFC 6570 builds it, so two different ones
+  // read nothing.
+  const readGroups = (
+    values: Record<string, UrlValue>,
+    groups: Record<string, string> = {},
+  ): boolean => {
+    return Object.entries(groups).every(([group, value]) => {
       const groupCaptured = getCaptured(group)
 
       // A list that may be empty and holds no segment leaves its group unset.
-      if (!groupCaptured || value === undefined || values[groupCaptured.name] !== undefined) {
-        continue
+      if (!groupCaptured || value === undefined) {
+        return true
       }
 
-      if (groupCaptured.part !== 'path') {
-        values[groupCaptured.name] = value
+      const read = toGroupValue(groupCaptured, value)
+      const known = values[groupCaptured.name]
 
-        continue
+      if (known !== undefined) {
+        return JSON.stringify(known) === JSON.stringify(read)
       }
 
-      // The path is matched with a decoded `%` and `/` written as `%25` and `%2F`, so a value
-      // decodes once more to `100%` and `a/b`, and a list is cut at the slashes left.
-      values[groupCaptured.name] = groupCaptured.isList
-        ? value
-            .split('/')
-            .filter((segment) => segment)
-            .map(decodePercent)
-        : decodePercent(value)
-    }
+      values[groupCaptured.name] = read
+
+      return true
+    })
+  }
+
+  // A name the template takes has one value, so a URL that gives it two reads nothing.
+  const hasOneValue = (searchParams: URLSearchParams, name: string): boolean => {
+    const [first, ...rest] = getQueryParamValues(searchParams, name, {
+      preserveEmptyValues: true,
+      trimValues: false,
+    })
+
+    return rest.every((value) => value === first)
   }
 
   const read: CompiledTemplate['read'] = (groups, getSearchParams) => {
     const values: Record<string, UrlValue> = {}
 
-    readGroups(values, groups)
+    if (!takenNames.every((name) => hasOneValue(getSearchParams(), name))) {
+      return
+    }
+
+    if (!readGroups(values, groups)) {
+      return
+    }
 
     // A tail is read as a list: without its empty segments, and one with no segment left, as after
     // a doubled slash, is no value.
@@ -1165,11 +1197,9 @@ export const compileTemplate = (
 
       const queryMatch = regex.exec(value)
 
-      if (!queryMatch) {
+      if (!queryMatch || !readGroups(values, queryMatch.groups)) {
         return
       }
-
-      readGroups(values, queryMatch.groups)
     }
 
     const flagNames = [...getSearchParams()].filter(([, value]) => !value).map(([name]) => name)
@@ -1180,11 +1210,10 @@ export const compileTemplate = (
       const index = flagNames.findIndex((name) => regex.test(name))
       const flagMatch = index === -1 ? null : regex.exec(flagNames[index])
 
-      if (!flagMatch) {
+      if (!flagMatch || !readGroups(values, flagMatch.groups)) {
         return
       }
 
-      readGroups(values, flagMatch.groups)
       flagNames.splice(index, 1)
     }
 

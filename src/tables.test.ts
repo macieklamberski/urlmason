@@ -1173,10 +1173,60 @@ describe('defineTable', () => {
 
     it('should read a URL as not exact when a value the row holds twice is spelled two ways', () => {
       const table = defineTable([{ key: 'item', main: 'https://example.com/{id}/feed?id={id}' }])
-      const value = 'https://example.com/Abc/feed?id=abc'
+      const value = 'https://example.com/a%62c/feed?id=abc'
       const match = table.readUrl(value)
 
       expect(match?.isExact).toBe(false)
+    })
+
+    it('should return undefined for two values of a name the row holds twice', () => {
+      const table = defineTable([{ key: 'item', main: 'https://example.com/{id}/feed?id={id}' }])
+      const value = 'https://example.com/Abc/feed?id=abc'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for two values of a name two segments hold', () => {
+      const table = defineTable([{ key: 'mirror', main: 'https://example.com/{user}/{user}' }])
+      const value = 'https://example.com/alice/bob'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read one value of a name two segments hold', () => {
+      const table = defineTable([{ key: 'mirror', main: 'https://example.com/{user}/{user}' }])
+      const value = 'https://example.com/alice/alice'
+      const expected = {
+        user: 'alice',
+      }
+      const match = table.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a name the URL gives twice with one value', () => {
+      const table = defineTable([{ key: 'team', main: 'https://example.com/team?id={id}' }])
+      const value = 'https://example.com/team?id=51333&id=51333'
+      const expected = {
+        id: '51333',
+      }
+      const match = table.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for a name the URL gives two values', () => {
+      const table = defineTable([{ key: 'team', main: 'https://example.com/team?id={id}' }])
+      const value = 'https://example.com/team?id=51333&id=51334'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a name the URL gives twice, once empty', () => {
+      const table = defineTable([{ key: 'team', main: 'https://example.com/team?id={id}' }])
+      const value = 'https://example.com/team?id=&id=51333'
+
+      expect(table.readUrl(value)).toBeUndefined()
     })
 
     it('should return the key, the values and the row of a main URL', () => {
@@ -2620,6 +2670,49 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should read an optional name given twice with one value', () => {
+      const value = 'https://example.com/search?q=feeds&q=feeds'
+      const expected = {
+        q: 'feeds',
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for an optional name given two values', () => {
+      const value = 'https://example.com/search?q=feeds&q=news'
+
+      expect(passedQueries.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a fixed parameter given twice with one value', () => {
+      const value = 'https://example.com/feed?alt=rss&alt=rss'
+      const expected = 'feed'
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a fixed parameter given two values', () => {
+      const value = 'https://example.com/feed?alt=rss&alt=atom'
+
+      expect(passedQueries.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a name the template does not take given twice', () => {
+      const value = 'https://example.com/search?q=feeds&tag=a&tag=b'
+      const expected = {
+        q: 'feeds',
+        query: {
+          tag: ['a', 'b'],
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
     it('should read a row with a fixed parameter before one that passes the query', () => {
       const value = 'https://example.com/feed?type=comments'
       const expected = 'comments'
@@ -2870,11 +2963,10 @@ describe('defineTable', () => {
       expect(match?.isExact).toBe(false)
     })
 
-    it('should read a name that holds another value than the path as not exact', () => {
+    it('should return undefined for a name that holds another value than the path', () => {
       const value = 'https://page.example.com/12?article13'
-      const match = nameFlags.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(nameFlags.readUrl(value)).toBeUndefined()
     })
 
     it('should return undefined for a name whose value fails its check', () => {
@@ -3369,7 +3461,7 @@ describe('defineTable', () => {
     })
 
     it('should not mark a name given twice, once with an escape that is no UTF-8, as exact', () => {
-      const value = 'https://example.com/items?id%FF=1&id%EF%BF%BD=5'
+      const value = 'https://example.com/items?id%FF=5&id%EF%BF%BD=5'
       const match = brokenName.readUrl(value)
 
       expect(match?.isExact).toBe(false)
@@ -3825,6 +3917,22 @@ describe('defineTable', () => {
       const match = optionalPosts.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an optional name given twice with one value', () => {
+      const value = 'https://feeds.example.com/posts?q=cats&q=cats'
+      const expected = {
+        q: 'cats',
+      }
+      const match = optionalPosts.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for an optional name given two values', () => {
+      const value = 'https://feeds.example.com/posts?q=cats&q=dogs'
+
+      expect(optionalPosts.readUrl(value)).toBeUndefined()
     })
 
     it('should read a URL without the optional names', () => {
@@ -4936,8 +5044,8 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should keep the first value of a name a fragment holds twice', () => {
-      const value = 'https://twice.example.com/#first/second'
+    it('should read one value of a name a fragment holds twice', () => {
+      const value = 'https://twice.example.com/#first/first'
       const expected = {
         name: 'first',
       }
@@ -4946,11 +5054,10 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should read a name a fragment holds under two values as not exact', () => {
+    it('should return undefined for a name a fragment holds under two values', () => {
       const value = 'https://twice.example.com/#first/second'
-      const match = apps.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(apps.readUrl(value)).toBeUndefined()
     })
 
     it('should return undefined for a fragment match that ends inside an escape as written', () => {
