@@ -47,6 +47,8 @@ import type { UrlEncoding, UrlLenient, UrlMap, UrlValue, UrlValues } from './typ
 
 export type TemplatePart = 'host' | 'path' | 'query' | 'fragment'
 
+export type TextPart = Exclude<TemplatePart, 'host'>
+
 export type MapText = (text: string) => string
 
 // The pattern of a value, and of one character of it where a value can sit behind fixed text.
@@ -194,7 +196,7 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   // The pairs in the order the template writes them, and every other pair behind them as given.
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
   // A value as a pretty build writes it in a part of the URL other than the host.
-  encodeValue: (value: string, part: Exclude<TemplatePart, 'host'>) => string
+  encodeValue: (value: string, part: TextPart) => string
   // Fixed query text and a name as the template writes them, and a pair as its text writes it.
   encodeQueryText: MapText
   encodeQueryName: MapText
@@ -221,9 +223,16 @@ const tripletRegex = /^%[0-9a-f]{2}$/i
 const singleEscapeRegex = /(%[0-9a-f]{2})/i
 // The ASCII characters outside RFC 6570's unreserved and reserved sets, but the control ones.
 const unreservedOtherRegex = /[^\w\-.~:/?#[\]@!$&'()*+,;=\P{ASCII}\p{Cc}]/gu
-// The same but `|`, which a URL parser keeps as it is in the path, the query and the fragment.
-const prettyOtherRegex = /[^\w\-.~:/?#[\]@!$&'()*+,;=|\P{ASCII}\p{Cc}]/gu
+// The printable ASCII characters a URL parser escapes in each part, by the URL standard's path,
+// special-query and fragment percent-encode sets, and the `\` it reads as `/` in a path.
+// See: https://url.spec.whatwg.org/#path-percent-encode-set.
+const pathRespelledRegex = /[ "<>\\^`{}]/g
+const queryRespelledRegex = /[ "<>']/g
+const fragmentRespelledRegex = /[ "<>`]/g
 const reservedEndRegex = /[?#]/
+const hashRegex = /#/
+// A placeholder as written, kept by `split`.
+const placeholderTextRegex = /(\{\/?\w+\*?\})/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 // A run of escapes, as `%E0%A4%85`, kept by `split`.
 const escapeRunRegex = /((?:%[0-9a-f]{2})+)/i
@@ -499,16 +508,42 @@ const encodeDecoded = (value: string, encode: MapText): string => {
     .join('')
 }
 
-// Text of a path segment as pages link it: every character a segment allows kept, a `%` written
-// as `%25` and non-ASCII percent-encoded, so `caf%C3%A9` and `café` agree.
-const encodePathText = (text: string): string => {
-  return encodePathSegment(text.replaceAll('%', '%25'))
-    .replace(strayPercentRegex, '%25')
-    .replace(nonAsciiRegex, encodeURIComponent)
+const toPercentEscape = (character: string): string => {
+  return `%${character.charCodeAt(0).toString(16).toUpperCase()}`
 }
 
-const encodePathValue = (value: string): string => {
-  return encodeDecoded(value, encodePathText)
+const respelledRegexes: Record<TextPart, RegExp> = {
+  path: pathRespelledRegex,
+  query: queryRespelledRegex,
+  fragment: fragmentRespelledRegex,
+}
+
+// Text with the characters a URL parser escapes in a part escaped, whatever the runtime's parser
+// does. In a path a `?` opens the query and a `#` the fragment, as a rest value writes them.
+export const encodeParserText = (text: string, part: TextPart): string => {
+  const end = part === 'fragment' ? -1 : text.search(part === 'path' ? reservedEndRegex : hashRegex)
+
+  if (end === -1) {
+    return text.replace(respelledRegexes[part], toPercentEscape)
+  }
+
+  const head = text.slice(0, end).replace(respelledRegexes[part], toPercentEscape)
+  const rest = encodeParserText(text.slice(end + 1), text[end] === '#' ? 'fragment' : 'query')
+
+  return `${head}${text[end]}${rest}`
+}
+
+// Text of a path segment as pages link it: every character a segment allows kept but the ones a
+// parser escapes in the part, a `%` written as `%25` and non-ASCII percent-encoded, so
+// `caf%C3%A9` and `café` agree. A fragment value is written as a path segment is.
+const encodePathText = (text: string, part: TextPart): string => {
+  const segment = encodePathSegment(text.replaceAll('%', '%25')).replace(strayPercentRegex, '%25')
+
+  return encodeParserText(segment, part).replace(nonAsciiRegex, encodeURIComponent)
+}
+
+const encodePathValue = (value: string, part: TextPart): string => {
+  return encodeDecoded(value, (text) => encodePathText(text, part))
 }
 
 // A value in a slot of one value, as `{id}`. A list is its items joined by commas, each item's own
@@ -540,16 +575,24 @@ const encodeMapSegments = (map: UrlMap, encode: (value: string) => string): stri
     .join('/')
 }
 
-const encodePath = (value: string | Array<string>): string => {
-  return Array.isArray(value) ? value.map(encodePathValue).join('/') : encodePathValue(value)
+const encodePath = (value: string | Array<string>, part: TextPart): string => {
+  const items = coerceArray(value)
+
+  return items.map((item) => encodePathValue(item, part)).join('/')
 }
 
-export const encodeLiteral = (text: string): string => {
-  return text.replace(nonAsciiRegex, encodeURIComponent)
-}
+// Fixed text of a template as a URL carries it, its placeholders kept.
+export const encodeLiteral = (text: string, part: TextPart): string => {
+  return text
+    .split(placeholderTextRegex)
+    .map((piece, index) => {
+      if (index % 2 === 1) {
+        return piece
+      }
 
-const toPercentEscape = (character: string): string => {
-  return `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+      return encodeParserText(piece, part).replace(nonAsciiRegex, encodeURIComponent)
+    })
+    .join('')
 }
 
 // A value as RFC 6570 writes it: every character outside the unreserved set encoded, `%` too.
@@ -580,9 +623,14 @@ export const toStrictPair = (pair: QueryPair): QueryPair => {
 }
 
 // A value as RFC 6570 writes a reserved one: the reserved characters and every escape kept, so a
-// URL stays a URL, and everything else outside the unreserved set encoded. A pretty one keeps `|`.
-const encodeReservedValue = (value: string, isStrict: boolean): string => {
-  const otherRegex = isStrict ? unreservedOtherRegex : prettyOtherRegex
+// URL stays a URL, and everything else outside the unreserved set encoded. A pretty one encodes
+// only a stray `%` and what a parser escapes in the part.
+const encodeReservedValue = (value: string, isStrict: boolean, part: TextPart): string => {
+  if (!isStrict) {
+    const written = value.replace(strayPercentRegex, '%25')
+
+    return encodeParserText(written, part).replace(nonAsciiRegex, encodeURIComponent)
+  }
 
   return value
     .split(singleEscapeRegex)
@@ -591,16 +639,18 @@ const encodeReservedValue = (value: string, isStrict: boolean): string => {
         return piece
       }
 
-      return piece.replace(otherRegex, toPercentEscape).replace(nonAsciiRegex, encodeURIComponent)
+      return piece
+        .replace(unreservedOtherRegex, toPercentEscape)
+        .replace(nonAsciiRegex, encodeURIComponent)
     })
     .join('')
 }
 
 // A reserved value in its slot. A list is its items joined by commas, each item's own kept.
-export const encodeReservedSlot = (value: UrlValue, isStrict: boolean): string => {
+export const encodeReservedSlot = (value: UrlValue, isStrict: boolean, part: TextPart): string => {
   const items = isPlainObject(value) ? toMapItems(value) : coerceArray(value)
 
-  return items.map((item) => encodeReservedValue(item, isStrict)).join(',')
+  return items.map((item) => encodeReservedValue(item, isStrict, part)).join(',')
 }
 
 const encodeStrict = (value: string | Array<string>): string => {
@@ -1027,7 +1077,7 @@ export const compileTemplate = (
   }
   // A `;` would split a pair under the semicolon mark.
   const encodeQueryText = (text: string): string => {
-    const written = encodeText(text)
+    const written = encodeParserText(encodeText(text), 'query')
 
     return lenient.semicolon === true ? written.replaceAll(';', '%3B') : written
   }
@@ -1143,7 +1193,7 @@ export const compileTemplate = (
         captureIn('path'),
         writtenPathCapture,
         pathCaptures,
-        encodeLiteral,
+        (literal) => encodeLiteral(literal, 'path'),
         writtenPathPatterns,
         reservedNames,
       )
@@ -1187,7 +1237,7 @@ export const compileTemplate = (
   const fragmentRegex = toFragmentRegex(pathCapture, decodePath, sharedPartMaxLength, 'di')
   const rawFragmentRegex = toFragmentRegex(
     writtenPathCapture,
-    encodeLiteral,
+    (literal) => encodeLiteral(literal, 'fragment'),
     writtenPartMaxLength,
     'd',
   )
@@ -1412,29 +1462,29 @@ export const compileTemplate = (
     return values
   }
 
-  // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
-  const writtenPath = encodeLiteral(path)
+  const writtenPath = encodeLiteral(path, 'path')
   const encodePrettyQueryValue = (value: string): string => {
     return encodeDecoded(value, encodeQueryText)
   }
-  const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
+  const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment, 'fragment')
   const encodeValue: CompiledTemplate['encodeValue'] = (value, part) => {
-    return part === 'query' ? encodePrettyQueryValue(value) : encodePathValue(value)
+    return part === 'query' ? encodePrettyQueryValue(value) : encodePathValue(value, part)
   }
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
     let isMoved = false
-    const fillPlaceholders = (
-      text: string,
-      encode: (value: string | Array<string>) => string = toValueText,
-    ) => {
+    const fillPlaceholders = (text: string, part: TextPart): string => {
+      const encode = (value: string | Array<string>): string => {
+        return isStrict ? encodeStrict(value) : encodePath(value, part)
+      }
+
       return text.replace(placeholderRegex, (_placeholder, name: string) => {
         const value = values[name]
 
-        // A reserved value is written as RFC 6570 writes it, and a pretty one keeps `|`. One with
-        // a `?` or a `#` in front of more of the path would move that path into a query.
+        // A reserved value is written as RFC 6570 writes it, or as a parser writes it in the part.
+        // One with a `?` or a `#` in front of more of the path would move that path into a query.
         if (reservedNames.includes(name) || fragmentReservedNames.includes(name)) {
-          const written = encodeReservedSlot(value, isStrict)
+          const written = encodeReservedSlot(value, isStrict, part)
           const isInPath = reservedNames.includes(name) && name !== restName
 
           if (isInPath && reservedEndRegex.test(written)) {
@@ -1450,7 +1500,11 @@ export const compileTemplate = (
         }
 
         if (isPlainObject(value)) {
-          return `/${encodeMapSegments(value, isStrict ? encodeStrictValue : encodePathValue)}`
+          const encodeItem = (item: string): string => {
+            return isStrict ? encodeStrictValue(item) : encodePathValue(item, part)
+          }
+
+          return `/${encodeMapSegments(value, encodeItem)}`
         }
 
         return value.length > 0 ? `/${encode(value)}` : ''
@@ -1529,7 +1583,13 @@ export const compileTemplate = (
       }
     }
 
-    const givenHost = fillPlaceholders(host)
+    // A host and a scheme hold no reserved value and no list.
+    const fillOrigin = (text: string): string => {
+      return text.replace(placeholderRegex, (_placeholder, name: string) => {
+        return encodeSlot(values[name], toValueText)
+      })
+    }
+    const givenHost = fillOrigin(host)
 
     // A value carried into a host from a path, as `a/b`, would move the URL to another host that
     // still parses, so a delimiter there builds nothing.
@@ -1540,8 +1600,8 @@ export const compileTemplate = (
     // A host reads in any case and a parser spells it in punycode, so a value is written so too.
     const filledHost = toAsciiHost(givenHost)
 
-    const filledScheme = fillPlaceholders(scheme)
-    const filledPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)
+    const filledScheme = fillOrigin(scheme)
+    const filledPath = fillPlaceholders(writtenPath, 'path')
     // The value that ends the template can hold a query, which is no part of the path.
     const [ownPath] = filledPath.split(reservedEndRegex, 1)
 
@@ -1551,9 +1611,7 @@ export const compileTemplate = (
 
     const base = writeBase(`${filledScheme}://${filledHost}${filledPath}`, pairs)
     const filledFragment =
-      writtenFragment === undefined
-        ? ''
-        : `#${fillPlaceholders(writtenFragment, isStrict ? encodeStrict : encodePath)}`
+      writtenFragment === undefined ? '' : `#${fillPlaceholders(writtenFragment, 'fragment')}`
     const url = `${base}${writeQuery(orderPairs(pairs))}${filledFragment}`
     const parsedUrl = parseUrl(url)
 

@@ -2933,6 +2933,20 @@ describe('defineTable', () => {
       expect(notes.buildUrl('note', value)).toBe(expected)
     })
 
+    it('should escape a caret in a path value as a parser does', () => {
+      const value = { title: '^rss' }
+      const expected = 'https://example.com/notes/%5Erss'
+
+      expect(notes.buildUrl('note', value)).toBe(expected)
+    })
+
+    it('should escape a quote in a query value as a parser does', () => {
+      const value = { query: "it's" }
+      const expected = 'https://example.com/search?q=tag-it%27s'
+
+      expect(notes.buildUrl('search', value)).toBe(expected)
+    })
+
     it('should encode every character outside the unreserved set in a path value', () => {
       const value = { title: "Hello World! (it's *new*)" }
       const expected = 'https://example.com/notes/Hello%20World%21%20%28it%27s%20%2Anew%2A%29'
@@ -6187,12 +6201,13 @@ describe('defineTable', () => {
       expect(snapshots.buildUrl('reader', value, { encoding: 'strict' })).toBeUndefined()
     })
 
-    it('should build no URL for a value whose query the URL parser respells', () => {
+    it('should escape the text of a value behind its question mark as a parser does a query', () => {
       const value = {
         url: "https://example.com/?q=it's",
       }
+      const expected = 'https://reader.example.com/https://example.com/?q=it%27s'
 
-      expect(snapshots.buildUrl('reader', value)).toBeUndefined()
+      expect(snapshots.buildUrl('reader', value)).toBe(expected)
     })
 
     it('should keep an escape and encode a bare percent sign', () => {
@@ -6921,6 +6936,16 @@ describe('defineTable', () => {
         sheet: 'a/b',
       }
       const expected = 'https://app.example.com/view#!/home/Sales%20Q1/a%2Fb'
+
+      expect(apps.buildUrl('sheet', value)).toBe(expected)
+    })
+
+    it('should escape a backtick in a fragment value as a parser does', () => {
+      const value = {
+        book: 'a`b^c',
+        sheet: 'Sheet1',
+      }
+      const expected = 'https://app.example.com/view#!/home/a%60b^c/Sheet1'
 
       expect(apps.buildUrl('sheet', value)).toBe(expected)
     })
