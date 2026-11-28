@@ -2194,6 +2194,37 @@ const createTable = <const Row extends UrlRow>(
     return `${base}${writeQuery(pairs)}${hash}`
   }
 
+  // The read of a main URL under the row and the values of the URL it was written from.
+  const readMainUrl = (mainUrl: string, source: FoundTemplate): FoundTemplate | undefined => {
+    // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`.
+    const readBack = readTemplate(mainUrl)
+
+    if (readBack?.template.rowIndex !== source.template.rowIndex) {
+      return
+    }
+
+    // A value moved into the main URL can hold its fixed text, as `Alice_by_Bob` written into
+    // `{board}_by_{user}`, so the main URL reads under other values.
+    const { optionalNames, passedName } = readBack.template
+    const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
+      const sourceValue = source.params[name]
+
+      // A pair the source does not name is copied into the main URL as written, as `page=3` from
+      // an alias into `{?page}`, so it holds no fixed text of the main URL.
+      if (sourceValue === undefined && (optionalNames.includes(name) || name === passedName)) {
+        return true
+      }
+
+      return isSameRead(readBack.template, name, value, sourceValue)
+    })
+
+    if (!isReadAsWritten) {
+      return
+    }
+
+    return readBack
+  }
+
   // A URL written as its row's main URL, every value as spelled but where a mark covers it, and a
   // main URL as itself. A main URL under `http` or another `www` is rewritten too. Any other
   // difference, a URL with credentials and a value or a port the main URL cannot keep give nothing.
@@ -2233,33 +2264,18 @@ const createTable = <const Row extends UrlRow>(
       return mainUrl
     }
 
-    // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`.
-    const readBack = readTemplate(mainUrl)
+    const readBack = readMainUrl(mainUrl, found)
 
-    if (readBack?.template.rowIndex !== found.template.rowIndex) {
-      return
-    }
-
-    // A value moved into the main URL can hold its fixed text, as `Alice_by_Bob` written into
-    // `{board}_by_{user}`, so the main URL reads under other values.
-    const { optionalNames, passedName } = readBack.template
-    const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
-      const sourceValue = found.params[name]
-
-      // A pair the source does not name is copied into the main URL as written, as `page=3` from
-      // an alias into `{?page}`, so it holds no fixed text of the main URL.
-      if (sourceValue === undefined && (optionalNames.includes(name) || name === passedName)) {
-        return true
-      }
-
-      return isSameRead(readBack.template, name, value, sourceValue)
-    })
-
-    if (!isReadAsWritten) {
+    if (!readBack) {
       return
     }
 
     const writtenUrl = isStrict ? writeStrictMainUrl(readBack, mainUrl) : mainUrl
+
+    // A strict build respells a value the row reads as written, as `a|b` in `{+path}` as `a%7Cb`.
+    if (isStrict && (!writtenUrl || !readMainUrl(writtenUrl, readBack))) {
+      return
+    }
 
     // A main URL is written as a URL parser writes it, a value moved into the host in lowercase,
     // so the main URL of a main URL is itself.

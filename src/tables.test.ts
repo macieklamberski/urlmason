@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
 import { defineTable } from './tables.js'
-import type { UrlMatch, UrlRow, UrlValue, UrlValues } from './types.js'
+import type { UrlMatch, UrlRow, UrlValue, UrlValues, UrlWriteOptions } from './types.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 
@@ -9,6 +9,7 @@ const regionLocaleRegex = /^[a-z]{2}-[A-Z]{2}$/
 const digitsRegex = /^\d+$/
 const hexRegex = /^[0-9a-f]+$/i
 const globalDigitsRegex = /^\d+$/g
+const lettersAndPipesRegex = /^[a-z|]+$/
 
 const playerRows: Array<PlayerRow> = [
   {
@@ -2713,6 +2714,246 @@ describe('defineTable', () => {
       const expected = 'https://listed.example/@Ali%20ce%21/feed.rss'
 
       expect(atHandles.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should keep an escape no UTF-8 decodes in a pair no row names', () => {
+      const value = 'http://listed.example/@alice/feed.rss?tag=caf%E9'
+      const expected = 'https://listed.example/@alice/feed.rss?tag=caf%E9'
+
+      expect(atHandles.getMainUrl(value, strict)).toBe(expected)
+    })
+
+    it('should return undefined for a value the strict build reads back as another', () => {
+      const table = defineTable([{ key: 'raw', main: 'https://example.com/p/{+path}/feed' }])
+      const value = 'https://example.com/p/a|b/feed'
+
+      expect(table.getMainUrl(value, strict)).toBeUndefined()
+    })
+
+    it('should return undefined for a value the strict build reads back under another row', () => {
+      const table = defineTable([
+        {
+          key: 'raw',
+          main: 'https://example.com/p/{+path}/feed',
+          checks: { path: lettersAndPipesRegex },
+        },
+        { key: 'other', main: 'https://example.com/p/{+path}/feed' },
+      ])
+      const value = 'https://example.com/p/a|b/feed'
+
+      expect(table.getMainUrl(value, strict)).toBeUndefined()
+    })
+
+    describe('with every spelling the tables build', () => {
+      // The parts of a table the property walks, its keys taken as any string.
+      type SpellingTable = {
+        rows: Array<UrlRow>
+        // biome-ignore lint/style/useConsistentMethodSignatures: A method takes a table of any key type.
+        buildUrls(key: string, values: UrlValues): Array<string>
+        readUrl: (url: string) => { key: string; values: UrlValues } | undefined
+        getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
+      }
+      const tables: Array<SpellingTable> = [
+        players,
+        spellings,
+        rooted,
+        wwwTenants,
+        hosted,
+        paged,
+        formats,
+        unsorted,
+        routes,
+        sections,
+        wwwRoutes,
+        keptFormats,
+        bare,
+        flaggedMain,
+        moved,
+        marked,
+        localized,
+        listed,
+        ampersands,
+        unmarkedAmpersands,
+        ampersandRoutes,
+        ampersandPairs,
+        ampersandTags,
+        ampersandItems,
+        movedBoards,
+        tenantBlogs,
+        ampersandAlias,
+        escapedName,
+        semicolons,
+        unmarkedSemicolons,
+        nameFlags,
+        uncheckedNameFlags,
+        passedQueries,
+        casedPassedQueries,
+        slashed,
+        rowSlashed,
+        slashAliases,
+        fixedCased,
+        semicolonPassedQueries,
+        entityPassedQueries,
+        unkeptPassedQueries,
+        escapedFlag,
+        brokenName,
+        brokenSecondName,
+        alternativeChecked,
+        mirrored,
+        mirroredMarked,
+        mirroredQuery,
+        escapedPercentName,
+        keptEscape,
+        versions,
+        checkedPaths,
+        checkedNameCase,
+        hostVersions,
+        tenantBehindHost,
+        slashTwins,
+        fixedBehindValue,
+        rootFixedBehindValue,
+        tailFeeds,
+        checkedByRegex,
+        movedFormat,
+        percentName,
+        spaceAndPlusNames,
+        letterAndEscapeNames,
+        percentFlag,
+        renamed,
+        movedVersion,
+        sharedPages,
+        checkedSharedPages,
+        atomFiles,
+        labeledHosts,
+        movedSharedPages,
+        domainFeeds,
+        atHandles,
+        searchNotes,
+        casedNames,
+        looseChecks,
+        threeValuePages,
+        optionalPosts,
+        unkeptFeeds,
+        builtFeeds,
+        commitFiles,
+        snapshots,
+        files,
+        images,
+        sizedImages,
+        checkedImages,
+        keptAliases,
+        unicodeHosts,
+        capitalHosts,
+        subdomainPlayers,
+        apps,
+        openPages,
+        checkedOpenPages,
+        tailCheckedPages,
+        boards,
+        topicBoards,
+        openBoards,
+        mixedBoards,
+        fileFeeds,
+        rowChecked,
+        newsletters,
+        playlists,
+        journals,
+        archives,
+        rootChecked,
+        fallThroughProfiles,
+        sameShapeProfiles,
+        fallThroughRowChecked,
+        fallThroughIssues,
+        fallThroughBlocks,
+        sameShapeSelected,
+        fallThroughSites,
+        fallThroughRootProfiles,
+        sameShapeRootProfiles,
+        checkedTenants,
+        checkedExact,
+      ]
+      const samples = [
+        'Hello!',
+        'a b',
+        'a+b',
+        'a|b',
+        "it's",
+        '100%',
+        'caf%E9',
+        'a/b',
+        'a=b&c',
+        'café',
+      ]
+      const keptPairs = ['', 'ref=a|b', 'ref=a+b', 'ref=caf%E9', 'ref=caf%25E9', 'ref=a=b']
+      const expressionRegex = /\{[+#./;?&]?([^}]+)\}/g
+      const toValue = (name: string, sample: string): UrlValue => {
+        if (name === 'scheme') {
+          return 'https'
+        }
+
+        if (name === 'host') {
+          return 'example.com'
+        }
+
+        return name.endsWith('*') ? [sample] : sample
+      }
+      const toValues = (row: UrlRow, sample: string): UrlValues => {
+        const templates = [row.main, ...(row.aliases ?? [])].join(' ')
+        const names = [...templates.matchAll(expressionRegex)].flatMap(([, list]) =>
+          list.split(','),
+        )
+
+        return Object.fromEntries(
+          names.map((name) => [name.replace('*', ''), toValue(name, sample)]),
+        )
+      }
+      const withPair = (url: string, pair: string): string => {
+        if (!pair) {
+          return url
+        }
+
+        return `${url}${url.includes('?') ? '&' : '?'}${pair}`
+      }
+      // A case mark lowercases a pair a passed query reads, so `ref` is compared in any case.
+      const readBack = (table: SpellingTable, url: string) => {
+        const match = table.readUrl(url)
+        const refs = URL.parse(url)?.searchParams.getAll('ref')
+
+        return {
+          key: match?.key,
+          values: match?.values,
+          refs: refs?.map((ref) => ref.toLowerCase()),
+        }
+      }
+      const toSources = (table: SpellingTable): Array<{ table: SpellingTable; url: string }> => {
+        return table.rows
+          .flatMap((row) =>
+            samples.flatMap((sample) => table.buildUrls(row.key, toValues(row, sample))),
+          )
+          .flatMap((spelling) =>
+            keptPairs.map((pair) => ({ table, url: withPair(spelling, pair) })),
+          )
+      }
+
+      it('should read back the values of the URL it came from', () => {
+        const value = tables.flatMap(toSources).flatMap(({ table, url }) => {
+          const mainUrl = table.getMainUrl(url, strict)
+
+          if (mainUrl === undefined) {
+            return []
+          }
+
+          const sourceRead = readBack(table, table.getMainUrl(url) ?? url)
+          const mainRead = readBack(table, mainUrl)
+
+          return Bun.deepEquals(sourceRead, mainRead)
+            ? []
+            : [{ url, mainUrl, sourceRead, mainRead }]
+        })
+        const expected: typeof value = []
+
+        expect(value).toEqual(expected)
+      })
     })
 
     it('should encode a URL built for a page', () => {
