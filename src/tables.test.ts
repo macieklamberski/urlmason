@@ -431,6 +431,20 @@ const semicolons = defineTable(
   { lenient: { semicolon: true } },
 )
 
+const escapedSemicolons = defineTable(
+  [{ key: 'board', main: 'https://example.com/index.php?action=.xml%3Btype=rss2&board={board}' }],
+  { lenient: { semicolon: true } },
+)
+
+const equalsName = defineTable([
+  { key: 'board', main: 'https://example.com/index.php?a%3Db=1&board={board}' },
+])
+
+const ampersandFlags = defineTable(
+  [{ key: 'thread', main: 'https://example.com/showthread.php?a=1&{id}-{slug}' }],
+  { lenient: { ampersandEntity: true } },
+)
+
 const unmarkedSemicolons = defineTable([
   { key: 'story', main: 'https://example.com/story.php?storyId={id}&ft={format}' },
 ])
@@ -3117,6 +3131,9 @@ describe('defineTable', () => {
         ampersandAlias,
         escapedName,
         semicolons,
+        escapedSemicolons,
+        equalsName,
+        ampersandFlags,
         unmarkedSemicolons,
         nameFlags,
         uncheckedNameFlags,
@@ -3216,6 +3233,8 @@ describe('defineTable', () => {
         'caf%E9',
         'a/b',
         'a=b&c',
+        'a;b',
+        'amp;x',
         'café',
       ]
       const keptPairs = ['', 'ref=a|b', 'ref=a+b', 'ref=caf%E9', 'ref=caf%25E9', 'ref=a=b']
@@ -4495,6 +4514,13 @@ describe('defineTable', () => {
       expect(semicolons.buildUrl('share', value)).toBe(expected)
     })
 
+    it('should build a ; the row escapes in its own query escaped', () => {
+      const value = { board: '1' }
+      const expected = 'https://example.com/index.php?action=.xml%3Btype=rss2&board=1'
+
+      expect(escapedSemicolons.buildUrl('board', value)).toBe(expected)
+    })
+
     it('should return undefined for ; on a row without the mark', () => {
       const value = 'https://example.com/story.php?storyId=5;ft=nprml'
 
@@ -4512,6 +4538,16 @@ describe('defineTable', () => {
   })
 
   describe('with the ampersand entity mark', () => {
+    it('should build a flag that opens with amp; escaped', () => {
+      const value = {
+        id: 'amp;12',
+        slug: 'hello',
+      }
+      const expected = 'https://example.com/showthread.php?a=1&amp%3B12-hello'
+
+      expect(ampersandFlags.buildUrl('thread', value)).toBe(expected)
+    })
+
     it('should read &amp; between query pairs as &', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
       const expected = {
@@ -4828,6 +4864,13 @@ describe('defineTable', () => {
       const match = menus.readUrl(value)
 
       expect(match?.isExactMatch).toBe(true)
+    })
+
+    it('should build an equals sign the row escapes in a name escaped', () => {
+      const value = { board: '1' }
+      const expected = 'https://example.com/index.php?a%3Db=1&board=1'
+
+      expect(equalsName.buildUrl('board', value)).toBe(expected)
     })
 
     it('should mark the URL the row builds as exact', () => {

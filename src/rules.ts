@@ -10,7 +10,6 @@ import {
   type ParsedTemplate,
   placeholderRegex,
   splitPath,
-  type TemplateParam,
   toBareName,
 } from './templates.js'
 import type { UrlLenient } from './types.js'
@@ -326,14 +325,15 @@ export const validateOpenTailPlacement = (key: string, parsed: ParsedTemplate): 
 // mark reads as `&`.
 export const validateEntityNames = (
   key: string,
-  params: Array<TemplateParam>,
+  parsed: ParsedTemplate,
   isMarked: boolean,
 ): void => {
   if (!isMarked) {
     return
   }
 
-  const name = params.map((param) => param.name).find((name) => name.startsWith(entityPrefix))
+  const names = [...parsed.params.map((param) => param.name), ...parsed.nameFlags]
+  const name = names.find((name) => name.startsWith(entityPrefix))
 
   if (name !== undefined) {
     throw new Error(t(locales.errors.ampersandEntityName, { key, name }))

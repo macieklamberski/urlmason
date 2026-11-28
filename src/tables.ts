@@ -21,7 +21,6 @@ import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
   decodeQueryValue,
-  encodeText,
   entityPrefix,
   isEntityPair,
   isNamed,
@@ -664,7 +663,7 @@ const compileRowTemplate = (
 
   const ownNames = parsed.params.map((param) => param.name)
 
-  validateEntityNames(key, parsed.params, hasAmpersandMark)
+  validateEntityNames(key, parsed, hasAmpersandMark)
   validateSemicolons(key, parsed.search, lenient)
 
   const hosts = options.hosts?.exact ?? []
@@ -1395,11 +1394,11 @@ const compileRowTemplate = (
         return own.pair
       }
 
-      return appendValue(own.pair, fill(own.value, 'query', encodeText))
+      return appendValue(own.pair, fill(own.value, 'query', compiled.encodeQueryText))
     })
 
     for (const { text } of compiled.nameFlags) {
-      pairs.push(toPair(fill(text, 'query', encodeText)))
+      pairs.push(compiled.toWrittenPair(fill(text, 'query', compiled.encodeQueryName)))
     }
 
     for (const name of parsed.optionalNames) {
