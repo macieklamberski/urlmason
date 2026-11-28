@@ -19,6 +19,7 @@ import {
 import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
+  decodeQueryValue,
   encodeText,
   entityPrefix,
   isEntityPair,
@@ -105,10 +106,9 @@ type RowTemplate = {
   // value from, as `id={id}`.
   fixedQuery: Array<[name: string, value: string]>
   valueNames: Array<string>
-  // A flag written with an equals sign and no value, as `xml=`, which is the flag.
-  flagTexts: Array<string>
-  // A pair under an own name as the row names it, in the spelling the row builds it with.
-  getWrittenText: (pair: QueryPair) => string
+  // The values the template reads from a pair it sets itself or a flag of it, or undefined where
+  // the pair holds another value than the template takes.
+  readOwnPair: (pair: QueryPair) => Array<[name: string, value: string]> | undefined
   // The host and path a URL the template takes matches, as given and with an optional `www`.
   asGivenRegex: RegExp
   optionalWwwRegex: RegExp
@@ -129,7 +129,7 @@ type RowTemplate = {
     params: Record<string, UrlValue>,
   ) => RawRead | undefined
   // The template's URL with values written as they were read, and the pairs no row names kept.
-  getRawUrl: (rawParams: RawParams, keptPairs: Array<QueryPair>) => RawUrl | undefined
+  getRawUrl: (rawRead: RawRead, keptPairs: Array<QueryPair>) => RawUrl | undefined
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, UrlValue>) => boolean
@@ -178,6 +178,8 @@ type RawParams = Record<string, { value: string; part: TemplatePart }>
 // A URL read in its own spelling: its values, and its path and pairs as the template writes them.
 type RawRead = {
   params: RawParams
+  // The values read, in lowercase where a case mark covers them.
+  values: Record<string, UrlValue>
   pathname: string
   pairs: Array<QueryPair>
 }
@@ -206,6 +208,7 @@ const anchorsRegex = /^\^|\$$/g
 const plainValueRegex = /^[\w.~-]+$/
 const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
+const percentEscapeRegex = /%[0-9a-f]{2}/gi
 const fixedPathTextRegex = /[^/]/
 
 // The host a `{host}` row is read on in any-host reads, with the path behind the base as its path.
@@ -226,6 +229,11 @@ const toLowerCaseValue = (value: string): string => {
     .split(escapeSplitRegex)
     .map((piece, index) => (index % 2 === 1 ? piece : piece.toLowerCase()))
     .join('')
+}
+
+// A text with the hex of its escapes in uppercase, as a template writes them.
+const toUpperCaseEscapes = (text: string): string => {
+  return text.replace(percentEscapeRegex, (triplet) => triplet.toUpperCase())
 }
 
 const asciiUpperCaseRegex = /[A-Z]+/g
@@ -1036,20 +1044,37 @@ const compileRowTemplate = (
     }
 
     const respelledPairs = [...pairs]
+    // A parameter given twice or under another spelling than the row builds or names it by, as
+    // another case, is read differently from server to server.
+    const isGivenOnce = (name: string, spellings: Array<string>): boolean => {
+      const named = pairs.filter((pair) => isNamed(pair, name))
 
-    for (const param of ownParams) {
-      const [index, ...others] = [...pairs.keys()].filter((pairIndex) => {
-        return isNamed(pairs[pairIndex], param.name)
-      })
+      return (
+        named.length < 2 &&
+        named.every((pair) => spellings.includes(toUpperCaseEscapes(pair.rawName)))
+      )
+    }
 
-      // The row took the URL, so a pair under each own name is there.
-      const { rawName, rawValue } = pairs[index]
+    for (const name of parsed.optionalNames) {
+      const pair = pairs.find((given) => isNamed(given, name))
 
-      // A parameter given twice or under another spelling than the row builds or names it by,
-      // as another case, is read differently from server to server.
-      if (others.length > 0 || ![param.writtenName, param.name].includes(rawName)) {
+      if (!isGivenOnce(name, [name])) {
         return
       }
+
+      if (pair && params[name] !== undefined) {
+        rawParams[name] = { value: pair.rawValue ?? '', part: 'query' }
+      }
+    }
+
+    for (const param of ownParams) {
+      if (!isGivenOnce(param.name, [param.writtenName, param.name])) {
+        return
+      }
+
+      // The row took the URL, so a pair under each own name is there.
+      const index = pairs.findIndex((pair) => isNamed(pair, param.name))
+      const { rawName, rawValue } = pairs[index]
 
       if (param.isFlag) {
         if (rawValue) {
@@ -1139,30 +1164,42 @@ const compileRowTemplate = (
 
     return {
       params: rawParams,
+      values: lowercaseParams,
       pathname: respelledHostPath.text.slice(url.hostname.length),
       pairs: respelledPairs,
     }
   }
 
-  const getRawUrl = (rawParams: RawParams, keptPairs: Array<QueryPair>): RawUrl | undefined => {
+  const getRawUrl: RowTemplate['getRawUrl'] = (rawRead, keptPairs) => {
+    const rawParams = rawRead.params
     let isFilled = true
-    // A path and a fragment spell a value the same way.
-    const isSpelledAlike = (from: TemplatePart, to: TemplatePart): boolean => {
-      return from === to || [from, to].every((part) => isAnyOf(part, ['path', 'fragment']))
+    // A value moved to another part of the URL is written as a pretty build writes it there. A
+    // host takes only a value every part reads the same way.
+    const fillValue = (name: string, part: TemplatePart): string => {
+      const rawParam = rawParams[name]
+      const value = rawRead.values[name]
+
+      if (!rawParam) {
+        isFilled = false
+
+        return ''
+      }
+
+      if (rawParam.part === part || plainValueRegex.test(rawParam.value)) {
+        return rawParam.value
+      }
+
+      if (part === 'host' || !isString(value)) {
+        isFilled = false
+
+        return ''
+      }
+
+      return compiled.encodeValue(value, part)
     }
-    // A value moved to another part of the URL is written only when it reads the same there.
     const fill = (text: string, part: TemplatePart, mapLiteral?: MapText): string => {
       const fillPlaceholder = (placeholder: string): string => {
-        const rawParam = rawParams[toBareName(placeholder)]
-        const isMovable = rawParam && isSpelledAlike(rawParam.part, part)
-
-        if (!rawParam || (!isMovable && !plainValueRegex.test(rawParam.value))) {
-          isFilled = false
-
-          return ''
-        }
-
-        return rawParam.value
+        return fillValue(toBareName(placeholder), part)
       }
 
       return mapTemplate(text, fillPlaceholder, mapLiteral)
@@ -1178,6 +1215,12 @@ const compileRowTemplate = (
 
     for (const { text } of compiled.nameFlags) {
       pairs.push(toPair(fill(text, 'query', encodeText)))
+    }
+
+    for (const name of parsed.optionalNames) {
+      if (rawParams[name]) {
+        pairs.push(toPair(`${name}=${fillValue(name, 'query')}`))
+      }
     }
 
     const filledPath = fill(path, 'path', encodeLiteral)
@@ -1248,15 +1291,30 @@ const compileRowTemplate = (
     return builtCompiled.fill(values, encoding)
   }
 
-  const getWrittenText: RowTemplate['getWrittenText'] = (pair) => {
-    // `a+b` is read as the name `a b`, and may be the raw spelling of another parameter of the row.
-    const param = ownParams.find((own) => own.name === pair.rawName && own.name === pair.name)
+  const readOwnPair: RowTemplate['readOwnPair'] = (pair) => {
+    const param = ownParams.find((own) => isNamed(pair, own.name))
+    const flag = compiled.nameFlags.find((nameFlag) => {
+      return !pair.rawValue && nameFlag.regex.test(pair.name)
+    })
+    const match = param
+      ? param.regex.exec(decodeQueryValue(pair.rawValue ?? ''))
+      : flag?.regex.exec(pair.name)
 
-    if (!param) {
-      return pair.text
+    if (!match) {
+      return
     }
 
-    return `${param.writtenName}${pair.text.slice(pair.rawName.length)}`
+    const values: Array<[name: string, value: string]> = []
+
+    for (const [group, value] of Object.entries(match.groups ?? {})) {
+      const name = getCaptured(group)?.name
+
+      if (name !== undefined && value !== undefined) {
+        values.push([name, value])
+      }
+    }
+
+    return values
   }
 
   return {
@@ -1268,8 +1326,7 @@ const compileRowTemplate = (
     hostNames: [...host.matchAll(placeholderRegex)].map(([, name]) => name),
     fixedQuery: fixedParams.map((param) => [param.name, param.value]),
     valueNames: ownParams.filter((param) => param.value.includes('{')).map((param) => param.name),
-    flagTexts: ownParams.filter((param) => param.isFlag).map((param) => `${param.writtenName}=`),
-    getWrittenText,
+    readOwnPair,
     asGivenRegex,
     optionalWwwRegex,
     hostHint: toHostHint(),
@@ -1865,6 +1922,21 @@ const createTable = <const Row extends UrlRow>(
     return match as UrlMatch<Key, Row, Options> | undefined
   }
 
+  // Whether a value a template reads is a value the source URL read: in any case for a host value
+  // and one a case mark covers.
+  const isSameRead = (
+    template: RowTemplate,
+    name: string,
+    value: UrlValue | undefined,
+    sourceValue: UrlValue | undefined,
+  ): boolean => {
+    if ([...(lenient.case ?? []), ...template.hostNames].includes(name)) {
+      return isSameValue(value, sourceValue, isLooseMatch)
+    }
+
+    return isSameValue(value, sourceValue, (left, right) => left === right)
+  }
+
   // The URL a template read, written as its row's main URL, or undefined where it cannot be.
   const writeMainUrl = (
     template: RowTemplate,
@@ -1914,13 +1986,15 @@ const createTable = <const Row extends UrlRow>(
       return `${origin ?? url.origin}${rawRead.pathname}${rest}`
     }
 
-    const ownNames = [...template.ownNames, ...main.ownNames]
+    // A value the alias reads under an optional name is written where the main URL writes it.
+    const movedNames = template.optionalNames.filter((name) => main.checkNames.includes(name))
+    const ownNames = [...template.ownNames, ...main.ownNames, ...movedNames]
     const isOwnFlag = (pair: QueryPair): boolean =>
       template.isFlagPair(pair) || main.isFlagPair(pair)
     const keptPairs = pairs.filter((pair) => {
       return !isNamed(pair, ownNames) && !isOwnFlag(pair) && isKept(pair)
     })
-    const rawUrl = main.getRawUrl(rawRead.params, keptPairs)
+    const rawUrl = main.getRawUrl(rawRead, keptPairs)
 
     if (!rawUrl) {
       return
@@ -1938,13 +2012,17 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    // A query of 50,000 pairs under one own name is looked up 50,000 times.
-    const mainTexts = new Set([...rawUrl.pairs.map((pair) => pair.text), ...main.flagTexts])
     const hasOtherValue = pairs.some((pair) => {
       const isMainPair = isNamed(pair, main.ownNames) && !isNamed(pair, template.ownNames)
       const isMainFlag = main.isFlagPair(pair) && !template.isFlagPair(pair)
 
-      return (isMainPair || isMainFlag) && !mainTexts.has(main.getWrittenText(pair))
+      if (!isMainPair && !isMainFlag) {
+        return false
+      }
+
+      const values = main.readOwnPair(pair)
+
+      return !values?.every(([name, value]) => isSameRead(main, name, value, rawRead.values[name]))
     })
 
     // A parameter or a flag the main URL sets, given under another value, is read differently
@@ -2056,7 +2134,6 @@ const createTable = <const Row extends UrlRow>(
 
     // A value moved into the main URL can hold its fixed text, as `Alice_by_Bob` written into
     // `{board}_by_{user}`, so the main URL reads under other values.
-    const caseNames = [...(lenient.case ?? []), ...readBack.template.hostNames]
     const { optionalNames, passedName } = readBack.template
     const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
       const sourceValue = found.params[name]
@@ -2067,11 +2144,7 @@ const createTable = <const Row extends UrlRow>(
         return true
       }
 
-      if (caseNames.includes(name)) {
-        return isSameValue(value, sourceValue, isLooseMatch)
-      }
-
-      return isSameValue(value, sourceValue, (left, right) => left === right)
+      return isSameRead(readBack.template, name, value, sourceValue)
     })
 
     if (!isReadAsWritten) {

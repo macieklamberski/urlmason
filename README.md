@@ -283,7 +283,7 @@ Builds come in two spellings, picked per call with `{ encoding }`:
 - **`pretty`, the default,** decodes a value's valid escapes, then writes every character the part allows, so `Ann Lee!` builds `/@Ann%20Lee!/feed`. An escape that decodes to no character, as `%E0%A4` of a cut-off `अ`, stays as written, so a URL read and built again is the URL it was.
 - **`strict`** writes a value as RFC 6570 does, encoding everything outside the unreserved characters, so the same value builds `/@Ann%20Lee%21/feed`.
 
-`getMainUrl` takes the same option. Pretty keeps each value as the URL spelled it, and strict builds the main URL from the values it reads, so a strict main URL equals a strict build of the same values.
+`getMainUrl` takes the same option. Pretty keeps each value as the URL spelled it, and strict builds the main URL from the values it reads, so a strict main URL equals a strict build of the same values. A value that moves to another part of the URL, as from the query into the path, is written as a pretty build writes it there, so `?id=a%3Ab` moves into the path as `/a:b`.
 
 A query is written in the order the template writes it, then every other pair in the order the URL or the passed map gives it. Two URLs that differ only in that order stay two spellings, and trousse's `normalizeUrl` with `sortQueryParams` gives them one.
 
@@ -344,7 +344,7 @@ Builds every spelling the values fill of the first row that has one: its main UR
 
 ### `table.getMainUrl(url, options?)`
 
-Rewrites a URL to its row's main URL, or returns `undefined` where it's already the main URL or can't be rewritten safely, such as a URL with credentials.
+Rewrites a URL to its row's main URL, or returns `undefined` where it's already the main URL or can't be rewritten safely, such as a URL with credentials. It reads only the table's own hosts, as `readUrl` does without `isAnyHost`, so a `{host}` alias on a table with no `hosts` gets no main URL.
 
 ### `table.forSite(url)`
 
