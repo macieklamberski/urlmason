@@ -3,6 +3,12 @@ export type UrlLenient = {
   // The placeholders whose value is read in any letter case. The main URL writes it in lowercase.
   // A table throws for one that shares a host label, path segment or query value with another.
   case?: Array<string>
+  // The fixed text of the templates, path, query names and fixed values, read in any letter case.
+  // The main URL writes it as the template does.
+  fixedCase?: boolean
+  // A URL with or without a trailing slash, where the template's path ends in fixed text or one
+  // value. The main URL writes the slash the template does.
+  trailingSlash?: boolean
   // `&amp;` between query pairs read as `&`.
   ampersandEntity?: boolean
   // `;` between query pairs read as `&`. A row under it that writes `;` in its own query throws.
@@ -32,6 +38,8 @@ export type UrlRow<Key extends string = string> = {
   // left undefined is no check: a list of rows that check different names types each name a row
   // does not check as undefined.
   checks?: Record<string, UrlRowCheck | undefined>
+  // The row's trailing slash mark over the table's, so `{ trailingSlash: false }` turns it off.
+  lenient?: Pick<UrlLenient, 'trailingSlash'>
 }
 
 // Names and their values, as `{ lang: 'en' }`. A slot of one value builds it as `lang,en`, a list
@@ -193,9 +201,9 @@ export type UrlKeyMatch<Key extends string, Row, Options = undefined> = {
   values: KeyValues<Key, Row> & OptionValues<Options>
   row: Row
   isAlias: boolean
-  // Whether the URL is written as the row writes it, or in a spelling its marks cover: the same
-  // case, the same trailing slash and each own parameter once. A platform can answer any other
-  // spelling with another feed.
+  // Whether the URL is written as the row writes it: the same case but where a case mark names
+  // the value, the same trailing slash and each own parameter once. A platform can answer any
+  // other spelling with another feed.
   isExact: boolean
 }
 

@@ -319,8 +319,9 @@ const table = defineTable(rows, {
   },
   // A check per placeholder: a pattern anchored at both ends, or a function.
   checks: { id: /^\d+$/, locale: (value) => value.length === 2 },
-  // Values read in any letter case, which a main URL writes in lowercase, and `;` read as `&`.
-  lenient: { case: ['user'], semicolon: true },
+  // `user` in any letter case, written in lowercase. Fixed text in any letter case and
+  // either trailing slash, written as the template does. `;` read as `&`.
+  lenient: { case: ['user'], fixedCase: true, trailingSlash: true, semicolon: true },
   // A rewrite keeps no query parameter the row does not name.
   isQueryKept: false,
   // A row that refuses a URL passes it to the next row, read in the order written.
@@ -329,6 +330,8 @@ const table = defineTable(rows, {
 ```
 
 Each option, and each field of a row, such as `variant` and its own `checks`, is documented on its type.
+
+A read matches the trailing slash exactly, so `/feed/` reads only where a template or an alias writes `/feed/`. The `trailingSlash` mark reads both, on the whole table or on one row, and a row's mark wins over the table's. A URL with the other slash isn't exact, and `getMainUrl` writes the slash of the template. Fixed text reads in any letter case, but only `fixedCase` lets `getMainUrl` respell it, as `/Rss.aspx` to `/rss.aspx` or `format=RSS` to `format=rss`. A server can treat path letters as case-sensitive, so the table has to say that its own doesn't.
 
 ### `table.readUrl(url, options?)`
 

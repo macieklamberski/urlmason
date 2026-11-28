@@ -113,21 +113,28 @@ type RowTemplate = {
   asGivenRegex: RegExp
   optionalWwwRegex: RegExp
   hostHint?: HostHint
-  // The values of a URL the template takes, read as given or with an optional `www`. A row read on
-  // the stand-in host gets the scheme, host and base the URL is read under.
+  // The values of a URL the template takes, read as given or with an optional `www`, and with the
+  // other trailing slash where its mark covers the template. A row read on the stand-in host gets
+  // the scheme, host and base the URL is read under.
   readParams: (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
+    isSlashLoose: boolean,
     base?: UrlValues,
   ) => Record<string, UrlValue> | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
   // spelling a mark covers is read in the template's, with the path and the pairs written that way.
+  // A respelled read takes the other trailing slash and fixed text in another case too, where a
+  // mark covers them.
   readRawParams: (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
     params: Record<string, UrlValue>,
+    isRespelled: boolean,
   ) => RawRead | undefined
+  // Whether the trailing slash mark covers the template.
+  isSlashFree: boolean
   // The template's URL with values written as they were read, and the pairs no row names kept.
   getRawUrl: (rawRead: RawRead, keptPairs: Array<QueryPair>) => RawUrl | undefined
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
@@ -182,6 +189,9 @@ type RawRead = {
   values: Record<string, UrlValue>
   pathname: string
   pairs: Array<QueryPair>
+  // Whether the URL has the other trailing slash or fixed text in another case, which a main URL
+  // writes as the template does.
+  isRespelled: boolean
 }
 
 // A URL a template writes from raw values, before its query: the pairs are written sorted.
@@ -199,6 +209,8 @@ type TableUrl = {
   // Read once, since every table asks for it and `URL` writes it anew on each read.
   hostname: string
   hostPath: string
+  // Whether the path ends in a slash, which `hostPath` leaves out.
+  isSlashed: boolean
   query?: UrlQuery
 }
 
@@ -378,6 +390,10 @@ const copyRow = <Row extends UrlRow>(row: Row): Row => {
     copy.checks = { ...row.checks }
   }
 
+  if (row.lenient) {
+    copy.lenient = { ...row.lenient }
+  }
+
   return copy
 }
 
@@ -390,6 +406,7 @@ const toTableUrl = (url: URL): TableUrl => {
     url,
     hostname: url.hostname,
     hostPath: hostPath.replace(trailingSlashRegex, ''),
+    isSlashed: hostPath.endsWith('/'),
   }
 }
 
@@ -567,7 +584,7 @@ const isApexHost = (host: string): boolean => {
 // A template as two functions: the values of a URL it takes, and its URL for a page's values.
 const compileRowTemplate = (
   template: string,
-  { key, checks: givenRowChecks }: UrlRow,
+  { key, checks: givenRowChecks, lenient: rowLenient }: UrlRow,
   rowIndex: number,
   isAlias: boolean,
   options: UrlTableOptions,
@@ -742,6 +759,11 @@ const compileRowTemplate = (
   // Matched on the path as given, with the indices a case mark lowercases.
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
+  // A path that ends open takes any slash behind it, and an empty path is the root a URL always has.
+  const hasSlash = path && !isOpenEnded ? path.endsWith('/') : undefined
+  const isSlashFree =
+    hasSlash !== undefined && (rowLenient?.trailingSlash ?? lenient?.trailingSlash) === true
+  const isFixedCaseFree = lenient?.fixedCase === true
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const flagShapes = parsed.nameFlags.map((text) =>
     text.replace(placeholderRegex, toShapePlaceholder),
@@ -750,7 +772,8 @@ const compileRowTemplate = (
     .map((name) => name.toLowerCase())
     .sort((left, right) => left.localeCompare(right))
   const shapeQuery = shapeNames.join('&')
-  // A read sees no trailing slash, and two templates that take one URL take it on one host.
+  // The shape leaves the trailing slash out, so a twin under the slash mark shares it, and two
+  // templates that take one URL take it on one host.
   const readPath = path.replace(trailingSlashRegex, '')
   const shapePath = readPath.replace(placeholderRegex, toShapePlaceholder)
   const readText = `${scheme}${host}${readPath}${parsed.search ?? ''}`
@@ -921,8 +944,17 @@ const compileRowTemplate = (
     return params
   }
 
-  const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, base) => {
+  const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, isSlashLoose, base) => {
     const { url, hostPath } = tableUrl
+
+    if (
+      hasSlash !== undefined &&
+      tableUrl.isSlashed !== hasSlash &&
+      !(isSlashLoose && isSlashFree)
+    ) {
+      return
+    }
+
     const match = claimsUrls && (isWwwOptional ? optionalWwwRegex : asGivenRegex).exec(hostPath)
 
     if (!match) {
@@ -1025,11 +1057,32 @@ const compileRowTemplate = (
     return { text, groups }
   }
 
-  const readRawParams: RowTemplate['readRawParams'] = (tableUrl, isWwwOptional, params) => {
+  // A path with the trailing slash the template writes, where the slash mark covers it.
+  const respellSlash = (pathname: string): string => {
+    if (!isSlashFree) {
+      return pathname
+    }
+
+    const bare = pathname.replace(trailingSlashRegex, '')
+
+    return hasSlash ? `${bare}/` : bare
+  }
+
+  const readRawParams: RowTemplate['readRawParams'] = (
+    tableUrl,
+    isWwwOptional,
+    params,
+    isRespelled,
+  ) => {
     const { url } = tableUrl
     const { pairs } = readQuery(tableUrl)
-    const regex = isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex
-    const match = regex.exec(url.hostname + url.pathname)
+    const isCaseFree = isRespelled && isFixedCaseFree
+    const toRawRegex = (rawRegex: RegExp): RegExp => {
+      return isCaseFree ? new RegExp(rawRegex.source, `${rawRegex.flags}i`) : rawRegex
+    }
+    const regex = toRawRegex(isWwwOptional ? rawOptionalWwwRegex : rawAsGivenRegex)
+    const pathname = isRespelled ? respellSlash(url.pathname) : url.pathname
+    const match = regex.exec(url.hostname + pathname)
     const rawParams: RawParams = {}
 
     if (!match) {
@@ -1049,10 +1102,13 @@ const compileRowTemplate = (
     const isGivenOnce = (name: string, spellings: Array<string>): boolean => {
       const named = pairs.filter((pair) => isNamed(pair, name))
 
-      return (
-        named.length < 2 &&
-        named.every((pair) => spellings.includes(toUpperCaseEscapes(pair.rawName)))
-      )
+      const isSpelled = (pair: QueryPair): boolean => {
+        const rawName = toUpperCaseEscapes(pair.rawName)
+
+        return isCaseFree ? isAnyOf(rawName, spellings) : spellings.includes(rawName)
+      }
+
+      return named.length < 2 && named.every(isSpelled)
     }
 
     for (const name of parsed.optionalNames) {
@@ -1089,7 +1145,7 @@ const compileRowTemplate = (
         continue
       }
 
-      const queryMatch = param.rawRegex.exec(rawValue ?? '')
+      const queryMatch = toRawRegex(param.rawRegex).exec(rawValue ?? '')
 
       if (!queryMatch) {
         return
@@ -1106,18 +1162,19 @@ const compileRowTemplate = (
       }
     }
 
+    const flagRegexes = compiled.nameFlags.map((flag) => toRawRegex(flag.rawRegex))
     const isFlagShaped = (pair: QueryPair): boolean => {
-      return !pair.rawValue && compiled.nameFlags.some((flag) => flag.rawRegex.test(pair.rawName))
+      return !pair.rawValue && flagRegexes.some((flagRegex) => flagRegex.test(pair.rawName))
     }
     const flagIndexes = new Set<number>()
 
     // A flag whose name holds a value is the first pair with no value its name pattern takes that
     // no earlier flag took.
-    for (const flag of compiled.nameFlags) {
+    for (const flagRegex of flagRegexes) {
       const index = pairs.findIndex((pair, pairIndex) => {
-        return !flagIndexes.has(pairIndex) && !pair.rawValue && flag.rawRegex.test(pair.rawName)
+        return !flagIndexes.has(pairIndex) && !pair.rawValue && flagRegex.test(pair.rawName)
       })
-      const flagMatch = index === -1 ? null : flag.rawRegex.exec(pairs[index].rawName)
+      const flagMatch = index === -1 ? null : flagRegex.exec(pairs[index].rawName)
 
       if (!flagMatch) {
         return
@@ -1167,6 +1224,7 @@ const compileRowTemplate = (
       values: lowercaseParams,
       pathname: respelledHostPath.text.slice(url.hostname.length),
       pairs: respelledPairs,
+      isRespelled,
     }
   }
 
@@ -1332,6 +1390,7 @@ const compileRowTemplate = (
     hostHint: toHostHint(),
     readParams,
     readRawParams,
+    isSlashFree,
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
@@ -1376,6 +1435,7 @@ const createTable = <const Row extends UrlRow>(
     case: Array.isArray(options.lenient?.case) ? [...options.lenient.case] : undefined,
   }
   const hasAmpersandMark = lenient.ampersandEntity === true
+  const hasFixedCaseMark = lenient.fixedCase === true
   const checks = toCheckFunctions(options.checks)
   const rowChecks = rows.map((row) => toCheckFunctions(row.checks))
   const compiledRows = rows.map((row, rowIndex) => {
@@ -1598,6 +1658,7 @@ const createTable = <const Row extends UrlRow>(
   const findTemplate = (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
+    isSlashLoose: boolean,
     base?: UrlValues,
   ): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
@@ -1608,7 +1669,7 @@ const createTable = <const Row extends UrlRow>(
         continue
       }
 
-      const params = template.readParams(tableUrl, isWwwOptional, base)
+      const params = template.readParams(tableUrl, isWwwOptional, isSlashLoose, base)
 
       if (!params) {
         continue
@@ -1648,7 +1709,33 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    return template.readRawParams(tableUrl, isWwwOptional, params)
+    const rawRead = template.readRawParams(tableUrl, isWwwOptional, params, false)
+
+    if (rawRead || !(template.isSlashFree || hasFixedCaseMark)) {
+      return rawRead
+    }
+
+    return template.readRawParams(tableUrl, isWwwOptional, params, true)
+  }
+
+  const hasSlashMark = compiled.some((template) => template.isSlashFree)
+
+  // A URL with the slash a template writes reads by that template, so the trailing slash mark
+  // reads one with the other slash only where no template takes it as written.
+  const findSpelledTemplate = (
+    tableUrl: TableUrl,
+    isWwwOptional: boolean,
+    base?: UrlValues,
+  ): TakenTemplate | undefined => {
+    const found = findTemplate(tableUrl, isWwwOptional, false, base)
+
+    if (found?.params || !hasSlashMark) {
+      return found
+    }
+
+    const loose = findTemplate(tableUrl, isWwwOptional, true, base)
+
+    return loose?.params ? loose : (found ?? loose)
   }
 
   const readTableTemplate = (tableUrl: TableUrl, base?: UrlValues): TakenTemplate | undefined => {
@@ -1659,7 +1746,7 @@ const createTable = <const Row extends UrlRow>(
     // With `www` a tenant, a host as given wins, so `www.example.com` is the tenant `www`.
     const asGiven =
       options.isWwwTenant && asGivenRegex.test(tableUrl.hostPath)
-        ? findTemplate(tableUrl, false, base)
+        ? findSpelledTemplate(tableUrl, false, base)
         : undefined
 
     if (asGiven) {
@@ -1667,7 +1754,7 @@ const createTable = <const Row extends UrlRow>(
     }
 
     if (optionalWwwRegex.test(tableUrl.hostPath)) {
-      return findTemplate(tableUrl, true, base)
+      return findSpelledTemplate(tableUrl, true, base)
     }
   }
 
@@ -1899,13 +1986,14 @@ const createTable = <const Row extends UrlRow>(
     const row = rows[found.template.rowIndex]
     // The tail is read for the checks alone: no feed is built from it.
     const params = omit(found.params, [openTailName])
+    const rawRead = readRawParams(found)
 
     return toMatch({
       key: row.key,
       values: lowercaseMarked(params, lenient.case, checks, rowChecks[found.template.rowIndex]),
       row: copyRow(row),
       isAlias: found.template.isAlias,
-      isExact: readRawParams(found) !== undefined,
+      isExact: rawRead !== undefined && !rawRead.isRespelled,
     })
   }
 
@@ -1964,7 +2052,9 @@ const createTable = <const Row extends UrlRow>(
       return true
     }
 
-    if (!template.isAlias) {
+    // A respelled URL is written from its values, as an alias is, so the main URL has the slash and
+    // the fixed text its template writes.
+    if (!template.isAlias && !rawRead.isRespelled) {
       const origin = url.port ? undefined : main.getHttpsOrigin(rawRead.params)
 
       if (hasReserved) {
