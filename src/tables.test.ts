@@ -1707,10 +1707,18 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for an escaped value that would move to the query', () => {
+    it('should move an escaped value from the path to the query', () => {
       const value = 'https://example.com/tag/a%2Fb/rss.xml'
+      const expected = 'https://feeds.example.com/tags.rss?tag=a/b'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should escape a plus of a path value moved to the query', () => {
+      const value = 'https://example.com/tag/c++/rss.xml'
+      const expected = 'https://feeds.example.com/tags.rss?tag=c%2B%2B'
+
+      expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
     it('should return undefined for an own parameter given twice', () => {
@@ -2347,6 +2355,13 @@ describe('defineTable', () => {
 
     it('should write the main URL of an alias with the fixed text percent-encoded', () => {
       const value = 'https://old.example.com/caf%C3%A9/lunch'
+      const expected = 'https://example.com/caf%C3%A9/lunch'
+
+      expect(menus.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the main URL of an alias with the fixed text in lowercase hex', () => {
+      const value = 'https://old.example.com/caf%c3%a9/lunch'
       const expected = 'https://example.com/caf%C3%A9/lunch'
 
       expect(menus.getMainUrl(value)).toBe(expected)
@@ -3032,6 +3047,19 @@ describe('defineTable', () => {
       expect(match?.isExact).toBe(true)
     })
 
+    it('should write the main URL of an alias given the flag of the main URL with an equals sign', () => {
+      const value = 'https://old.example.com/articles/12?article12='
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for an alias given the flag of the main URL with another value', () => {
+      const value = 'https://old.example.com/articles/12?article13'
+
+      expect(nameFlags.getMainUrl(value)).toBeUndefined()
+    })
+
     it('should read a flag beside a pair the row does not name', () => {
       const value = 'https://example.com/spip.php?lang=fr&article12'
       const expected = {
@@ -3538,6 +3566,15 @@ describe('defineTable', () => {
   })
 
   describe('with a parameter name the row writes with an escape', () => {
+    const menus = defineTable([{ key: 'menu', main: 'https://example.com/menu?café={id}' }])
+
+    it('should mark a name written with its escapes in lowercase hex as exact', () => {
+      const value = 'https://example.com/menu?caf%c3%a9=lunch'
+      const match = menus.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
     it('should mark the URL the row builds as exact', () => {
       const value = 'https://example.com/items?item%20id=5'
       const match = escapedName.readUrl(value)
@@ -4049,6 +4086,20 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should read an optional name given twice with one value as not exact', () => {
+      const value = 'https://feeds.example.com/posts?q=cats&q=cats'
+      const match = optionalPosts.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should read an optional name in another case as not exact', () => {
+      const value = 'https://feeds.example.com/posts?Q=cats'
+      const match = optionalPosts.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
     it('should return undefined for an optional name given two values', () => {
       const value = 'https://feeds.example.com/posts?q=cats&q=dogs'
 
@@ -4089,6 +4140,114 @@ describe('defineTable', () => {
       const expected = 'https://feeds.example.com/alice'
 
       expect(unkeptFeeds.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with a value moved to another part of the URL', () => {
+    const moves = defineTable([
+      {
+        key: 'topic',
+        main: 'https://example.com/forum/topics/{topic}',
+        aliases: ['https://example.com/forum/topic/show?id={topic}'],
+      },
+      {
+        key: 'page',
+        main: 'https://example.com/feed{?page}',
+        aliases: ['https://example.com/feed/page/{page}'],
+      },
+      {
+        key: 'search',
+        main: 'https://example.com/search/{q}',
+        aliases: ['https://example.com/find{?q}'],
+      },
+      {
+        key: 'video',
+        main: 'https://example.com/v/{id}',
+        aliases: ['https://old.example.com/#!/v/{id}'],
+      },
+      {
+        key: 'user',
+        main: 'https://example.com/feed.php?format=rss&u={user}',
+        aliases: ['https://old.example.com/{user}'],
+      },
+      {
+        key: 'blog',
+        main: 'https://{blog}.example.org/feed',
+        aliases: ['https://example.org/blogs/{blog}'],
+      },
+    ])
+
+    it('should move an escaped value from the query to the path', () => {
+      const value = 'https://example.com/forum/topic/show?id=4024228%3ATopic%3A55004'
+      const expected = 'https://example.com/forum/topics/4024228:Topic:55004'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should move an escaped value from the query to the path in strict encoding', () => {
+      const value = 'https://example.com/forum/topic/show?id=4024228%3ATopic%3A55004'
+      const expected = 'https://example.com/forum/topics/4024228%3ATopic%3A55004'
+
+      expect(moves.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should escape a question mark of a fragment value moved to the path', () => {
+      const value = 'https://old.example.com/#!/v/a?b'
+      const expected = 'https://example.com/v/a%3Fb'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for an escaped value that would move to the host', () => {
+      const value = 'https://example.org/blogs/a%2Eb'
+
+      expect(moves.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should write a value the alias reads from the path into an optional name', () => {
+      const value = 'https://example.com/feed/page/2'
+      const expected = 'https://example.com/feed?page=2'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for an alias that also gives the optional name another value', () => {
+      const value = 'https://example.com/feed/page/2?page=3'
+
+      expect(moves.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should move a value the alias reads from an optional name into the path', () => {
+      const value = 'https://example.com/find?q=cats'
+      const expected = 'https://example.com/search/cats'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the main URL of an alias given a fixed value of the main URL in another case', () => {
+      const value = 'https://old.example.com/bob?format=RSS'
+      const expected = 'https://example.com/feed.php?format=rss&u=bob'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the main URL of an alias given a value of the main URL escaped', () => {
+      const value = 'https://old.example.com/bob?u=%62ob'
+      const expected = 'https://example.com/feed.php?format=rss&u=bob'
+
+      expect(moves.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for an alias given another fixed value of the main URL', () => {
+      const value = 'https://old.example.com/bob?format=atom'
+
+      expect(moves.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for an alias given a value of the main URL in another case', () => {
+      const value = 'https://old.example.com/bob?u=BOB'
+
+      expect(moves.getMainUrl(value)).toBeUndefined()
     })
   })
 

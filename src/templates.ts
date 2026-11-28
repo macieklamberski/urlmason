@@ -169,6 +169,8 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   readRawFragment: (hash: string) => Record<string, string> | undefined
   // The pairs in the order the template writes them, and every other pair behind them as given.
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
+  // A value as a pretty build writes it in a part of the URL other than the host.
+  encodeValue: (value: string, part: Exclude<TemplatePart, 'host'>) => string
 }
 
 // A list holds the slash in front of it, `{/name*}`, which the name leaves out.
@@ -195,6 +197,7 @@ const reservedEndRegex = /[?#]/
 const strayPercentRegex = /%(?![0-9a-f]{2})/gi
 // A run of escapes, as `%E0%A4%85`, kept by `split`.
 const escapeRunRegex = /((?:%[0-9a-f]{2})+)/i
+const hexLetterRegex = /[a-f]/i
 // The characters `encodeURIComponent` leaves that RFC 6570 encodes outside the unreserved set.
 const subDelimiterRegex = /[!'()*]/g
 // A scheme and host with no path, where a parser reads the path `/` before a query.
@@ -676,6 +679,25 @@ const toLaterSource = ({ unit }: Capture, separator: string): string | undefined
   return `(?:(?!${escapeRegex(separator)})${unit})*${unit}{1,${separator.length}}`
 }
 
+// A hex digit of an escape in either case, as RFC 3986 reads `%c3` and `%C3` as one escape.
+const toHexDigitSource = (digit: string): string => {
+  return hexLetterRegex.test(digit) ? `[${digit.toUpperCase()}${digit.toLowerCase()}]` : digit
+}
+
+// Fixed text as a pattern that takes each of its escapes in either case of hex.
+const toLiteralSource = (text: string): string => {
+  return text
+    .split(singleEscapeRegex)
+    .map((piece, index) => {
+      if (index % 2 === 0) {
+        return escapeRegex(piece)
+      }
+
+      return `%${toHexDigitSource(piece[1])}${toHexDigitSource(piece[2])}`
+    })
+    .join('')
+}
+
 // A placeholder becomes the capture, the text around it a literal, decoded for a path so an
 // encoded brace in it stays a literal, and encoded for a raw query value as the template writes it.
 export const toRegexSource = (
@@ -712,11 +734,11 @@ export const toRegexSource = (
           (slash === -1 && index > 0) ||
           countSegmentValues(index) < 2
         ) {
-          return escapeRegex(piece)
+          return toLiteralSource(piece)
         }
 
-        const head = escapeRegex(piece.slice(0, slash + 1))
-        const tail = escapeRegex(piece.slice(slash + 1))
+        const head = toLiteralSource(piece.slice(0, slash + 1))
+        const tail = toLiteralSource(piece.slice(slash + 1))
 
         return `${head}${toLengthGuard(capture.segmentMaxLength, '/')}${tail}`
       }
@@ -1318,6 +1340,9 @@ export const compileTemplate = (
     return escaped
   }
   const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
+  const encodeValue: CompiledTemplate['encodeValue'] = (value, part) => {
+    return part === 'query' ? encodePrettyQueryValue(value) : encodePathValue(value)
+  }
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
     let isMoved = false
@@ -1481,5 +1506,6 @@ export const compileTemplate = (
     readFragment,
     readRawFragment,
     orderPairs,
+    encodeValue,
   }
 }
