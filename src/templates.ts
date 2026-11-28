@@ -1130,9 +1130,10 @@ export const compileTemplate = (
         reservedNames,
       )
     : '/?'
-  // An open tail is every segment behind the path, an empty one included, as pages link them.
+  // An open tail is every segment behind the path, an empty one included, as pages link them. A
+  // decoded line break is part of it, which `.` leaves out.
   const readPathSource = isOpen
-    ? `${pathGuard}${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '.*')})?`
+    ? `${pathGuard}${pathSource}(?:/${captureIn('path')(`${openTailName}*`, '[^]*')})?`
     : `${pathGuard}${pathSource}`
 
   const { fragment, fragmentReservedNames } = parsed

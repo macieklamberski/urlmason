@@ -6926,6 +6926,23 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    const lineBreakUrls = [
+      'https://example.com/acme/app/a%0Ab',
+      'https://example.com/acme/app/a%0Db',
+      'https://example.com/acme/app/a%E2%80%A8b',
+      'https://example.com/acme/app/a%E2%80%A9b',
+    ]
+
+    it.each(lineBreakUrls)('should read a tail that holds a decoded line break in %s', (value) => {
+      const expected = {
+        owner: 'acme',
+        repo: 'app',
+      }
+      const match = openPages.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
     it('should leave the tail out of the values read', () => {
       const value = 'https://example.com/acme/app/issues/12'
       const expected = {
