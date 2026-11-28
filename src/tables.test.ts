@@ -287,6 +287,28 @@ const topicFirstSections = defineTable(
   { lenient: { case: ['topic', 'group'] } },
 )
 
+const groupFirstSections = defineTable(
+  [
+    {
+      key: 'section',
+      main: 'https://example.com/{group}/{topic}',
+      checks: { topic: (topic, values) => topic === 'Main' || values.group !== 'news' },
+    },
+  ],
+  { lenient: { case: ['group', 'topic'] } },
+)
+
+const pairedSections = defineTable(
+  [
+    {
+      key: 'section',
+      main: 'https://example.com/{group}/{topic}',
+      checks: { topic: (topic, values) => topic === 'main' || values.group === 'NEWS' },
+    },
+  ],
+  { lenient: { case: ['group', 'topic'] } },
+)
+
 const tailChecked = defineTable(
   [
     {
@@ -3547,12 +3569,53 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should build the values it read where a check reads a value marked after it', () => {
+    it('should build the values it read where a check refuses the marked values in lowercase', () => {
       const value = 'https://example.com/NEWS/Main'
-      const expected = 'https://example.com/NEWS/main'
+      const expected = 'https://example.com/NEWS/Main'
       const match = topicFirstSections.readUrl(value)
 
       expect(topicFirstSections.buildUrl('section', match?.values)).toBe(expected)
+    })
+
+    it('should keep every marked value as written where a check refuses them in lowercase', () => {
+      const value = 'https://example.com/NEWS/Main'
+      const expected = {
+        group: 'NEWS',
+        topic: 'Main',
+      }
+      const match = topicFirstSections.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should keep every marked value as written in the other order of the names', () => {
+      const value = 'https://example.com/NEWS/Main'
+      const expected = {
+        group: 'NEWS',
+        topic: 'Main',
+      }
+      const match = groupFirstSections.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read marked values a check refuses in lowercase as exact, not lenient', () => {
+      const value = 'https://example.com/NEWS/Main'
+      const match = groupFirstSections.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(true)
+      expect(match?.isLenientMatch).toBe(false)
+    })
+
+    it('should lowercase every marked value together where a check takes them only together', () => {
+      const value = 'https://example.com/NEWS/Main'
+      const expected = {
+        group: 'news',
+        topic: 'main',
+      }
+      const match = pairedSections.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
     })
 
     it('should run a check that reads the tail on the value in lowercase', () => {
@@ -7673,9 +7736,9 @@ describe('defineTable', () => {
       expect(rowChecked.buildUrl('archive', value)).toBeUndefined()
     })
 
-    it('should rewrite an alias where the check of the row reads a value the case mark lowercased', () => {
+    it('should rewrite an alias as written where the check of the row refuses its values in lowercase', () => {
       const value = 'http://old.example.com/NEWS/Main'
-      const expected = 'https://example.com/news/Main'
+      const expected = 'https://example.com/NEWS/Main'
 
       expect(rowChecked.getMainUrl(value)).toBe(expected)
     })

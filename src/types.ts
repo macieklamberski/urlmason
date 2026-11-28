@@ -2,6 +2,7 @@
 export type UrlLenient = {
   // The placeholders whose value is read in any letter case. The main URL writes it in lowercase.
   // A table throws for one that shares a host label, path segment or query value with another.
+  // Every marked value is lowercased, or none where a check refuses them in lowercase.
   case?: Array<string>
   // The fixed text of the templates, path, query names and fixed values, read in any letter case.
   // The main URL writes it as the template does.

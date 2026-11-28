@@ -324,40 +324,36 @@ const toCheckParams = (params: Record<string, UrlValue>): Record<string, string>
   )
 }
 
-// The values with each one the case mark covers in lowercase, as its main URL holds it. A value
-// stays as written, as `en-US`, where its table check or any row check refuses its lowercase.
+// The values with every one the case mark covers in lowercase, as its main URL holds them. Where
+// a table check or any row check refuses that set, as `en-US` in lowercase, every value stays as
+// written.
 const lowercaseMarked = (
   params: Record<string, UrlValue>,
   caseNames: Array<string> | undefined,
   checks: Record<string, CheckFunction>,
   rowChecks: Record<string, RowCheckFunction>,
 ): Record<string, UrlValue> => {
-  const values = { ...params }
+  const markedNames = (caseNames ?? []).filter((name) => params[name] !== undefined)
 
-  for (const name of caseNames ?? []) {
-    const value = values[name]
-
-    if (value === undefined) {
-      continue
-    }
-
-    const lowercase = toAsciiLowerCase(value)
-    const lowercaseParams = toCheckParams({ ...values, [name]: lowercase })
-    // A row check of another value can read this one, as `topic` reading `group`.
-    const isRefused =
-      checks[name]?.(lowercaseParams[name]) === false ||
-      Object.entries(lowercaseParams).some(([checkName, text]) => {
-        return rowChecks[checkName]?.(text, lowercaseParams) === false
-      })
-
-    if (isRefused) {
-      continue
-    }
-
-    values[name] = lowercase
+  if (markedNames.length === 0) {
+    return params
   }
 
-  return values
+  const values = { ...params }
+
+  for (const name of markedNames) {
+    values[name] = toAsciiLowerCase(params[name])
+  }
+
+  const checkParams = toCheckParams(values)
+  // A row check of another value can read a marked one, as `topic` reading `group`.
+  const isRefused =
+    markedNames.some((name) => checks[name]?.(checkParams[name]) === false) ||
+    Object.entries(checkParams).some(([checkName, text]) => {
+      return rowChecks[checkName]?.(text, checkParams) === false
+    })
+
+  return isRefused ? params : values
 }
 
 // Two values read the same: two strings, or two lists of the same segments.
