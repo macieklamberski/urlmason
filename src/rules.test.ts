@@ -415,6 +415,29 @@ describe('validateQueryPlaceholders', () => {
     expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
 
+  it('should throw for an escaped placeholder beside the same placeholder', () => {
+    const value = 'https://example.com/p?{id}&%7Bid%7D'
+    const throwing = () => {
+      return validateQueryPlaceholders(value, ['{id}', '{id}'], [], '?{id}&%7Bid%7D')
+    }
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
+  it('should throw for an escaped placeholder in a fixed value', () => {
+    const value = 'https://example.com/f?q=%7Bx%7D'
+    const throwing = () => validateQueryPlaceholders(value, [], [['q', '{x}']], '?q=%7Bx%7D')
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
+  it('should take a flag whose fixed text holds an escape', () => {
+    const value = 'https://example.com/p?caf%C3%A9{id}'
+    const throwing = () => validateQueryPlaceholders(value, ['café{id}'], [], '?caf%C3%A9{id}')
+
+    expect(throwing).not.toThrow()
+  })
+
   it('should take a placeholder in the name of a flag', () => {
     const value = 'https://example.com/spip.php?article{id}'
     const throwing = () => validateQueryPlaceholders(value, ['article{id}'], [], '?article{id}')
