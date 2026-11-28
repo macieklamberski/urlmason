@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from './tables.js'
-import { parseTemplate } from './templates.js'
+import { isTypedValue, parseTemplate, toSlotText } from './templates.js'
 import type { UrlMap } from './types.js'
 
 // Query continuation needs a query in front of it, and names no placeholder of the template.
@@ -300,6 +300,146 @@ describe('build with a URI Template', () => {
     const expected = 'http://alice.example.com/feed'
 
     expect(table.buildUrl('user', value)).toBe(expected)
+  })
+
+  it('should leave out an optional value of null', () => {
+    const table = defineTable([{ key: 'feed', main: 'https://example.com/feed{?page}' }])
+    const value = { page: null }
+    const expected = 'https://example.com/feed'
+
+    // @ts-expect-error: This is for testing purposes.
+    expect(table.buildUrl('feed', value)).toBe(expected)
+  })
+
+  it('should leave out a name of a map that holds nothing', () => {
+    const table = defineTable([{ key: 'search', main: 'https://example.com/search{?query*}' }])
+    const value = { query: { tag: undefined, lang: 'en' } }
+    const expected = 'https://example.com/search?lang=en'
+
+    // @ts-expect-error: This is for testing purposes.
+    expect(table.buildUrl('search', value)).toBe(expected)
+  })
+
+  it('should write a map without a prototype as a map', () => {
+    const table = defineTable([{ key: 'search', main: 'https://example.com/search{?query*}' }])
+    const value = { query: Object.assign(Object.create(null), { tag: 'news' }) }
+    const expected = 'https://example.com/search?tag=news'
+
+    expect(table.buildUrl('search', value)).toBe(expected)
+  })
+
+  it('should write the numbers of a list as their text', () => {
+    const table = defineTable([{ key: 'items', main: 'https://example.com/items?ids={ids}' }])
+    const value = { ids: [1, 2] }
+    const expected = 'https://example.com/items?ids=1,2'
+
+    // @ts-expect-error: This is for testing purposes.
+    expect(table.buildUrl('items', value)).toBe(expected)
+  })
+})
+
+describe('isTypedValue', () => {
+  it('should take text, a list of text and a map of text or lists', () => {
+    const value = ['news', ['news', 'sports'], { tag: 'news', lang: ['en', 'de'] }]
+
+    expect(value.every(isTypedValue)).toBe(true)
+  })
+
+  it('should take a number and a boolean as text', () => {
+    const value = [5, true, [1, 2], { page: 2 }]
+
+    expect(value.every(isTypedValue)).toBe(true)
+  })
+
+  it('should take no value', () => {
+    const value = [undefined, null, [undefined], { tag: null }]
+
+    expect(value.every(isTypedValue)).toBe(true)
+  })
+
+  it('should refuse a list inside a list', () => {
+    const value = [['news']]
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+
+  it('should refuse a map inside a map', () => {
+    const value = { tag: { name: 'news' } }
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+
+  it('should refuse a map inside a list of a map', () => {
+    const value = { tag: [{ name: 'news' }] }
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+
+  it('should refuse text cut inside an emoji', () => {
+    const value = `news${'😀'.slice(0, 1)}`
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+
+  it('should refuse a map name cut inside an emoji', () => {
+    const value = { [`news${'😀'.slice(0, 1)}`]: 'en' }
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+
+  it('should take a whole emoji', () => {
+    const value = 'news😀'
+
+    expect(isTypedValue(value)).toBe(true)
+  })
+
+  it('should refuse a function', () => {
+    const value = () => 'news'
+
+    expect(isTypedValue(value)).toBe(false)
+  })
+})
+
+describe('toSlotText', () => {
+  it('should write text as it is', () => {
+    const value = 'news'
+    const expected = 'news'
+
+    expect(toSlotText(value, 'tag')).toBe(expected)
+  })
+
+  it('should join a list in a slot of one value by commas', () => {
+    const value = ['news', 'sports']
+    const expected = 'news,sports'
+
+    expect(toSlotText(value, 'tags')).toBe(expected)
+  })
+
+  it('should join a map in a slot of one value as names and values by commas', () => {
+    const value = {
+      tag: 'news',
+      lang: ['en', 'de'],
+    }
+    const expected = 'tag,news,lang,en,lang,de'
+
+    expect(toSlotText(value, 'query')).toBe(expected)
+  })
+
+  it('should join a list in a list slot by slashes', () => {
+    const value = ['guide', 'setup']
+    const expected = 'guide/setup'
+
+    expect(toSlotText(value, 'path*')).toBe(expected)
+  })
+
+  it('should write a map in a list slot as a segment per name and value', () => {
+    const value = {
+      lang: 'en',
+      tag: ['news', 'sports'],
+    }
+    const expected = 'lang=en/tag=news/tag=sports'
+
+    expect(toSlotText(value, 'path*')).toBe(expected)
   })
 })
 

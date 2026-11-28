@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
+import { decodePercent, endsWithAnyOf, isAnyOf, isLocale, isLooseMatch, isString } from 'trousse'
 import { defineTable } from './tables.js'
-import type { UrlMatch, UrlRow, UrlTable, UrlValue, UrlValues, UrlWriteOptions } from './types.js'
+import type {
+  UrlBuildOptions,
+  UrlMatch,
+  UrlReadOptions,
+  UrlRow,
+  UrlTable,
+  UrlValue,
+  UrlValues,
+  UrlWriteOptions,
+} from './types.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 
@@ -731,6 +740,39 @@ const domainFeeds = defineTable(
   ],
   { hosts: { exact: ['Example.org'], tenant: ['example.com'] }, isWwwTenantPrefix: true },
 )
+
+const checkedPages = defineTable(
+  [
+    {
+      key: 'page',
+      main: 'https://example.org/page-{page}/RSS',
+      aliases: ['https://example.org/RSS'],
+    },
+  ],
+  { checks: { page: digitsRegex } },
+)
+
+const rowCheckedPages = defineTable([
+  {
+    key: 'page',
+    main: 'https://example.org/page-{page}/RSS',
+    aliases: ['https://example.org/RSS'],
+    checks: { page: digitsRegex },
+  },
+  { key: 'page', main: 'https://example.org/pages/{page}' },
+])
+
+const spacelessTags = defineTable([{ key: 'tag', main: 'https://example.com/tags/{tag}' }], {
+  checks: { tag: (tag) => !tag.includes(' ') },
+})
+
+const schemeFeeds = defineTable([
+  {
+    key: 'feed',
+    main: '{scheme}://example.com/feed/{id}',
+    aliases: ['https://example.com/feed/{id}'],
+  },
+])
 
 const atHandles = defineTable([
   { key: 'feed', main: 'https://listed.example/@{username}/feed.rss' },
@@ -1714,11 +1756,10 @@ describe('defineTable', () => {
       expect(unsorted.buildUrl('search', value)).toBe(expected)
     })
 
-    it('should keep the order of one name in two cases', () => {
+    it('should build nothing from a template that writes one name twice in two cases', () => {
       const value = { id: '7' }
-      const expected = 'https://example.com/list.rss?b=2&B=1&a=7'
 
-      expect(unsorted.buildUrl('cased', value)).toBe(expected)
+      expect(unsorted.buildUrl('cased', value)).toBeUndefined()
     })
 
     it('should write a URL the main URL of its row leaves alone', () => {
@@ -1733,6 +1774,42 @@ describe('defineTable', () => {
 
       // @ts-expect-error: This is for testing purposes.
       expect(moved.buildUrl('item', value)).toBe(expected)
+    })
+
+    it('should build nothing from a value that fails its check, not an alias without it', () => {
+      const value = { page: 'about' }
+
+      expect(checkedPages.buildUrl('page', value)).toBeUndefined()
+    })
+
+    it('should build the next row from a value its row check refuses', () => {
+      const value = { page: 'about' }
+      const expected = 'https://example.org/pages/about'
+
+      expect(rowCheckedPages.buildUrl('page', value)).toBe(expected)
+    })
+
+    it('should build nothing from a value whose check refuses it as the URL writes it', () => {
+      const value = { tag: 'a%20b' }
+
+      expect(spacelessTags.buildUrl('tag', value)).toBeUndefined()
+    })
+
+    it('should build nothing from values the URL reads back as others', () => {
+      const value = {
+        a: 'café',
+        b: 'café',
+        c: 'café',
+      }
+
+      expect(labeledHosts.buildUrl('feed', value)).toBeUndefined()
+    })
+
+    it('should build nothing from text cut inside an emoji', () => {
+      const value = { query: `news${'😀'.slice(0, 1)}` }
+      const options = { encoding: 'strict' } as const
+
+      expect(players.buildUrl('search', value, options)).toBeUndefined()
     })
   })
 
@@ -1764,6 +1841,23 @@ describe('defineTable', () => {
 
       expect(players.buildUrls('video', value)).toEqual(expected)
     })
+
+    it('should list a URL two templates write once', () => {
+      const value = {
+        scheme: 'https',
+        id: '1',
+      }
+      const expected = ['https://example.com/feed/1']
+
+      expect(schemeFeeds.buildUrls('feed', value)).toEqual(expected)
+    })
+
+    it('should return no URL from a value that fails its check', () => {
+      const value = { page: 'about' }
+      const expected: Array<string> = []
+
+      expect(checkedPages.buildUrls('page', value)).toEqual(expected)
+    })
   })
 
   describe('forSite', () => {
@@ -1787,6 +1881,14 @@ describe('defineTable', () => {
       const page = unsorted.forSite(value)
 
       expect(page?.buildUrls('site')).toEqual(expected)
+    })
+
+    it('should fill the domain for a page on the tenant domain itself', () => {
+      const value = 'https://example.com/about'
+      const expected = 'https://example.com/feed'
+      const page = domainFeeds.forSite(value)
+
+      expect(page?.buildUrl('site')).toBe(expected)
     })
   })
 
@@ -2899,8 +3001,11 @@ describe('defineTable', () => {
       type SpellingTable = {
         rows: Array<UrlRow>
         // biome-ignore lint/style/useConsistentMethodSignatures: A method takes a table of any key type.
-        buildUrls(key: string, values: UrlValues): Array<string>
-        readUrl: (url: string) => { key: string; values: UrlValues } | undefined
+        buildUrls(key: string, values: UrlValues, options?: UrlBuildOptions<UrlRow>): Array<string>
+        readUrl: (
+          url: string,
+          options?: UrlReadOptions,
+        ) => { key: string; values: UrlValues } | undefined
         getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
       }
       const tables: Array<SpellingTable> = [
@@ -3085,6 +3190,53 @@ describe('defineTable', () => {
           )
       }
 
+      const characterSamples = samples.filter((sample) => sample !== 'caf%E9')
+      const encodings = ['pretty', 'strict'] as const
+      type Build = {
+        table: SpellingTable
+        row: UrlRow
+        sample: string
+        encoding: (typeof encodings)[number]
+      }
+      const builds: Array<Build> = tables
+        .flatMap((table) => table.rows.map((row) => ({ table, row })))
+        .flatMap((build) => characterSamples.map((sample) => ({ ...build, sample })))
+        .flatMap((build) => encodings.map((encoding) => ({ ...build, encoding })))
+      const toHostname = (text: string): string | undefined => {
+        return URL.parse(`https://${text}`)?.hostname
+      }
+      const isReadBack = (given: UrlValue | undefined, read: UrlValue | undefined): boolean => {
+        if (!isString(given) || !isString(read)) {
+          return true
+        }
+
+        return isLooseMatch(decodePercent(read), given) || toHostname(given) === read
+      }
+      const toUrlMisreads = ({ table, row }: Build, values: UrlValues, url: string) => {
+        const anyHost = values.base === undefined ? { isAnyHost: true } : { base: values.base }
+        const read = table.readUrl(url) ?? table.readUrl(url, anyHost)
+
+        if (read?.key !== row.key) {
+          return []
+        }
+
+        return Object.entries(read.values)
+          .filter(([name, readValue]) => !isReadBack(values[name], readValue))
+          .map(([name, readValue]) => ({ url, name, given: values[name], readValue }))
+      }
+      const toMisreads = (build: Build) => {
+        const values = toValues(build.row, build.sample)
+        const select = (candidate: UrlRow) => candidate.main === build.row.main
+        const options = {
+          select,
+          encoding: build.encoding,
+        }
+
+        return build.table
+          .buildUrls(build.row.key, values, options)
+          .flatMap((url) => toUrlMisreads(build, values, url))
+      }
+
       it('should read back the values of the URL it came from', () => {
         const value = tables.flatMap(toSources).flatMap(({ table, url }) => {
           const mainUrl = table.getMainUrl(url, strict)
@@ -3100,6 +3252,13 @@ describe('defineTable', () => {
             ? []
             : [{ url, mainUrl, sourceRead, mainRead }]
         })
+        const expected: typeof value = []
+
+        expect(value).toEqual(expected)
+      })
+
+      it('should build only a URL that reads back the values it was built from', () => {
+        const value = builds.flatMap(toMisreads)
         const expected: typeof value = []
 
         expect(value).toEqual(expected)

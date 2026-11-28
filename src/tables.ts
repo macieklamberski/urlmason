@@ -8,6 +8,7 @@ import {
   isHttpUrl,
   isLooseMatch,
   isPlainObject,
+  isPresent,
   isString,
   omit,
   parseUrl,
@@ -54,6 +55,7 @@ import {
   decodePath,
   dotSegmentRegex,
   encodeLiteral,
+  isTypedValue,
   type ListSplit,
   type MapText,
   mapTemplate,
@@ -70,6 +72,7 @@ import {
   toLengthGuard,
   toRegexSource,
   toSegments,
+  toSlotText,
   toStrictPair,
   toValueText,
   toWrittenOffset,
@@ -77,6 +80,7 @@ import {
   writeBase,
 } from './templates.js'
 import type {
+  UrlBuildOptions,
   UrlEncoding,
   UrlHostCheck,
   UrlHosts,
@@ -164,7 +168,15 @@ type RowTemplate = {
   passedName?: string
   // Every value the template writes, the names a check or a case mark may give.
   checkNames: Array<string>
-  getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
+  getUrl: (params?: UrlValues, encoding?: UrlEncoding) => BuiltUrl
+}
+
+// A template's URL for the values, or why the values build none. A value the types or a table
+// check refuse, or one the URL would not read back, builds no URL of the key, and one a row check
+// refuses none of the row. Without either, the values leave a placeholder of the template empty.
+type BuiltUrl = {
+  url?: string
+  refusal?: 'table' | 'row'
 }
 
 type HostEntry = string | RegExp | UrlHostCheck
@@ -211,6 +223,8 @@ type TableUrl = {
   url: URL
   // Read once, since every table asks for it and `URL` writes it anew on each read.
   hostname: string
+  // The path as the templates read it, and joined to the host, decoded without its trailing slash.
+  path: string
   hostPath: string
   // Whether the path ends in a slash, which `hostPath` leaves out.
   isSlashed: boolean
@@ -233,10 +247,24 @@ const hostPlaceholder = '{host}'
 // An install sits at most a few segments deep, and each base tried is one more pass over the URL.
 const maxBasePathSegments = 8
 const anyDomainSource = '[^./]+(?:\\.[^./]+)+'
+const anyHostSource = '[^/]+'
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
 
 // A placeholder in a template's shape: its name left out, its reach over several segments kept.
 const toShapePlaceholder = (_: string, name: string): string => {
   return name.endsWith('*') ? '{*}' : '{}'
+}
+
+// Text decoded to the bytes it writes and read as UTF-8, so a byte no character holds reads as
+// U+FFFD, as a query read decodes it, and `%E9` and a path value kept as `%E9` read the same.
+const toDecodedText = (text: string): string => {
+  const bytes = text.split(escapeSplitRegex).flatMap((piece, index) => {
+    return index % 2 === 1 ? [Number.parseInt(piece.slice(1), 16)] : [...textEncoder.encode(piece)]
+  })
+
+  return textDecoder.decode(new Uint8Array(bytes))
 }
 
 // A value in lowercase, with its percent escapes as written.
@@ -406,14 +434,15 @@ const copyRow = <Row extends UrlRow>(row: Row): Row => {
   return copy
 }
 
-const toTableUrl = (url: URL): TableUrl => {
-  // A doubled slash after the host names the same feed: pages link `host//feed` for `host/feed`.
-  const path = url.pathname.replace(leadingSlashesRegex, '/')
+// A doubled slash after the host names the same feed: pages link `host//feed` for `host/feed`. A
+// URL a template built keeps its path as written, as a template may write `//`.
+const toTableUrl = (url: URL, path = url.pathname.replace(leadingSlashesRegex, '/')): TableUrl => {
   const hostPath = url.hostname + decodePath(path)
 
   return {
     url,
     hostname: url.hostname,
+    path,
     hostPath: hostPath.replace(trailingSlashRegex, ''),
     isSlashed: hostPath.endsWith('/'),
   }
@@ -576,13 +605,10 @@ const isListedHost = (host: string, options: UrlTableOptions): boolean => {
   )
 }
 
-// The nearest parent domain of a host that `tenant` lists.
-const getTenantDomain = (host: string, tenants: Array<HostEntry> = []): string | undefined => {
-  for (let index = host.indexOf('.'); index !== -1; index = host.indexOf('.', index + 1)) {
-    if (isListedIn(host.slice(index + 1), tenants)) {
-      return host.slice(index + 1)
-    }
-  }
+// The host or its nearest parent domain that `tenant` lists, so a page on the tenant domain itself
+// fills the domain too.
+const getTenantDomain = (host: string, tenants?: Array<HostEntry>): string | undefined => {
+  return toParentDomains(host).find((domain) => isListedIn(domain, tenants))
 }
 
 // A host that is its own registrable domain, as `example.com` and not `blog.example.com`.
@@ -680,9 +706,27 @@ const compileRowTemplate = (
       return (checks[name]?.(value) ?? true) && (rowChecks[name]?.(value, params) ?? true)
     })
   }
+  const toRefusal = (listParams: Record<string, UrlValue>): BuiltUrl['refusal'] => {
+    const params = toCheckParams(listParams)
+    const entries = Object.entries(params)
+
+    if (entries.some(([name, value]) => !(checks[name]?.(value) ?? true))) {
+      return 'table'
+    }
+
+    if (entries.some(([name, value]) => !(rowChecks[name]?.(value, params) ?? true))) {
+      return 'row'
+    }
+  }
   // A fixed host matches with or without `www` in front, a tenant label only with
   // `isWwwTenantPrefix`, so `www.alice.example.com` is otherwise no tenant's host.
-  const toHostPathRegex = (isWwwOptional: boolean, pathPattern: string, flags: string): RegExp => {
+  // A URL the template built is read on any host, as a build trusts the host it is given.
+  const toHostPathRegex = (
+    isWwwOptional: boolean,
+    pathPattern: string,
+    flags: string,
+    isAnyHost = false,
+  ): RegExp => {
     const wwwSource = isWwwOptional ? '(?:www\\.)?' : ''
     const tenantWwwSource = options.isWwwTenantPrefix ? wwwSource : ''
     const normalize = (value: string): string => (isWwwOptional ? stripWww(value) : value)
@@ -713,10 +757,9 @@ const compileRowTemplate = (
     const fixedPrefixSource = isFixedHost && !isPageFixedHost ? wwwSource : ''
     const isTenantHost = !isFixedHost && !host.startsWith('{host}')
     const tenantPrefixSource = isTenantHost ? tenantWwwSource : ''
-    const hostCaptures = {
-      host: `(?:${hostSources.join('|')})`,
-      domain: domainSource,
-    }
+    const hostCaptures = isAnyHost
+      ? { host: anyHostSource, domain: anyHostSource }
+      : { host: `(?:${hostSources.join('|')})`, domain: domainSource }
     const hostSource = toRegexSource(
       normalize(host),
       compiled.captureIn('host'),
@@ -730,7 +773,7 @@ const compileRowTemplate = (
     const hostGuard = hasSharedLabel ? toLengthGuard(sharedPartMaxLength, '/') : ''
     const prefixSource = `${hostGuard}${fixedPrefixSource}${tenantPrefixSource}`
 
-    if (isPageFixedHost) {
+    if (isPageFixedHost && !isAnyHost) {
       const forms = listedForms.length > 0 ? listedForms : [host]
       const sources = isApexHost(bareHost) ? [toPageHostSource(bareHost)] : forms.map(escapeRegex)
 
@@ -764,6 +807,7 @@ const compileRowTemplate = (
   const readFlags = reservedNames.length > 0 ? 'di' : 'i'
   const asGivenRegex = toHostPathRegex(false, readPathSource, readFlags)
   const optionalWwwRegex = toHostPathRegex(true, readPathSource, readFlags)
+  const builtRegex = toHostPathRegex(false, readPathSource, readFlags, true)
   // Matched on the path as given, with the indices a case mark lowercases.
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
@@ -844,7 +888,7 @@ const compileRowTemplate = (
     name: string,
     range: [number, number],
   ): string | undefined => {
-    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
+    const writtenPath = tableUrl.path
     const hostLength = tableUrl.hostname.length
     const start = toWrittenOffset(writtenPath, range[0] - hostLength)
     const end = toWrittenOffset(writtenPath, range[1] - hostLength)
@@ -906,7 +950,7 @@ const compileRowTemplate = (
     const listRange = findRange(split.list)
     const reservedRange = findRange(split.reserved)
     const segments = match.input.slice(listRange[0], reservedRange[1]).split('/')
-    const writtenPath = tableUrl.url.pathname.replace(leadingSlashesRegex, '/')
+    const writtenPath = tableUrl.path
     const hostLength = tableUrl.hostname.length
     // The row read the reserved value as written already, so both ends fall between characters.
     const listStart = toWrittenOffset(writtenPath, listRange[0] - hostLength) as number
@@ -952,18 +996,16 @@ const compileRowTemplate = (
     return params
   }
 
-  const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, isSlashLoose, base) => {
+  // The values of a URL whose host and path the regex takes. A URL the template built is read with
+  // no host check, as a build trusts the host it is given.
+  const readMatch = (
+    tableUrl: TableUrl,
+    regex: RegExp,
+    isHostChecked: boolean,
+    base?: UrlValues,
+  ): Record<string, UrlValue> | undefined => {
     const { url, hostPath } = tableUrl
-
-    if (
-      hasSlash !== undefined &&
-      tableUrl.isSlashed !== hasSlash &&
-      !(isSlashLoose && isSlashFree)
-    ) {
-      return
-    }
-
-    const match = claimsUrls && (isWwwOptional ? optionalWwwRegex : asGivenRegex).exec(hostPath)
+    const match = regex.exec(hostPath)
 
     if (!match) {
       return
@@ -987,7 +1029,7 @@ const compileRowTemplate = (
     }
 
     // A function among the hosts matched any domain, so the host read is checked by it.
-    if (hasHostCheck && ('host' in params || 'domain' in params)) {
+    if (isHostChecked && hasHostCheck && ('host' in params || 'domain' in params)) {
       const isListed = isString(params.domain)
         ? isListedIn(params.domain, options.hosts?.tenant)
         : isListedHost(url.hostname, options)
@@ -1016,6 +1058,22 @@ const compileRowTemplate = (
     }
 
     return listSplit ? readListSplit(listSplit, match, tableUrl, params) : params
+  }
+
+  const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, isSlashLoose, base) => {
+    if (
+      hasSlash !== undefined &&
+      tableUrl.isSlashed !== hasSlash &&
+      !(isSlashLoose && isSlashFree)
+    ) {
+      return
+    }
+
+    if (!claimsUrls) {
+      return
+    }
+
+    return readMatch(tableUrl, isWwwOptional ? optionalWwwRegex : asGivenRegex, true, base)
   }
 
   // A name the template holds twice reads one value, so two different ones read nothing.
@@ -1345,28 +1403,90 @@ const compileRowTemplate = (
     return `https://${mapTemplate(host, (name) => rawParams[toBareName(name)].value)}`
   }
 
-  // A template whose placeholders the values do not all fill builds no URL.
+  const hostNames = [...host.matchAll(placeholderRegex)].map(([, name]) => name)
+  const checkNames = [
+    ...built.names.map(toBareName),
+    ...parsed.optionalNames,
+    ...(parsed.passedName === undefined ? [] : [parsed.passedName]),
+    ...(isOpen ? [openTailName] : []),
+  ]
+
+  // Whether a value reads back as it was built: decoded, a host value in any case and in punycode,
+  // and a passed query that is no map as the one pair under its own name a read gives.
+  const isReadBack = (
+    placeholder: string,
+    value: UrlValue,
+    readValue: UrlValue | undefined,
+  ): boolean => {
+    const name = toBareName(placeholder)
+    const builtValue =
+      name === parsed.passedName && !isPlainObject(value) ? { [name]: value } : value
+    const text = toDecodedText(toSlotText(builtValue, placeholder))
+    const readText = toDecodedText(toSlotText(readValue ?? '', placeholder))
+
+    if (name === 'scheme' || hostNames.includes(name)) {
+      return isLooseMatch(toAsciiHost(text), readText)
+    }
+
+    return text === readText
+  }
+
+  // A template whose placeholders the values do not all fill builds no URL. One it builds reads
+  // back the values it was built from, and the checks see them as the URL writes them.
   const getUrl: RowTemplate['getUrl'] = (params = {}, encoding = 'pretty') => {
+    if (!checkNames.every((name) => isTypedValue(params[name]))) {
+      return { refusal: 'table' }
+    }
+
     const values = builtCompiled.getValues(params)
 
     if (!values) {
-      return
+      return {}
     }
 
     const bareValues = Object.fromEntries(
       Object.entries(values).map(([name, value]) => [toBareName(name), value]),
     )
     const lowercaseValues = lowercaseMarked(bareValues, lenient?.case, checks, rowChecks)
+    const refusal = toRefusal(lowercaseValues)
 
-    if (!passesChecks(lowercaseValues)) {
-      return
+    if (refusal) {
+      return { refusal }
     }
 
     for (const name of Object.keys(values)) {
       values[name] = lowercaseValues[toBareName(name)]
     }
 
-    return builtCompiled.fill(values, encoding)
+    const url = builtCompiled.fill(values, encoding)
+    // A base is read apart from the rest of the URL, as a read under a base takes it.
+    const ownUrl = hasBase ? compiled.fill(values, encoding) : url
+    const parsedUrl = ownUrl === undefined ? undefined : parseUrl(ownUrl)
+    const tableUrl = parsedUrl && toTableUrl(parsedUrl, parsedUrl.pathname)
+    const base = hasBase ? { base: values['base*'] } : undefined
+    const writtenParams = tableUrl && readMatch(tableUrl, builtRegex, false, base)
+
+    // A value that moves or breaks the URL builds none, as one a check refuses.
+    if (!url || !writtenParams) {
+      return { refusal: 'table' }
+    }
+
+    const readValues = lowercaseMarked(writtenParams, lenient?.case, checks, rowChecks)
+    const isBuiltAsGiven = Object.entries(values).every(([placeholder, value]) => {
+      return isReadBack(placeholder, value, readValues[toBareName(placeholder)])
+    })
+
+    if (!isBuiltAsGiven) {
+      return { refusal: 'table' }
+    }
+
+    const readRefusal = toRefusal(readValues)
+
+    if (readRefusal) {
+      return { refusal: readRefusal }
+    }
+
+    return { url }
   }
 
   const readOwnPair: RowTemplate['readOwnPair'] = (pair) => {
@@ -1401,7 +1521,7 @@ const compileRowTemplate = (
     names: built.names,
     ownNames,
     optionalNames: parsed.optionalNames,
-    hostNames: [...host.matchAll(placeholderRegex)].map(([, name]) => name),
+    hostNames,
     fixedQuery: fixedParams.map((param) => [param.name, param.value]),
     valueNames: ownParams.filter((param) => param.value.includes('{')).map((param) => param.name),
     readOwnPair,
@@ -1421,12 +1541,7 @@ const compileRowTemplate = (
     hasFragment: parsed.fragment !== undefined,
     nameFlagCount: parsed.nameFlags.length,
     passedName: parsed.passedName,
-    checkNames: [
-      ...built.names.map(toBareName),
-      ...parsed.optionalNames,
-      ...(parsed.passedName === undefined ? [] : [parsed.passedName]),
-      ...(isOpen ? [openTailName] : []),
-    ],
+    checkNames,
     isFlagPair: (pair) => {
       return !pair.rawValue && compiled.nameFlags.some((flag) => flag.regex.test(pair.name))
     },
@@ -1547,36 +1662,41 @@ const createTable = <const Row extends UrlRow>(
     })
   }
 
-  const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, buildOptions) => {
-    // A key with several shapes builds the first one whose placeholders the values fill.
-    for (const candidate of getRowTemplates(key, buildOptions?.select).flat()) {
-      const url = candidate.getUrl(params, buildOptions?.encoding)
+  // The URLs each row of the key builds, each listed once, or undefined where a template refuses a
+  // value for the key. Every template is asked, so a value a template refuses never builds another
+  // template with no place for it, as the home feed for a page that fails its check.
+  const buildRowUrls = (
+    key: string,
+    params: UrlValues | undefined,
+    buildOptions: UrlBuildOptions<Row> | undefined,
+  ): Array<Array<string>> | undefined => {
+    const rowUrls: Array<Array<string>> = []
 
-      if (url) {
-        return url
+    for (const templates of getRowTemplates(key, buildOptions?.select)) {
+      const builds = templates.map((candidate) => candidate.getUrl(params, buildOptions?.encoding))
+
+      if (builds.some((build) => build.refusal === 'table')) {
+        return
       }
+
+      const urls = builds.some((build) => build.refusal === 'row')
+        ? []
+        : builds.map((build) => build.url)
+
+      rowUrls.push([...new Set(urls.filter(isPresent))])
     }
+
+    return rowUrls
+  }
+
+  // A key with several shapes builds the first one whose placeholders the values fill.
+  const buildUrl: UrlTable<Key, Row>['buildUrl'] = (key, params, buildOptions) => {
+    return buildRowUrls(key, params, buildOptions)?.flat()[0]
   }
 
   // Every URL the values fill of the first row of the key that builds one.
   const buildUrls: UrlTable<Key, Row>['buildUrls'] = (key, params, buildOptions) => {
-    for (const templates of getRowTemplates(key, buildOptions?.select)) {
-      const urls: Array<string> = []
-
-      for (const candidate of templates) {
-        const url = candidate.getUrl(params, buildOptions?.encoding)
-
-        if (url) {
-          urls.push(url)
-        }
-      }
-
-      if (urls.length > 0) {
-        return urls
-      }
-    }
-
-    return []
+    return buildRowUrls(key, params, buildOptions)?.find((urls) => urls.length > 0) ?? []
   }
 
   // A parameter that the templates of a key set to different fixed values, or that only some of
@@ -2179,7 +2299,7 @@ const createTable = <const Row extends UrlRow>(
     const [main] = compiledRows[readBack.template.rowIndex]
     const values = omit(readBack.params, [openTailName])
 
-    const templateUrl = main.getUrl(values, 'strict')
+    const templateUrl = main.getUrl(values, 'strict').url
     const parsedMainUrl = parseUrl(mainUrl)
 
     if (!templateUrl || !parsedMainUrl) {
