@@ -69,11 +69,6 @@ export type TemplateParam = {
   name: string
   value: string
   isFlag: boolean
-  // The name as the template writes it, which a URL written as the template is spells the same way.
-  writtenName: string
-  // The pair as the template writes it: whole for a flag and a fixed value, `name=` where a value
-  // fills it.
-  pair: QueryPair
   isFilled: boolean
 }
 
@@ -149,6 +144,11 @@ export type ListSplit = {
 }
 
 export type CompiledParam = TemplateParam & {
+  // The name as the template writes it, which a URL written as the template is spells the same way.
+  writtenName: string
+  // The pair as the template writes it: whole for a flag and a fixed value, `name=` where a value
+  // fills it.
+  pair: QueryPair
   // The values the template takes, decoded, and the ones of a URL in its own spelling.
   regex: RegExp
   rawRegex: RegExp
@@ -188,6 +188,10 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
   // A value as a pretty build writes it in a part of the URL other than the host.
   encodeValue: (value: string, part: Exclude<TemplatePart, 'host'>) => string
+  // Fixed query text and a name as the template writes them, and a pair as its text writes it.
+  encodeQueryText: MapText
+  encodeQueryName: MapText
+  toWrittenPair: (text: string) => QueryPair
 }
 
 // A list holds the slash in front of it, `{/name*}`, which the name leaves out.
@@ -498,11 +502,6 @@ const encodePathValue = (value: string): string => {
   return encodeDecoded(value, encodePathText)
 }
 
-// A query value with its escapes decoded, then written as any query value.
-const encodeQueryValue = (value: string): string => {
-  return encodeDecoded(value, encodeText)
-}
-
 // A value in a slot of one value, as `{id}`. A list is its items joined by commas, each item's own
 // commas encoded, so the separators stay apart from them.
 const encodeSlot = (value: UrlValue, encode: (value: string) => string): string => {
@@ -520,8 +519,9 @@ const fillQueryValue = (
   template: string,
   values: Record<string, UrlValue>,
   encodeValue: MapText,
+  encodeFixedText: MapText,
 ): string => {
-  return mapTemplate(template, (name) => encodeSlot(values[name], encodeValue), encodeText)
+  return mapTemplate(template, (name) => encodeSlot(values[name], encodeValue), encodeFixedText)
 }
 
 // A map in a list slot, one `name=value` segment per name.
@@ -890,14 +890,10 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const params = valueEntries.map(([name, value]): TemplateParam => {
     const isFlag = flagNames.includes(name)
     const isFilled = !isFlag && value.includes('{')
-    const writtenName = encodeText(name)
-    const writtenValue = isFilled ? '' : encodeText(value)
     const param: TemplateParam = {
       name,
       value,
       isFlag,
-      writtenName,
-      pair: toPair(isFlag ? writtenName : `${writtenName}=${writtenValue}`),
       isFilled,
     }
 
@@ -1010,15 +1006,44 @@ export const compileTemplate = (
 
     return copyText === otherText
   }
+  // A `;` would split a pair under the semicolon mark.
+  const encodeQueryText = (text: string): string => {
+    const written = encodeText(text)
+
+    return lenient.semicolon === true ? written.replaceAll(';', '%3B') : written
+  }
+  // A `=` in a name would end it there.
+  const encodeQueryName = (name: string): string => {
+    return encodeQueryText(name).replaceAll('=', '%3D')
+  }
+  // A pair that opens with `amp;` reads as one behind `&amp;` under the entity mark.
+  const toWrittenPair = (text: string): QueryPair => {
+    if (lenient.ampersandEntity === true && text.startsWith(entityPrefix)) {
+      return toPair(`amp%3B${text.slice(entityPrefix.length)}`)
+    }
+
+    return toPair(text)
+  }
   const params = parsed.params.map((param): CompiledParam => {
     const source = toRegexSource(param.value, captureIn('query'), queryCapture)
-    const rawSource = toRegexSource(param.value, captureIn('query'), queryCapture, {}, encodeText)
+    const rawSource = toRegexSource(
+      param.value,
+      captureIn('query'),
+      queryCapture,
+      {},
+      encodeQueryText,
+    )
     const isShared = countValues(param.value.split(placeholderRegex)) > 1
     const guard = isShared ? toLengthGuard(sharedPartMaxLength) : ''
     const rawGuard = isShared ? toLengthGuard(writtenPartMaxLength) : ''
 
+    const writtenName = encodeQueryName(param.name)
+    const writtenValue = param.isFilled ? '' : encodeQueryText(param.value)
+
     return {
       ...param,
+      writtenName,
+      pair: toPair(param.isFlag ? writtenName : `${writtenName}=${writtenValue}`),
       regex: new RegExp(`^${guard}${source}$`, 'i'),
       rawRegex: new RegExp(`^${rawGuard}${rawSource}$`, 'd'),
     }
@@ -1031,7 +1056,7 @@ export const compileTemplate = (
       captureIn('query'),
       writtenPathCapture,
       {},
-      encodeText,
+      encodeQueryName,
       writtenPathPatterns,
     )
     const isShared = countValues(text.split(placeholderRegex)) > 1
@@ -1362,22 +1387,8 @@ export const compileTemplate = (
 
   // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
   const writtenPath = encodeLiteral(path)
-  const isSemicolonEscaped = lenient.semicolon === true
   const encodePrettyQueryValue = (value: string): string => {
-    const written = encodeQueryValue(value)
-
-    return isSemicolonEscaped ? written.replaceAll(';', '%3B') : written
-  }
-  // A `=` in a name would end it there, and a leading `amp;` reads as `&` under the entity mark.
-  const encodePrettyQueryName = (name: string): string => {
-    const written = encodeText(name).replaceAll('=', '%3D')
-    const escaped = isSemicolonEscaped ? written.replaceAll(';', '%3B') : written
-
-    if (lenient.ampersandEntity === true && escaped.startsWith(entityPrefix)) {
-      return `amp%3B${escaped.slice(entityPrefix.length)}`
-    }
-
-    return escaped
+    return encodeDecoded(value, encodeQueryText)
   }
   const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
   const encodeValue: CompiledTemplate['encodeValue'] = (value, part) => {
@@ -1431,6 +1442,7 @@ export const compileTemplate = (
         own.value,
         values,
         isStrict ? encodeStrictValue : encodePrettyQueryValue,
+        encodeQueryText,
       )
 
       pairs.push(appendValue(own.pair, text))
@@ -1450,7 +1462,7 @@ export const compileTemplate = (
     }
 
     for (const { text } of nameFlags) {
-      pairs.push(toPair(fillQueryValue(text, values, encodeFlagValue)))
+      pairs.push(toWrittenPair(fillQueryValue(text, values, encodeFlagValue, encodeQueryName)))
     }
 
     if (hasFlagSlash) {
@@ -1464,7 +1476,7 @@ export const compileTemplate = (
         continue
       }
 
-      const writtenName = isStrict ? encodeStrictValue(name) : encodePrettyQueryName(name)
+      const writtenName = isStrict ? encodeStrictValue(name) : encodeQueryName(name)
       const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodePrettyQueryValue)
 
       pairs.push(toPair(`${writtenName}=${writtenValue}`))
@@ -1483,10 +1495,10 @@ export const compileTemplate = (
           return
         }
 
-        const writtenName = isStrict ? encodeStrictValue(name) : encodePrettyQueryName(name)
+        const writtenName = isStrict ? encodeStrictValue(name) : encodeQueryName(name)
         const writtenValue = isStrict ? encodeStrictValue(item) : encodePrettyQueryValue(item)
 
-        pairs.push(toPair(`${writtenName}=${writtenValue}`))
+        pairs.push(toWrittenPair(`${writtenName}=${writtenValue}`))
       }
     }
 
@@ -1547,5 +1559,8 @@ export const compileTemplate = (
     readRawFragment,
     orderPairs,
     encodeValue,
+    encodeQueryText,
+    encodeQueryName,
+    toWrittenPair,
   }
 }

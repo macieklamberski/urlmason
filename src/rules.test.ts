@@ -660,10 +660,10 @@ describe('validateOpenTailPlacement', () => {
 })
 
 describe('validateEntityNames', () => {
-  const params = parseTemplate('https://example.com/feed?alt=rss&amp;page=1').params
+  const parsed = parseTemplate('https://example.com/feed?alt=rss&amp;page=1')
 
   it('should throw for a name that starts with `amp;` under the mark', () => {
-    const throwing = () => validateEntityNames('feed', params, true)
+    const throwing = () => validateEntityNames('feed', parsed, true)
 
     expect(throwing).toThrow(
       'The feed row sets amp;page, which the ampersand mark reads as another parameter',
@@ -671,9 +671,18 @@ describe('validateEntityNames', () => {
   })
 
   it('should take a name that starts with `amp;` without the mark', () => {
-    const throwing = () => validateEntityNames('feed', params, false)
+    const throwing = () => validateEntityNames('feed', parsed, false)
 
     expect(throwing).not.toThrow()
+  })
+
+  it('should throw for a flag that starts with `amp;` under the mark', () => {
+    const flagged = parseTemplate('https://example.com/feed?alt=rss&amp;{id}')
+    const throwing = () => validateEntityNames('feed', flagged, true)
+
+    expect(throwing).toThrow(
+      'The feed row sets amp;{id}, which the ampersand mark reads as another parameter',
+    )
   })
 })
 
