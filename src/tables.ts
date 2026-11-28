@@ -1648,6 +1648,9 @@ const createTable = <const Row extends UrlRow>(
     params?: Record<string, UrlValue>
     tableUrl: TableUrl
     isWwwOptional: boolean
+    // Whether a mark was needed for the URL to read: the other trailing slash, or `;` or `&amp;`
+    // read as `&`.
+    isMarkNeeded: boolean
   }
   type FoundTemplate = Required<TakenTemplate>
 
@@ -1678,7 +1681,7 @@ const createTable = <const Row extends UrlRow>(
       const isCheckRefused = !template.passesChecks(params)
 
       if (!isCheckRefused && !hasUnlistedSelector(template, tableUrl, isWwwOptional)) {
-        return { template, params, tableUrl, isWwwOptional }
+        return { template, params, tableUrl, isWwwOptional, isMarkNeeded: false }
       }
 
       if (!isCheckRefused) {
@@ -1686,7 +1689,7 @@ const createTable = <const Row extends UrlRow>(
       }
 
       if (!refused) {
-        refused = { template, tableUrl, isWwwOptional }
+        refused = { template, tableUrl, isWwwOptional, isMarkNeeded: false }
       }
     }
 
@@ -1735,7 +1738,7 @@ const createTable = <const Row extends UrlRow>(
 
     const loose = findTemplate(tableUrl, isWwwOptional, true, base)
 
-    return loose?.params ? loose : (found ?? loose)
+    return loose?.params ? { ...loose, isMarkNeeded: true } : (found ?? loose)
   }
 
   const readTableTemplate = (tableUrl: TableUrl, base?: UrlValues): TakenTemplate | undefined => {
@@ -1792,7 +1795,9 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    return { ...found, params: found.params }
+    const isMarkNeeded = found.isMarkNeeded || readableUrl !== tableUrl
+
+    return { ...found, params: found.params, isMarkNeeded }
   }
 
   // The values of a read are typed from the key it read, which a read here holds as any key.
@@ -1920,8 +1925,9 @@ const createTable = <const Row extends UrlRow>(
         key: row.key,
         values: read.values,
         row: copyRow(row),
-        isAlias: read.match.isAlias || !read.match.row.isMainRead,
-        isExact: false,
+        isAliasMatch: read.match.isAliasMatch || !read.match.row.isMainRead,
+        isExactMatch: false,
+        isLenientMatch: read.match.isLenientMatch,
       })
     }
 
@@ -1987,13 +1993,20 @@ const createTable = <const Row extends UrlRow>(
     // The tail is read for the checks alone: no feed is built from it.
     const params = omit(found.params, [openTailName])
     const rawRead = readRawParams(found)
+    const values = lowercaseMarked(params, lenient.case, checks, rowChecks[found.template.rowIndex])
+    // A value the case mark lowercased needed the mark, and one already in lowercase did not.
+    const isLowercased = Object.keys(params).some((name) => {
+      return !isSameValue(values[name], params[name], (left, right) => left === right)
+    })
+    const isLenientMatch = found.isMarkNeeded || isLowercased || rawRead?.isRespelled === true
 
     return toMatch({
       key: row.key,
-      values: lowercaseMarked(params, lenient.case, checks, rowChecks[found.template.rowIndex]),
+      values,
       row: copyRow(row),
-      isAlias: found.template.isAlias,
-      isExact: rawRead !== undefined && !rawRead.isRespelled,
+      isAliasMatch: found.template.isAlias,
+      isExactMatch: rawRead !== undefined && !isLenientMatch,
+      isLenientMatch,
     })
   }
 

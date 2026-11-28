@@ -200,11 +200,14 @@ export type UrlKeyMatch<Key extends string, Row, Options = undefined> = {
   // see them, as `tail`. A URL with a tail is not exact and has no main URL.
   values: KeyValues<Key, Row> & OptionValues<Options>
   row: Row
-  isAlias: boolean
-  // Whether the URL is written as the row writes it: the same case but where a case mark names
-  // the value, the same trailing slash and each own parameter once. A platform can answer any
-  // other spelling with another feed.
-  isExact: boolean
+  isAliasMatch: boolean
+  // Whether the URL is written as the row writes it: the same case, the same trailing slash, each
+  // own parameter once and no mark needed. A platform can answer any other spelling with another
+  // feed.
+  isExactMatch: boolean
+  // Whether a mark was needed for the URL to read as it did: a value the case mark lowercased, the
+  // other trailing slash, fixed text in another case, or `;` or `&amp;` read as `&`.
+  isLenientMatch: boolean
 }
 
 // How a built URL spells its values. `pretty` keeps every character the part of the URL allows, so
