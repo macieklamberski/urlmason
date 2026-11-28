@@ -34,7 +34,9 @@ import {
   writeQuery,
 } from './queries.js'
 import {
+  type CheckNames,
   validateCaseMark,
+  validateCheckNames,
   validateCheckRegex,
   validateEntityNames,
   validateListNames,
@@ -147,6 +149,8 @@ type RowTemplate = {
   isFlagPair: (pair: QueryPair) => boolean
   // The value that takes every pair no other part names, as `query` of `{?query*}`.
   passedName?: string
+  // Every value the template writes, the names a check or a case mark may give.
+  checkNames: Array<string>
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -319,6 +323,11 @@ const hasFixedPath = (parsed: ParsedTemplate): boolean => {
   return fixedPathTextRegex.test(parsed.path.replace(placeholderRegex, ''))
 }
 
+// The names a set of checks gives a check, past the ones left undefined.
+const toGivenNames = (checks: Record<string, unknown> = {}): Array<string> => {
+  return Object.keys(checks).filter((name) => checks[name] !== undefined)
+}
+
 // Every check as a function.
 const toCheckFunctions = <Rest extends Array<unknown>>(
   checks: Record<string, CheckFunction<Rest> | RegExp | undefined> = {},
@@ -387,6 +396,8 @@ type ReadStandIn<Key extends string, Row> = (
 type TableParts<Key extends string, Row> = {
   table: UrlTable<Key, Row>
   readStandIn: ReadStandIn<Key, Row>
+  // The names the row checks and the case mark give, checked on the table given, not a stand-in.
+  checkNames: CheckNames
 }
 
 // The query of a URL, parsed once: a URL no template takes the host and path of is never parsed.
@@ -430,7 +441,61 @@ const toEntrySource = (entry: HostEntry): string => {
     return anyDomainSource
   }
 
-  return isString(entry) ? escapeRegex(entry) : `(?:${entry.source.replace(anchorsRegex, '')})`
+  if (isString(entry)) {
+    return escapeRegex(entry)
+  }
+
+  // Each alternative loses its own anchors, so `^\d+$|^x$` reads as `\d+|x` inside the group.
+  const alternatives = splitAlternatives(entry.source).map((alternative) => {
+    return alternative.replace(anchorsRegex, '')
+  })
+
+  return `(?:${alternatives.join('|')})`
+}
+
+// The alternatives of a pattern outside any group or class, as `^\d+$` and `^x$` of `^\d+$|^x$`.
+const splitAlternatives = (source: string): Array<string> => {
+  const alternatives: Array<string> = []
+  let alternative = ''
+  let depth = 0
+  let isInClass = false
+
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    // An escape is taken whole, so `\|` and `\(` stay text.
+    const piece = char === '\\' ? source.slice(index, index + 2) : char
+
+    index += piece.length - 1
+
+    if (char === '|' && depth === 0 && !isInClass) {
+      alternatives.push(alternative)
+      alternative = ''
+
+      continue
+    }
+
+    alternative += piece
+
+    if (isInClass) {
+      isInClass = char !== ']'
+
+      continue
+    }
+
+    if (char === '[') {
+      isInClass = true
+    }
+
+    if (char === '(') {
+      depth += 1
+    }
+
+    if (char === ')') {
+      depth -= 1
+    }
+  }
+
+  return [...alternatives, alternative]
 }
 
 // The host strings as a parsed URL spells them, so one written in Unicode or capitals matches.
@@ -1217,6 +1282,12 @@ const compileRowTemplate = (
     hasFragment: parsed.fragment !== undefined,
     nameFlagCount: parsed.nameFlags.length,
     passedName: parsed.passedName,
+    checkNames: [
+      ...built.names.map(toBareName),
+      ...parsed.optionalNames,
+      ...(parsed.passedName === undefined ? [] : [parsed.passedName]),
+      ...(isOpen ? [openTailName] : []),
+    ],
     isFlagPair: (pair) => {
       return !pair.rawValue && compiled.nameFlags.some((flag) => flag.regex.test(pair.name))
     },
@@ -1266,6 +1337,15 @@ const createTable = <const Row extends UrlRow>(
   validateListNames(
     compiled.map((template) => ({ key: rows[template.rowIndex].key, names: template.names })),
   )
+  const checkNames: CheckNames = {
+    templates: compiled.map((template) => ({
+      key: rows[template.rowIndex].key,
+      rowIndex: template.rowIndex,
+      names: template.checkNames,
+    })),
+    rowCheckNames: rows.map((row) => toGivenNames(row.checks)),
+    caseNames: lenient.case ?? [],
+  }
 
   // A template without an open tail is read before one with it, and of two with one the deeper
   // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes
@@ -2028,6 +2108,7 @@ const createTable = <const Row extends UrlRow>(
 
   return {
     table: { rows: rows.map(copyRow), buildUrl, buildUrls, readUrl, getMainUrl, forSite },
+    checkNames,
     readStandIn: readOwn,
   }
 }
@@ -2039,5 +2120,9 @@ export const defineTable = <const Row extends UrlRow>(
   givenRows: Array<Row>,
   options: UrlTableOptions = {},
 ): UrlTable<Row['key'], Row> => {
-  return createTable(givenRows, options).table
+  const parts = createTable(givenRows, options)
+
+  validateCheckNames(parts.checkNames)
+
+  return parts.table
 }

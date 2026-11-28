@@ -373,8 +373,6 @@ const unkeptPassedQueries = defineTable(
   { isQueryKept: false },
 )
 
-const joined = defineTable([{ key: 'plain', main: 'https://example.com/search?q={first}{second}' }])
-
 const escapedFlag = defineTable([
   {
     key: 'list',
@@ -392,6 +390,11 @@ const brokenSecondName = defineTable([
     aliases: ['https://old.example.com/item/{id}'],
   },
 ])
+
+const alternativeChecked = defineTable(
+  [{ key: 'post', main: 'https://example.com/posts/{id}-{slug}' }],
+  { checks: { id: /^\d+$|^latest$/ } },
+)
 
 const mirrored = defineTable([{ key: 'entry', main: 'https://{host}/feed/{id}' }], {
   hosts: { exact: [/(?<x>www2\.)?example\.com/] },
@@ -1428,16 +1431,6 @@ describe('defineTable', () => {
       const value = unsorted.buildUrl('search', { query: 'feeds' }) ?? ''
 
       expect(unsorted.getMainUrl(value)).toBeUndefined()
-    })
-
-    it('should escape a character split across two values of one query value', () => {
-      const value = {
-        first: 'a\ud83d',
-        second: '\ude00b',
-      }
-      const expected = 'https://example.com/search?q=a%F0%9F%98%80b'
-
-      expect(joined.buildUrl('plain', value)).toBe(expected)
     })
 
     it('should write a value that is no text as its text', () => {
@@ -3935,6 +3928,28 @@ describe('defineTable', () => {
   })
 
   describe('with a pattern as a check', () => {
+    it('should read a value of one alternative of a pattern in a shared segment', () => {
+      const value = 'https://example.com/posts/latest-hello'
+      const expected = {
+        id: 'latest',
+        slug: 'hello',
+      }
+      const match = alternativeChecked.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a value of another alternative of a pattern in a shared segment', () => {
+      const value = 'https://example.com/posts/12-hello'
+      const expected = {
+        id: '12',
+        slug: 'hello',
+      }
+      const match = alternativeChecked.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
     it('should read a value the pattern takes', () => {
       const value = 'https://example.com/items/123'
       const match = checkedByRegex.readUrl(value)
@@ -6721,6 +6736,54 @@ describe('defineTable', () => {
       const value = 'https://alice.example.de/jobs/feed'
 
       expect(checkedExact.readUrl(value)).toBeUndefined()
+    })
+  })
+
+  describe('with a template or a check the table refuses', () => {
+    it('should take a check of the table of a value no template writes', () => {
+      const throwing = () => {
+        return defineTable([{ key: 'feed', main: 'https://example.com/feed{?page}' }], {
+          checks: { id: digitsRegex },
+        })
+      }
+
+      expect(throwing).not.toThrow()
+    })
+
+    it('should throw for a check of a row of a value none of its templates writes', () => {
+      const throwing = () => {
+        return defineTable([
+          {
+            key: 'docs',
+            main: 'https://example.com/{locale}/docs',
+            checks: { lang: digitsRegex },
+          },
+        ])
+      }
+
+      expect(throwing).toThrow('The docs row checks lang, a value none of its templates writes')
+    })
+
+    it('should take a check of a row of its open tail, base and passed query', () => {
+      const throwing = () => {
+        return defineTable([
+          {
+            key: 'page',
+            main: '{scheme}://{host}{/base*}/wiki{/tail*}',
+            checks: {
+              tail: (tail) => !tail.includes('admin'),
+              base: (base) => !base.includes('archive'),
+            },
+          },
+          {
+            key: 'search',
+            main: 'https://example.com/search{?q,query*}',
+            checks: { query: () => true },
+          },
+        ])
+      }
+
+      expect(throwing).not.toThrow()
     })
   })
 })

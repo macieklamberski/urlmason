@@ -24,8 +24,11 @@ import {
 } from './queries.js'
 import {
   type TemplateNames,
+  validateAdjacentValues,
+  validateBasePlacement,
   validateExpressions,
   validateFragment,
+  validateHostNames,
   validateOptionalPlacement,
   validateParamNames,
   validateQueryPlaceholders,
@@ -384,9 +387,8 @@ const encodeQueryValue = (value: string): string => {
   return encodeDecoded(value, encodeText)
 }
 
-// Values next to each other are encoded as one text, so a surrogate pair split across them is
-// written whole. A list's items are joined by commas and their own commas written as `%2C`, so
-// the separators stay apart from them.
+// A list's items are joined by commas and their own commas written as `%2C`, so the separators
+// stay apart from them.
 const fillQueryValue = (
   template: string,
   values: Record<string, UrlValue>,
@@ -394,14 +396,6 @@ const fillQueryValue = (
 ): string => {
   const runs: Array<QueryRun> = []
   const push = (text: string, kind: QueryRun['kind']) => {
-    const last = runs.at(-1)
-
-    if (last && last.kind === kind && kind !== 'separator') {
-      last.text += text
-
-      return
-    }
-
     runs.push({ text, kind })
   }
 
@@ -847,6 +841,15 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const path = isOpen ? plainPath.slice(0, -openTailSuffix.length) : plainPath
 
   validateReservedNames(names)
+  validateAdjacentValues(template)
+  validateHostNames(template, [
+    ...[...`${givenPath}${search ?? ''}${fragmentText}`.matchAll(placeholderRegex)].map(
+      ([, name]) => toBareName(name),
+    ),
+    ...names.reservedNames,
+    ...names.queryValueNames,
+  ])
+  validateBasePlacement(template, host, givenPath)
 
   const lastName = reservedNames.at(-1)
   // A template that writes a query or a fragment keeps the URL's own for itself.
