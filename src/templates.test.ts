@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from './tables.js'
-import { encodeParserText, isTypedValue, parseTemplate, toSlotText } from './templates.js'
+import {
+  encodeParserText,
+  isTypedValue,
+  parseTemplate,
+  toAsciiHost,
+  toSlotText,
+} from './templates.js'
 import type { UrlMap } from './types.js'
 
 // Query continuation needs a query in front of it, and names no placeholder of the template.
@@ -36,6 +42,25 @@ describe('parseTemplate', () => {
     }
 
     expect(parseTemplate(value)).toMatchObject(expected)
+  })
+
+  it('should read a scheme and a host in capitals in lowercase', () => {
+    const value = 'HTTPS://{blog}-Books.Example.com/{id}'
+    const expected = {
+      scheme: 'https',
+      host: '{blog}-books.example.com',
+    }
+
+    expect(parseTemplate(value)).toMatchObject(expected)
+  })
+
+  it('should throw for a port in the host', () => {
+    const value = 'https://example.com:8080/{id}'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(
+      'The template https://example.com:8080/{id} writes a port or a user in its host, which no URL reads',
+    )
   })
 
   it('should read the open tail at the end of the path', () => {
@@ -306,6 +331,24 @@ describe('build with a URI Template', () => {
     expect(table.buildUrl('feed', value)).toBe(expected)
   })
 
+  it('should build a URL in lowercase from a template in capitals', () => {
+    const table = defineTable([{ key: 'feed', main: 'HTTPS://Example.com/{id}' }])
+    const value = { id: '1' }
+    const expected = 'https://example.com/1'
+
+    expect(table.buildUrl('feed', value)).toBe(expected)
+  })
+
+  it('should build no URL for a host value a parser reads as an address', () => {
+    const table = defineTable([{ key: 'shop', main: 'https://{host}/shop/{id}' }])
+    const value = {
+      host: '１２３４５',
+      id: '1',
+    }
+
+    expect(table.buildUrl('shop', value)).toBeUndefined()
+  })
+
   it('should write a host value in lowercase', () => {
     const table = defineTable([{ key: 'user', main: '{scheme}://{user}.example.com/feed' }])
     const value = {
@@ -463,6 +506,50 @@ describe('encodeParserText', () => {
     const expected = "a%27b#c'd%60e"
 
     expect(encodeParserText(value, 'query')).toBe(expected)
+  })
+})
+
+describe('toAsciiHost', () => {
+  it('should write a host in lowercase', () => {
+    const value = 'Feeds.Example.com'
+    const expected = 'feeds.example.com'
+
+    expect(toAsciiHost(value)).toBe(expected)
+  })
+
+  it('should write a label outside ASCII in punycode', () => {
+    const value = 'bücher.example'
+    const expected = 'xn--bcher-kva.example'
+
+    expect(toAsciiHost(value)).toBe(expected)
+  })
+
+  it('should write a label of full-width digits as digits', () => {
+    const value = '１２３.example'
+    const expected = '123.example'
+
+    expect(toAsciiHost(value)).toBe(expected)
+  })
+
+  it('should keep a label a parser maps to two labels as written', () => {
+    const value = 'a．b.example'
+    const expected = 'a．b.example'
+
+    expect(toAsciiHost(value)).toBe(expected)
+  })
+
+  it('should keep a label no parser takes as written', () => {
+    const value = 'é x.example'
+    const expected = 'é x.example'
+
+    expect(toAsciiHost(value)).toBe(expected)
+  })
+
+  it('should keep a placeholder as written and lowercase the text beside it', () => {
+    const value = '{blogName}-Books.example.com'
+    const expected = '{blogName}-books.example.com'
+
+    expect(toAsciiHost(value)).toBe(expected)
   })
 })
 

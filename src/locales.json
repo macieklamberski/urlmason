@@ -19,6 +19,7 @@
     "unbalancedBrace": "The template {{template}} writes a brace outside a complete expression",
     "adjacentValues": "The template {{template}} writes {{expression}}, two values with no fixed text between them, so the two are split by a guess",
     "misplacedHostName": "The template {{template}} writes {{expression}} outside its host, where it reads no host",
+    "hostPortOrUser": "The template {{template}} writes a port or a user in its host, which no URL reads",
     "misplacedBase": "The template {{template}} writes {/base*} behind a host other than {host}, where no URL reads it",
     "checkRegexGroup": "The check of {{name}} is a pattern with a backreference or a named group, which points at another group once joined with other patterns",
     "unknownCaseName": "The case mark names {{name}}, a value no template of the table writes",

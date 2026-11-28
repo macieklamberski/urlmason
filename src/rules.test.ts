@@ -13,6 +13,7 @@ import {
   validateExpressions,
   validateFragment,
   validateHostNames,
+  validateHostText,
   validateListNames,
   validateListSplit,
   validateOpenTail,
@@ -225,6 +226,33 @@ describe('validateHostNames', () => {
   it('should take other names outside the host', () => {
     const value = 'https://{host}/domain/{domain}/feed'
     const throwing = () => validateHostNames(value, ['domain'])
+
+    expect(throwing).not.toThrow()
+  })
+})
+
+describe('validateHostText', () => {
+  it('should throw for a port', () => {
+    const value = 'https://example.com:8080/{id}'
+    const throwing = () => validateHostText(value, 'example.com:8080')
+
+    expect(throwing).toThrow(
+      'The template https://example.com:8080/{id} writes a port or a user in its host, which no URL reads',
+    )
+  })
+
+  it('should throw for a user', () => {
+    const value = 'https://alice@example.com/{id}'
+    const throwing = () => validateHostText(value, 'alice@example.com')
+
+    expect(throwing).toThrow(
+      'The template https://alice@example.com/{id} writes a port or a user in its host, which no URL reads',
+    )
+  })
+
+  it('should take a host of labels and placeholders', () => {
+    const value = 'https://{blog}.example.com/feed'
+    const throwing = () => validateHostText(value, '{blog}.example.com')
 
     expect(throwing).not.toThrow()
   })

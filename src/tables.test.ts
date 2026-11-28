@@ -5463,13 +5463,13 @@ describe('defineTable', () => {
       expect(builtFeeds.buildUrl('search', value)).toBe(expected)
     })
 
-    it('should build a URL from a scheme value in capitals', () => {
+    it('should write a scheme value in capitals in lowercase', () => {
       const value = {
         scheme: 'HTTPS',
         host: 'example.com',
         id: '5',
       }
-      const expected = 'HTTPS://example.com/u/5/feed'
+      const expected = 'https://example.com/u/5/feed'
 
       expect(builtFeeds.buildUrl('feed', value)).toBe(expected)
     })
