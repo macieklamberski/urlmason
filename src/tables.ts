@@ -67,6 +67,7 @@ import {
   sharedPartMaxLength,
   splitPath,
   type TemplatePart,
+  type TemplateRead,
   toAsciiHost,
   toAsciiLowerCaseText,
   toBareName,
@@ -126,7 +127,7 @@ type RowTemplate = {
     isWwwOptional: boolean,
     isSlashLoose: boolean,
     base?: UrlValues,
-  ) => Record<string, UrlValue> | undefined
+  ) => TemplateRead | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
   // spelling a mark covers is read in the template's, with the path, the pairs and the fragment
@@ -1021,7 +1022,7 @@ const compileRowTemplate = (
     regex: RegExp,
     isHostChecked: boolean,
     base?: UrlValues,
-  ): Record<string, UrlValue> | undefined => {
+  ): TemplateRead | undefined => {
     const { url, hostPath } = tableUrl
     const match = regex.exec(hostPath)
 
@@ -1029,21 +1030,28 @@ const compileRowTemplate = (
       return
     }
 
-    const params = compiled.read(match.groups, () => readQuery(tableUrl).searchParams)
+    const read = compiled.read(match.groups, () => readQuery(tableUrl).searchParams)
 
-    if (!params) {
+    if (!read) {
       return
     }
 
+    const params = read.values
+    let { isCaseBlind } = read
+
     // A template that writes a fragment takes only a URL with one it reads.
     if (parsed.fragment !== undefined) {
-      const fragmentValues = compiled.readFragment(url.hash.slice(1), params)
+      const fragmentRead = compiled.readFragment(url.hash.slice(1), params)
 
-      if (!fragmentValues) {
+      if (!fragmentRead) {
         return
       }
 
-      Object.assign(params, { ...fragmentValues, ...params })
+      Object.assign(params, { ...fragmentRead.values, ...params })
+
+      if (fragmentRead.isCaseBlind) {
+        isCaseBlind = true
+      }
     }
 
     // A function among the hosts matched any domain, so the host read is checked by it.
@@ -1075,7 +1083,10 @@ const compileRowTemplate = (
       Object.assign(params, base)
     }
 
-    return listSplit ? readListSplit(listSplit, match, tableUrl, params) : params
+    return {
+      values: listSplit ? readListSplit(listSplit, match, tableUrl, params) : params,
+      isCaseBlind,
+    }
   }
 
   const readParams: RowTemplate['readParams'] = (tableUrl, isWwwOptional, isSlashLoose, base) => {
@@ -1501,7 +1512,7 @@ const compileRowTemplate = (
     const parsedUrl = ownUrl === undefined ? undefined : parseUrl(ownUrl)
     const tableUrl = parsedUrl && toTableUrl(parsedUrl, parsedUrl.pathname)
     const base = hasBase ? { base: values['base*'] } : undefined
-    const writtenParams = tableUrl && readMatch(tableUrl, builtRegex, false, base)
+    const writtenParams = tableUrl && readMatch(tableUrl, builtRegex, false, base)?.values
 
     // A value that moves or breaks the URL builds none, as one a check refuses.
     if (!url || !writtenParams) {
@@ -1830,7 +1841,7 @@ const createTable = <const Row extends UrlRow>(
     tableUrl: TableUrl
     isWwwOptional: boolean
     // Whether a mark was needed for the URL to read: the other trailing slash, `;` or `&amp;`
-    // read as `&`, or `%7C` read as `|`.
+    // read as `&`, `%7C` read as `|`, or copies of a case-marked name in two cases.
     isMarkNeeded: boolean
   }
   type FoundTemplate = Required<TakenTemplate>
@@ -1853,12 +1864,13 @@ const createTable = <const Row extends UrlRow>(
         continue
       }
 
-      const writtenParams = template.readParams(tableUrl, isWwwOptional, isSlashLoose, base)
+      const read = template.readParams(tableUrl, isWwwOptional, isSlashLoose, base)
 
-      if (!writtenParams) {
+      if (!read) {
         continue
       }
 
+      const writtenParams = read.values
       const pipedParams = { ...writtenParams }
 
       for (const name of template.pipeNames) {
@@ -1891,7 +1903,7 @@ const createTable = <const Row extends UrlRow>(
           lowercaseNames,
           tableUrl,
           isWwwOptional,
-          isMarkNeeded: isPipeRead,
+          isMarkNeeded: isPipeRead || read.isCaseBlind,
         }
       }
 
