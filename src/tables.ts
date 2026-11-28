@@ -135,6 +135,8 @@ type RowTemplate = {
   // The flags whose name holds a value, as `?article{id}`, and whether a pair is one of them.
   nameFlagCount: number
   isFlagPair: (pair: QueryPair) => boolean
+  // The value that takes every pair no other part names, as `query` of `{?query*}`.
+  passedName?: string
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -223,7 +225,11 @@ const toAsciiLowerCase = (value: UrlValue): UrlValue => {
   }
 
   if (isPlainObject(value)) {
-    return Object.fromEntries(Object.entries(value).map(([name, text]) => [name, lowercase(text)]))
+    return Object.fromEntries(
+      Object.entries(value).map(([name, text]) => {
+        return [name, isString(text) ? lowercase(text) : text.map(lowercase)]
+      }),
+    )
   }
 
   return Array.isArray(value) ? value.map(lowercase) : lowercase(value)
@@ -243,6 +249,16 @@ const isSameValue = (
 ): boolean => {
   if (left === right) {
     return true
+  }
+
+  // A passed query reads the same under each name, in any order of the names.
+  if (isPlainObject(left) && isPlainObject(right)) {
+    const names = Object.keys(left)
+
+    return (
+      names.length === Object.keys(right).length &&
+      names.every((name) => isSameValue(left[name], right[name], isSame))
+    )
   }
 
   if (!Array.isArray(left) || !Array.isArray(right)) {
@@ -1187,6 +1203,7 @@ const compileRowTemplate = (
     restName,
     hasFragment: parsed.fragment !== undefined,
     nameFlagCount: parsed.nameFlags.length,
+    passedName: parsed.passedName,
     isFlagPair: (pair) => {
       return !pair.rawValue && compiled.nameFlags.some((flag) => flag.regex.test(pair.name))
     },
@@ -1387,7 +1404,8 @@ const createTable = <const Row extends UrlRow>(
       ...getPathSelectorNames(template, tableUrl.hostPath, isWwwOptional),
     ]
 
-    if (names.length === 0) {
+    // A passed query takes every parameter, so none names a feed the row doesn't know.
+    if (names.length === 0 || template.passedName !== undefined) {
       return false
     }
 
@@ -1797,6 +1815,11 @@ const createTable = <const Row extends UrlRow>(
     // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has
     // one, and never under `isQueryKept: false`.
     const isKept = (pair: QueryPair): boolean => {
+      // A passed query takes every pair, so each one is a value of the main URL.
+      if (main.passedName !== undefined) {
+        return true
+      }
+
       if (main.optionalNames.length > 0 || options.isQueryKept === false) {
         return isNamed(pair, main.optionalNames)
       }
@@ -1904,8 +1927,9 @@ const createTable = <const Row extends UrlRow>(
     const hash = main.hasFragment ? builtUrl.slice(hashStart) : parsedMainUrl.hash
     const builtBody = builtUrl.slice(0, hashStart)
     const queryStart = builtBody.includes('?') ? builtBody.indexOf('?') : builtBody.length
+    // A passed query took every pair the row doesn't name, and the build wrote them.
     const keptPairs = parseQuery(parsedMainUrl.search)
-      .filter((pair) => pair.text && !isNamed(pair, main.ownNames))
+      .filter((pair) => pair.text && !isNamed(pair, main.ownNames) && main.passedName === undefined)
       .map(toStrictPair)
     const pairs = sortPairs([...parseQuery(builtBody.slice(queryStart)), ...keptPairs])
     const base = writeBase(builtBody.slice(0, queryStart), pairs)

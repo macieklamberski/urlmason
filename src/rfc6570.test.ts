@@ -66,6 +66,13 @@ const builtCases: Array<string> = [
   'Level 4 Examples: {#keys}',
   'Level 4 Examples: {?list}',
   'Level 4 Examples: {?keys}',
+  'Level 4 Examples: {?list*}',
+  'Level 4 Examples: {?keys*}',
+  'Additional Examples 1: {?assoc_special_chars*}',
+  'Additional Examples 3: Empty Variables: {?empty_list*}',
+  'Additional Examples 3: Empty Variables: {?empty_assoc*}',
+  'Additional Examples 4: Numeric Keys: {?1337*}',
+  'Additional Examples 4: Numeric Keys: {?german*}',
   'Additional Examples 1: {/id*}',
   'Additional Examples 1: {random}',
   'Additional Examples 1: /set{?number}',
@@ -104,6 +111,7 @@ const sortedCases: Array<string> = [
   'Level 3 Examples: {?x,y,empty}',
   'Additional Examples 1: /search.{format}{?q,geocode,lang,locale,page,result_type}',
   'Additional Examples 1: /loc{?long,lat}',
+  'Additional Examples 5: Explode Combinations: {?id,token,keys*}',
 ]
 
 // A name may hold a hyphen, as the platforms write them, where RFC 6570 refuses one.

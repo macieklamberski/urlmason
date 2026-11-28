@@ -86,6 +86,8 @@ export type ParsedTemplate = {
   fragmentReservedNames: Array<string>
   // The flags whose name holds a value, as `article{id}` of `?article{id}`.
   nameFlags: Array<string>
+  // The pairs no other part of the template names, as `query` of `{?query*}`.
+  passedName?: string
 }
 
 export type CompiledNameFlag = {
@@ -151,11 +153,10 @@ const oldTail = '{*}'
 const oldQuery = '?{query}'
 // A value, and a list with its slash.
 const plainExpressionRegex = /^(?:\w+|\/\w+\*)$/
-const queryExpressionRegex = /^\?\w+\*$/
 // Query names a URL may carry, as `{?max-results,q}`, and behind a fixed query `{&q}`. A name may
-// hold a hyphen, as the platforms write them.
-const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*$/
-const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*)\}$/
+// hold a hyphen, as the platforms write them. The last may be a passed query, as `{?page,query*}`.
+const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*\*?$/
+const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*\*?)\}$/
 // A reserved value, as `{+url}`.
 const reservedExpressionRegex = /^\+\w+$/
 const reservedRegex = /\{\+(\w+)\}/g
@@ -253,7 +254,14 @@ export const toSegments = (value: UrlValue | undefined): Array<string> => {
 
 // A map as the names and values it holds, one after another, as `['lang', 'en']`.
 const toMapItems = (map: UrlMap): Array<string> => {
-  return Object.entries(map).flat()
+  return toMapEntries(map).flat()
+}
+
+// A map as its names and values, a name with a list once per item.
+const toMapEntries = (map: UrlMap): Array<[string, string]> => {
+  return Object.entries(map).flatMap(([name, value]) => {
+    return coerceArray(value).map((item): [string, string] => [name, item])
+  })
 }
 
 // A list is one or more segments, and `base` and `tail` zero or more. An empty segment is dropped,
@@ -450,7 +458,7 @@ const encodeSlot = (value: UrlValue, encode: (value: string) => string): string 
 
 // A map in a list slot, one `name=value` segment per name.
 const encodeMapSegments = (map: UrlMap, encode: (value: string) => string): string => {
-  return Object.entries(map)
+  return toMapEntries(map)
     .map(([name, value]) => `${encode(name)}=${encode(value)}`)
     .join('/')
 }
@@ -720,9 +728,8 @@ const checkExpressions = (template: string): void => {
     throwOldSpelling(oldList[0], `{/${oldList[1] || openTailName}*}`)
   }
 
-  // A passed query is no part of the core yet, so its old spelling names no new one.
   if (template.includes(oldQuery)) {
-    throw new Error(t(locales.errors.unsupportedPassedQuery, { template, expression: oldQuery }))
+    throwOldSpelling(oldQuery, '{?query*}')
   }
 
   // A brace left once every expression is taken out opens or closes nothing, as `{/id*`.
@@ -741,11 +748,6 @@ const checkExpressions = (template: string): void => {
 
     if (reservedExpressionRegex.test(body) || fragmentExpressionRegex.test(body)) {
       continue
-    }
-
-    // A passed query is no part of the core, so `{?query*}` is refused.
-    if (queryExpressionRegex.test(body)) {
-      throw new Error(t(locales.errors.invalidTemplate, { template }))
     }
 
     throw new Error(t(locales.errors.unsupportedTemplateExpression, { template, expression }))
@@ -814,7 +816,9 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
-  const optionalNames = optional ? optional[2].split(',') : []
+  const queryNames = optional ? optional[2].split(',') : []
+  const passedName = queryNames.at(-1)?.endsWith('*') ? queryNames.pop()?.slice(0, -1) : undefined
+  const optionalNames = queryNames
   const isOpen = givenPath.endsWith(openTailSuffix)
   const entries = search ? [...toSearchParams(parseQuery(search))] : []
 
@@ -847,7 +851,11 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
     return param
   })
-  const paramNames = [...params.map((param) => param.name), ...optionalNames]
+  const paramNames = [
+    ...params.map((param) => param.name),
+    ...optionalNames,
+    ...(passedName === undefined ? [] : [passedName]),
+  ]
   const fragmentText = givenFragment ?? ''
   const fragmentReservedNames = [...fragmentText.matchAll(reservedRegex)].map(([, name]) => name)
   const fragment = givenFragment?.replace(reservedRegex, '{$1}')
@@ -858,7 +866,9 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   // A name read from the query and a placeholder of the same name would give one value two sources.
   const allReservedNames = [...reservedNames, ...fragmentReservedNames]
 
-  if (optionalNames.some((name) => [...placeholderNames, ...allReservedNames].includes(name))) {
+  const queryValueNames = paramNames.slice(params.length)
+
+  if (queryValueNames.some((name) => [...placeholderNames, ...allReservedNames].includes(name))) {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
@@ -901,6 +911,7 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     fragment,
     fragmentReservedNames,
     nameFlags,
+    passedName,
   }
 }
 
@@ -1107,6 +1118,26 @@ export const compileTemplate = (
     return values
   }
 
+  const takenNames = [...parsed.params.map((param) => param.name), ...parsed.optionalNames]
+  // The pairs no other part of the template takes, a name given twice as a list of its values.
+  const readPassedQuery = (searchParams: URLSearchParams): UrlMap => {
+    const passed: UrlMap = {}
+
+    for (const [name, value] of searchParams) {
+      const isFlag = !value && nameFlags.some((flag) => flag.regex.test(name))
+
+      if (takenNames.includes(name) || isFlag) {
+        continue
+      }
+
+      const prior = passed[name]
+
+      passed[name] = prior === undefined ? value : [...coerceArray(prior), value]
+    }
+
+    return passed
+  }
+
   // A name the template holds twice keeps the first value read.
   const readGroups = (values: Record<string, UrlValue>, groups: Record<string, string> = {}) => {
     for (const [group, value] of Object.entries(groups)) {
@@ -1183,6 +1214,14 @@ export const compileTemplate = (
       }
     }
 
+    if (parsed.passedName !== undefined) {
+      const passed = readPassedQuery(getSearchParams())
+
+      if (Object.keys(passed).length > 0) {
+        values[parsed.passedName] = passed
+      }
+    }
+
     return values
   }
 
@@ -1203,7 +1242,9 @@ export const compileTemplate = (
 
     // An optional name with no value, or a list with no item, is left out of the URL. An empty
     // string is a value, written as `name=`, as RFC 6570 writes it.
-    for (const name of parsed.optionalNames) {
+    const passedNames = parsed.passedName === undefined ? [] : [parsed.passedName]
+
+    for (const name of [...parsed.optionalNames, ...passedNames]) {
       const value = getPlaceholderValue(givenParams, name)
 
       if (value !== undefined) {
@@ -1297,6 +1338,21 @@ export const compileTemplate = (
       const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodePrettyQueryValue)
 
       pairs.push(toPair(`${writtenName}=${writtenValue}`))
+    }
+
+    // A passed map is a pair per name and item, and a list or a string pairs under its own name.
+    const passedName = parsed.passedName ?? ''
+    const passed = values[passedName]
+
+    if (passed !== undefined) {
+      const map = isPlainObject(passed) ? passed : { [passedName]: passed }
+
+      for (const [name, item] of toMapEntries(map)) {
+        const writtenName = isStrict ? encodeStrictValue(name) : encodeText(name)
+        const writtenValue = isStrict ? encodeStrictValue(item) : encodePrettyQueryValue(item)
+
+        pairs.push(toPair(`${writtenName}=${writtenValue}`))
+      }
     }
 
     // A host reads in any case, so a value that fills a host label is written in lowercase.

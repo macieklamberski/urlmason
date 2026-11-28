@@ -34,9 +34,10 @@ export type UrlRow<Key extends string = string> = {
   checks?: Record<string, UrlRowCheck | undefined>
 }
 
-// Names and their values, as `{ lang: 'en' }`. A slot of one value builds it as `lang,en`, and a
-// list slot as one `lang=en` segment per name.
-export type UrlMap = Record<string, string>
+// Names and their values, as `{ lang: 'en' }`. A slot of one value builds it as `lang,en`, a list
+// slot as one `lang=en` segment per name, and a passed query as one pair per name. A name given
+// twice holds a list, as `{ tag: ['a', 'b'] }`, written once per item.
+export type UrlMap = Record<string, string | Array<string>>
 
 // A value of one path segment, host label or query value is a string. A `{name*}` value spans
 // several path segments, so it is a list of segments, as `['a/b', 'c']`.
@@ -134,7 +135,7 @@ type TailName = '/tail*'
 type BaseName = '/base*'
 type QueryName = `?${string}`
 
-type ValueName<Name> = Name extends `/${infer Bare extends string}*`
+type ValueName<Name> = Name extends `${'/' | '?'}${infer Bare extends string}*`
   ? Bare
   : Name extends `${'?' | '+' | '#'}${infer Bare extends string}`
     ? Bare
@@ -142,7 +143,11 @@ type ValueName<Name> = Name extends `/${infer Bare extends string}*`
       ? Name
       : never
 
-type NameValue<Name> = Name extends `${string}*` ? Array<string> : string
+type NameValue<Name> = Name extends `?${string}*`
+  ? UrlMap
+  : Name extends `${string}*`
+    ? Array<string>
+    : string
 
 // The values the templates of a key read: a `{/name*}` value a list, every other name a string,
 // and the open tail none. A query name, and a name only some templates hold, may be absent. A

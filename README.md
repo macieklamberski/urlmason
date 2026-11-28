@@ -203,6 +203,7 @@ A template is a full URL written in the [RFC 6570](https://www.rfc-editor.org/rf
 | `{/name*}` | One or more path segments | `https://example.com/docs{/path*}` |
 | `{?a,b}` | Query names a URL may carry, on a URL with no query | `https://example.com/feed{?page,limit}` |
 | `?name{id}` | A value inside the name of a flag, a pair with no value | `https://example.com/spip.php?article{id}` |
+| `{?query*}` | Every pair no other part of the template names, as a map | `https://example.com/search{?q,query*}` |
 | `{&a,b}` | The same, behind a query the template writes | `https://example.com/feed?alt=rss{&page}` |
 | `{scheme}` | The URL's scheme | `{scheme}://example.com/feed` |
 | `{host}` | A host the table lists | `{scheme}://{host}/feed` |
@@ -292,6 +293,7 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query and no fragment it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings.
 - A list right in front of a `{+x}`, as `{/options*}/{+source}`, shares its segments with it. A read takes the first split every check passes, and the value with the check takes all it can: a checked list its most segments, and the value behind an unchecked list the fewest list segments. A table throws where neither of the two has a check.
 - A template may write a fragment, as `#!/video/{id}` or `{#x}`, and then reads only a URL that carries it. A value in it stops at a slash, as in a path, and `{+x}` and `{#x}` read as written. A template without a fragment reads a URL whatever its fragment.
+- `{?query*}` reads every pair the template doesn't name into a map, a name given twice as a list of its values, so a URL read and built again keeps every pair.
 - Operators beyond these, such as `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API

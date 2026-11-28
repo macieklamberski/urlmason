@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from './tables.js'
 import { parseTemplate } from './templates.js'
+import type { UrlMap } from './types.js'
 
 const unsupportedExpressions = [
   '{+path,x}',
@@ -51,6 +52,18 @@ const refusedFragmentTemplates: Array<string> = [
   'https://example.com/{#section}/feed',
   'https://example.com/{+url}#{+url}',
   'https://example.com/{name}#{+name}',
+]
+
+// A passed query is the last query name, and names no other placeholder.
+const refusedPassedQueries: Array<[string, string]> = [
+  [
+    'https://example.com/search{?query*,page}',
+    'The template https://example.com/search{?query*,page} writes {?query*,page}, an operator or modifier no template takes',
+  ],
+  [
+    'https://example.com/{query}{?query*}',
+    'Not a URL template: https://example.com/{query}{?query*}',
+  ],
 ]
 
 const unbalancedTemplates: Array<string> = ['https://example.com/{/id*', 'https://example.com/id*}']
@@ -204,20 +217,25 @@ describe('parseTemplate', () => {
     expect(parseTemplate(value).restName).toBeUndefined()
   })
 
-  it('should throw for the old spelling of a passed query, naming no new one', () => {
+  it('should throw for the old spelling of a passed query, naming the new one', () => {
     const value = 'https://example.com/search?{query}'
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow(
-      `The template ${value} writes ?{query}, a passed query, which no template takes`,
-    )
+    expect(throwing).toThrow(`The template ${value} writes ?{query}, which is spelled {?query*}`)
   })
 
-  it('should throw for a passed query, which no template takes', () => {
-    const value = 'https://example.com/search{?query*}'
+  it('should read the last query name with an asterisk as the passed query', () => {
+    const value = 'https://example.com/search{?page,query*}'
+    const parsed = parseTemplate(value)
+
+    expect(parsed.passedName).toBe('query')
+    expect(parsed.optionalNames).toEqual(['page'])
+  })
+
+  it.each(refusedPassedQueries)('should throw for the passed query of %s', (value, message) => {
     const throwing = () => parseTemplate(value)
 
-    expect(throwing).toThrow('Not a URL template: https://example.com/search{?query*}')
+    expect(throwing).toThrow(message)
   })
 
   it.each(unbalancedTemplates)(
@@ -382,6 +400,7 @@ describe('defineTable with the URI Templates spelling', () => {
     { key: 'feed', main: 'https://example.com/feed?alt=rss{&page,limit}' },
     { key: 'proxy', main: 'https://proxy.example.com/{+url}' },
     { key: 'guide', main: 'https://guide.example.com/{page}{#section}' },
+    { key: 'find', main: 'https://find.example.com/{?q,query*}' },
   ])
 
   it('should type a list as its segments', () => {
@@ -400,6 +419,15 @@ describe('defineTable with the URI Templates spelling', () => {
     const url: string | undefined = match?.key === 'proxy' ? match.values.url : undefined
 
     expect(url).toBe(expected)
+  })
+
+  it('should type a passed query as a map that may be absent', () => {
+    const value = 'https://find.example.com/?q=feeds&tag=a&tag=b'
+    const expected = { tag: ['a', 'b'] }
+    const match = table.readUrl(value)
+    const query: UrlMap | undefined = match?.key === 'find' ? match.values.query : undefined
+
+    expect(query).toEqual(expected)
   })
 
   it('should type the whole fragment as a string under its name', () => {
