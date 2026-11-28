@@ -219,9 +219,13 @@ export const validateQueryPlaceholders = (
   valueEntries: Array<[string, string]>,
   search: string | undefined,
 ): void => {
-  const isEscapedName = nameFlags.some((name) => !(search ?? '').includes(name))
+  const countPlaceholders = (text: string): number => [...text.matchAll(placeholderRegex)].length
+  const decodedTexts = [...nameFlags, ...valueEntries.flat()]
+  const decodedCount = decodedTexts.reduce((count, text) => count + countPlaceholders(text), 0)
+  // An escaped brace decodes to a placeholder the template does not write, as `%7Bid%7D`.
+  const isEscapedPlaceholder = decodedCount !== countPlaceholders(search ?? '')
 
-  if (isEscapedName || valueEntries.some(([name]) => name.includes('{'))) {
+  if (isEscapedPlaceholder || valueEntries.some(([name]) => name.includes('{'))) {
     throwInvalidTemplate(template)
   }
 }

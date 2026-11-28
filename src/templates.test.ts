@@ -81,6 +81,13 @@ describe('parseTemplate', () => {
     expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
 
+  it('should throw for an escaped brace that decodes to a placeholder in a fixed value', () => {
+    const value = 'https://example.com/search.pl?format=rss&q=su%3A%7BClero%7D'
+    const throwing = () => parseTemplate(value)
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
   it('should throw for a parameter the template names twice', () => {
     const value = 'https://example.com/search?types=page&types=post'
     const throwing = () => parseTemplate(value)
