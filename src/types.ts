@@ -88,7 +88,7 @@ export type UrlTableOptions = {
   lenient?: UrlLenient
   // Whether a row that refuses a URL, by a check or by a parameter that tells rows apart, passes
   // it to the next row that fits in the order rows are read, of any shape. For page tables: a
-  // feed table tries only rows of the same shape.
+  // feed table passes a URL a check refuses only to rows of the same shape.
   isFallThrough?: boolean
 }
 

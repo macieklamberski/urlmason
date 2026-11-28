@@ -463,6 +463,63 @@ const checkedNameCase = defineTable(
   { checks: { atomFormat: (value) => isAnyOf(value, 'atom') } },
 )
 
+const hostVersions = defineTable(
+  [
+    {
+      key: 'pool',
+      main: 'https://www.example.com/pool?id={id}',
+      aliases: ['{scheme}://{host}/pool?id={id}&format={atomFormat}'],
+    },
+    {
+      key: 'pool',
+      main: 'https://www.example.com/pool?id={id}&format=rss_200',
+      aliases: ['{scheme}://{host}/pool?id={id}&format=rss_200'],
+    },
+  ],
+  {
+    hosts: { exact: ['www.example.com', 'api.example.com'] },
+    checks: { atomFormat: (value) => isAnyOf(value, 'atom') },
+  },
+)
+
+const tenantBehindHost = defineTable(
+  [
+    {
+      key: 'blog',
+      main: 'https://{user}.example.org/feed',
+      checks: { user: (value) => !isAnyOf(value, 'news') },
+    },
+    { key: 'site', main: 'https://{host}/feed' },
+  ],
+  { hosts: { tenant: ['example.org'] } },
+)
+
+const slashTwins = defineTable([
+  { key: 'post', main: 'https://example.com/p{id}', checks: { id: /^1\d*$/ } },
+  { key: 'page', main: 'https://example.com/p{id}/' },
+])
+
+const fixedBehindValue = defineTable(
+  [
+    { key: 'item', main: 'https://example.com/{id}' },
+    { key: 'posts', main: 'https://example.com/posts' },
+  ],
+  { checks: { id: digitsRegex } },
+)
+
+const rootFixedBehindValue = defineTable(
+  [
+    { key: 'item', main: '{scheme}://{host}/{id}' },
+    { key: 'posts', main: '{scheme}://{host}/posts' },
+  ],
+  { checks: { id: digitsRegex } },
+)
+
+const tailFeeds = defineTable([
+  { key: 'post', main: 'https://example.com/{user}/{slug}' },
+  { key: 'feed', main: 'https://example.com/{user}/{slug}{/tail*}?alt=rss' },
+])
+
 const checkedByRegex = defineTable(
   [
     {
@@ -2011,6 +2068,19 @@ describe('defineTable', () => {
       const value = 'https://example.com/feed?alt=rss2'
 
       expect(formats.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a row with an open tail that sets the value behind a row without it', () => {
+      const value = 'https://example.com/ann/hello?alt=rss'
+      const match = tailFeeds.readUrl(value)
+
+      expect(match?.key).toBe('feed')
+    })
+
+    it('should return undefined for a value no row with an open tail lists', () => {
+      const value = 'https://example.com/ann/hello?alt=json'
+
+      expect(tailFeeds.readUrl(value)).toBeUndefined()
     })
 
     it('should read a listed value in another case', () => {
@@ -4082,6 +4152,56 @@ describe('defineTable', () => {
       const match = checkedNameCase.readUrl(value)
 
       expect(match?.key).toBe('rss')
+    })
+
+    it('should read the main URL of a row behind an alias on any host with a checked value', () => {
+      const value = 'https://www.example.com/pool?id=1&format=rss_200'
+      const match = hostVersions.readUrl(value)
+
+      expect(match?.isAlias).toBe(false)
+    })
+
+    it('should write the main URL of an alias behind an alias with a checked value', () => {
+      const value = 'https://api.example.com/pool?format=rss_200&id=1&lang=en-us'
+      const expected = 'https://www.example.com/pool?id=1&format=rss_200&lang=en-us'
+
+      expect(hostVersions.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a row on any host behind a tenant the check of its row refuses', () => {
+      const value = 'https://news.example.org/feed'
+      const match = tenantBehindHost.readUrl(value)
+
+      expect(match?.key).toBe('site')
+    })
+
+    it('should read a URL with a trailing slash the check of its twin without one refuses', () => {
+      const value = 'https://example.com/p21/'
+      const match = slashTwins.readUrl(value)
+
+      expect(match?.key).toBe('page')
+    })
+
+    it('should read a URL without a trailing slash the check of its row takes', () => {
+      const value = 'https://example.com/p12'
+      const match = slashTwins.readUrl(value)
+
+      expect(match?.key).toBe('post')
+    })
+
+    it('should read a row of fixed text behind a row with a checked value in its place', () => {
+      const value = 'https://example.com/posts'
+      const match = fixedBehindValue.readUrl(value)
+
+      expect(match?.key).toBe('posts')
+    })
+
+    it('should read a row of fixed text behind a row with a checked value on any host', () => {
+      const value = 'https://example.org/posts'
+      const options = { isAnyHost: true }
+      const match = rootFixedBehindValue.readUrl(value, options)
+
+      expect(match?.key).toBe('posts')
     })
   })
 

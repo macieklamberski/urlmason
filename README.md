@@ -233,7 +233,7 @@ const pages = defineTable(
 )
 ```
 
-Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, flags with a value in the name counted, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
+Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, flags with a value in the name counted, then the one with more fixed text, so `/posts` before `/{id}`, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
 
 ### Checks
 
