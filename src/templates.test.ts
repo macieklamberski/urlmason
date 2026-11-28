@@ -281,12 +281,12 @@ describe('build with a URI Template', () => {
     expect(feeds.buildUrl('feed', value)).toBe(expected)
   })
 
-  it('should write the query sorted with its values encoded', () => {
+  it('should write the query in the template order with its values encoded', () => {
     const table = defineTable([
       { key: 'search', main: 'https://example.com/feed?q={query}&alt=rss' },
     ])
     const value = { query: 'news&weather' }
-    const expected = 'https://example.com/feed?alt=rss&q=news%26weather'
+    const expected = 'https://example.com/feed?q=news%26weather&alt=rss'
 
     expect(table.buildUrl('search', value)).toBe(expected)
   })

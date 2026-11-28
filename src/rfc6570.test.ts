@@ -101,31 +101,20 @@ const builtCases: Array<string> = [
   'Additional Examples 8: Literal Encoding: café/{var}',
   'Additional Examples 8: Literal Encoding: x%20y/{var}',
   'Additional Examples 8: Literal Encoding: x%20y{var}z%20w',
-]
-
-const differentCases: Array<string> = ['Additional Examples 3: Empty Variables: {/empty_list*}']
-
-// A table writes query pairs sorted by name, so one URL has one spelling, where RFC 6570 keeps the
-// template's order.
-const sortedCases: Array<string> = [
   'Level 3 Examples: {?x,y,empty}',
   'Additional Examples 1: /search.{format}{?q,geocode,lang,locale,page,result_type}',
   'Additional Examples 1: /loc{?long,lat}',
   'Additional Examples 5: Explode Combinations: {?id,token,keys*}',
 ]
 
+const differentCases: Array<string> = ['Additional Examples 3: Empty Variables: {/empty_list*}']
+
 // A name may hold a hyphen, as the platforms write them, where RFC 6570 refuses one.
 const hyphenFailures: Array<string> = ['Failure Tests: /sparql{?query,default-graph-uri}']
 
 const refusedCases = Object.keys(cases).filter((name) => {
-  return ![...builtCases, ...differentCases, ...sortedCases].includes(name)
+  return ![...builtCases, ...differentCases].includes(name)
 })
-
-const toSorted = (url: string): string => {
-  const [base, query] = url.split('?')
-
-  return query ? `${base}?${query.split('&').sort().join('&')}` : url
-}
 
 describe('RFC 6570 test suite', () => {
   it.each(builtCases)('should build %s as the suite does', (name) => {
@@ -139,13 +128,6 @@ describe('RFC 6570 test suite', () => {
     const throwing = () => defineTable([{ key: 'case', main: cases[name].template }])
 
     expect(throwing).toThrow()
-  })
-
-  it.each(sortedCases)('should build %s with its pairs sorted by name', (name) => {
-    const value = cases[name]
-    const built = String(buildCase(value))
-
-    expect(value.expected.map(toSorted)).toContain(built)
   })
 
   it.each(hyphenFailures)('should build %s, whose name holds a hyphen', (name) => {

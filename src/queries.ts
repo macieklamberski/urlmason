@@ -1,4 +1,4 @@
-import { composeQuery, decodePercent, getQueryParam } from 'trousse'
+import { composeQuery, decodePercent, getQueryParam, isAnyOf } from 'trousse'
 
 // One pair of a query: the text between two `&`, written back as it is.
 export type QueryPair = {
@@ -9,7 +9,7 @@ export type QueryPair = {
   // The name as `URLSearchParams` reads it: `+` and `%20` a space, an escape that is no UTF-8
   // U+FFFD. Two pairs under one name are one parameter given twice.
   name: string
-  // The name with an escape that is no UTF-8 as written, which orders the pairs.
+  // The name with an escape that is no UTF-8 as written.
   sortName: string
 }
 
@@ -65,6 +65,12 @@ export const decodeQueryValue = (value: string): string => {
   const options = { preserveEmptyValues: true, trimValues: false }
 
   return getQueryParam(`=${value}`, '', options) ?? ''
+}
+
+// A pair is under a name as `URLSearchParams` reads it, or with an escape that is no UTF-8 as
+// written, which is how some servers read it.
+export const isNamed = (pair: QueryPair, names: string | Array<string>): boolean => {
+  return isAnyOf(pair.name, names) || isAnyOf(pair.sortName, names)
 }
 
 export const toPair = (text: string): QueryPair => {
@@ -126,25 +132,6 @@ export const parseQuery = (search: string): Array<QueryPair> => {
   const [query] = search.split('#')
 
   return query.replace(leadingQuestionMarkRegex, '').split('&').map(toPair)
-}
-
-// A table writes a query sorted by name, in a main URL and in a built one alike, so one feed has
-// one spelling whatever order the URL or the row had. Pairs of one name keep their order, and an
-// empty pair is dropped.
-export const sortPairs = (pairs: Array<QueryPair>): Array<QueryPair> => {
-  // A name is read in any case, so two cases of one name are one name here too.
-  return pairs
-    .filter((pair) => pair.text)
-    .sort((left, right) => {
-      const leftName = left.sortName.toLowerCase()
-      const rightName = right.sortName.toLowerCase()
-
-      if (leftName === rightName) {
-        return 0
-      }
-
-      return leftName < rightName ? -1 : 1
-    })
 }
 
 // The only writer of a query: the pairs as they are behind one `?`, and nothing for no pair.

@@ -1463,16 +1463,16 @@ describe('defineTable', () => {
       expect(players.buildUrl('video', match?.values)).toBe(value)
     })
 
-    it('should sort the query by name, the parameters the row sets included', () => {
+    it('should write the query in the order the template writes it', () => {
       const value = { query: 'feeds' }
-      const expected = 'https://example.com/feed?q=feeds&type=RSS'
+      const expected = 'https://example.com/feed?type=RSS&q=feeds'
 
       expect(unsorted.buildUrl('search', value)).toBe(expected)
     })
 
     it('should keep the order of one name in two cases', () => {
       const value = { id: '7' }
-      const expected = 'https://example.com/list.rss?a=7&b=2&B=1'
+      const expected = 'https://example.com/list.rss?b=2&B=1&a=7'
 
       expect(unsorted.buildUrl('cased', value)).toBe(expected)
     })
@@ -1504,11 +1504,11 @@ describe('defineTable', () => {
       expect(players.buildUrls('video', value)).toEqual(expected)
     })
 
-    it('should sort the query of every URL by name', () => {
+    it('should write the query of every URL in the order the template writes it', () => {
       const value = { query: 'feeds' }
       const expected = [
-        'https://example.com/feed?q=feeds&type=RSS',
-        'https://old.example.com/feed?q=feeds&type=RSS',
+        'https://example.com/feed?type=RSS&q=feeds',
+        'https://old.example.com/feed?type=RSS&q=feeds',
       ]
 
       expect(unsorted.buildUrls('search', value)).toEqual(expected)
@@ -1529,17 +1529,17 @@ describe('defineTable', () => {
       expect(unsorted.forSite(value)).toBeUndefined()
     })
 
-    it('should sort the query of a URL built for a page', () => {
+    it('should write the query of a URL built for a page in the template order', () => {
       const value = 'https://example.com/about'
-      const expected = 'https://example.com/index.php?format=feed&type=rss'
+      const expected = 'https://example.com/index.php?type=rss&format=feed'
       const page = unsorted.forSite(value)
 
       expect(page?.buildUrl('site')).toBe(expected)
     })
 
-    it('should sort the query of every URL built for a page', () => {
+    it('should write the query of every URL built for a page in the template order', () => {
       const value = 'https://example.com/about'
-      const expected = ['https://example.com/index.php?format=feed&type=rss']
+      const expected = ['https://example.com/index.php?type=rss&format=feed']
       const page = unsorted.forSite(value)
 
       expect(page?.buildUrls('site')).toEqual(expected)
@@ -1701,9 +1701,17 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should sort the query of a main URL by name', () => {
-      const value = 'https://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
-      const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&b=%5B2%5D#top'
+    it('should write the optional pairs of a main URL in the order the template names them', () => {
+      const table = defineTable([{ key: 'list', main: 'https://example.com/list{?page,limit}' }])
+      const value = 'https://example.com/list?limit=5&page=2'
+      const expected = 'https://example.com/list?page=2&limit=5'
+
+      expect(table.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should keep the order of the pairs a main URL keeps', () => {
+      const value = 'http://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
+      const expected = 'https://feeds.example.com/alice/rss20.xml?b=%5B2%5D&a=1#top'
 
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
@@ -1733,9 +1741,9 @@ describe('defineTable', () => {
     })
 
     it('should write an alias as the URL its row builds', () => {
-      const value = 'https://old.example.com/feed?type=RSS&q=feeds'
+      const value = 'https://old.example.com/feed?q=feeds&type=RSS'
       const params = { query: 'feeds' }
-      const expected = 'https://example.com/feed?q=feeds&type=RSS'
+      const expected = 'https://example.com/feed?type=RSS&q=feeds'
 
       expect(unsorted.getMainUrl(value)).toBe(expected)
       expect(unsorted.buildUrl('search', params)).toBe(expected)
@@ -1761,8 +1769,8 @@ describe('defineTable', () => {
     })
 
     it('should keep the order of parameters under one name', () => {
-      const value = 'https://feeds.example.com/alice/rss20.xml?tag=news&a=1&tag=art'
-      const expected = 'https://feeds.example.com/alice/rss20.xml?a=1&tag=news&tag=art'
+      const value = 'http://feeds.example.com/alice/rss20.xml?tag=news&a=1&tag=art'
+      const expected = 'https://feeds.example.com/alice/rss20.xml?tag=news&a=1&tag=art'
 
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
@@ -2138,9 +2146,9 @@ describe('defineTable', () => {
       expect(flaggedMain.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep a question mark that opens the name of the first parameter', () => {
+    it('should keep a question mark that opens the name of a parameter it writes behind the flag', () => {
       const value = 'https://feeds.example.com/list.php??page=2&xml='
-      const expected = 'https://feeds.example.com/list.php??page=2&xml'
+      const expected = 'https://feeds.example.com/list.php?xml&?page=2'
 
       expect(flaggedMain.getMainUrl(value)).toBe(expected)
     })
@@ -2441,14 +2449,14 @@ describe('defineTable', () => {
 
     it('should write each optional pair of a main URL once', () => {
       const value = 'http://example.com/lists/news?limit=5&page=2'
-      const expected = 'https://example.com/lists/news?limit=5&page=2'
+      const expected = 'https://example.com/lists/news?page=2&limit=5'
 
       expect(notes.getMainUrl(value, strict)).toBe(expected)
     })
 
     it('should write a pair behind a fixed query once', () => {
-      const value = 'http://example.com/events?type=rss&page=2'
-      const expected = 'https://example.com/events?page=2&type=rss'
+      const value = 'http://example.com/events?page=2&type=rss'
+      const expected = 'https://example.com/events?type=rss&page=2'
 
       expect(notes.getMainUrl(value, strict)).toBe(expected)
     })
@@ -2461,7 +2469,7 @@ describe('defineTable', () => {
     })
 
     it('should return undefined for a main URL with optional pairs already spelled strictly', () => {
-      const value = 'https://example.com/lists/news?limit=5&page=2'
+      const value = 'https://example.com/lists/news?page=2&limit=5'
 
       expect(notes.getMainUrl(value, strict)).toBeUndefined()
     })
@@ -2551,9 +2559,9 @@ describe('defineTable', () => {
       expect(marked.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep a question mark that opens the name of the first parameter', () => {
+    it('should keep a question mark that opens the name of a parameter it writes behind another', () => {
       const value = 'https://feeds.example.com/search.rss??page=2&q=News'
-      const expected = 'https://feeds.example.com/search.rss??page=2&q=news'
+      const expected = 'https://feeds.example.com/search.rss?q=news&?page=2'
 
       expect(marked.getMainUrl(value)).toBe(expected)
     })
@@ -2776,7 +2784,7 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should build a pair per name and per item of a list, sorted by name', () => {
+    it('should build a pair per name and per item of a list, in the order given', () => {
       const value = {
         q: 'feeds',
         query: {
@@ -2784,7 +2792,7 @@ describe('defineTable', () => {
           page: '2',
         },
       }
-      const expected = 'https://example.com/search?page=2&q=feeds&tag=a&tag=b'
+      const expected = 'https://example.com/search?q=feeds&tag=a&tag=b&page=2'
 
       expect(passedQueries.buildUrl('search', value)).toBe(expected)
     })
@@ -2861,8 +2869,8 @@ describe('defineTable', () => {
     it('should build a name that starts with an entity escaped under the entity mark', () => {
       const value = {
         query: {
-          'amp;x': '1',
           a: '2',
+          'amp;x': '1',
         },
       }
       const expected = 'https://example.com/search?a=2&amp%3Bx=1'
@@ -2922,7 +2930,7 @@ describe('defineTable', () => {
 
     it('should keep the passed query in a rewrite of a table that keeps no parameter', () => {
       const value = 'http://example.com/search?b=1&a=2'
-      const expected = 'https://example.com/search?a=2&b=1'
+      const expected = 'https://example.com/search?b=1&a=2'
 
       expect(unkeptPassedQueries.getMainUrl(value)).toBe(expected)
     })
@@ -3086,6 +3094,26 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should build two flags of one fixed text in the order the template writes them', () => {
+      const value = {
+        first: '2',
+        second: '1',
+      }
+      const expected = 'https://example.com/compare.php?item2&item1'
+
+      expect(uncheckedNameFlags.buildUrl('compare', value)).toBe(expected)
+    })
+
+    it('should write a flag whose name holds a value between the pairs it sits between', () => {
+      const table = defineTable([
+        { key: 'item', main: 'https://example.com/index.php?type=rss&article{id}&format=feed' },
+      ])
+      const value = { id: '12' }
+      const expected = 'https://example.com/index.php?type=rss&article12&format=feed'
+
+      expect(table.buildUrl('item', value)).toBe(expected)
+    })
+
     it('should write the flag once in a strict main URL', () => {
       const value = 'http://example.com/spip.php?article12'
       const expected = 'https://example.com/spip.php?article12'
@@ -3172,14 +3200,14 @@ describe('defineTable', () => {
 
     it('should write ; between query pairs as &', () => {
       const value = 'https://example.com/story.php?storyId=5;ft=nprml'
-      const expected = 'https://example.com/story.php?ft=nprml&storyId=5'
+      const expected = 'https://example.com/story.php?storyId=5&ft=nprml'
 
       expect(semicolons.getMainUrl(value)).toBe(expected)
     })
 
     it('should rewrite an alias with ; between its pairs to the main URL', () => {
       const value = 'https://old.example.com/story?id=5;ft=nprml'
-      const expected = 'https://example.com/story.php?ft=nprml&storyId=5'
+      const expected = 'https://example.com/story.php?storyId=5&ft=nprml'
 
       expect(semicolons.getMainUrl(value)).toBe(expected)
     })
@@ -3232,7 +3260,7 @@ describe('defineTable', () => {
 
     it('should write &amp; between query pairs as &', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
-      const expected = 'https://example.com/Feed.ashx?GUID=a1b2&ID=7&M=LD'
+      const expected = 'https://example.com/Feed.ashx?M=LD&ID=7&GUID=a1b2'
 
       expect(ampersands.getMainUrl(value)).toBe(expected)
     })
@@ -3262,23 +3290,16 @@ describe('defineTable', () => {
           lenient: { ampersandEntity: true },
         },
       )
-      const expected = 'https://example.com/list.rss?a=1&stamp;x=1'
+      const expected = 'https://example.com/list.rss?stamp;x=1&a=1'
 
       expect(table.buildUrl('list')).toBe(expected)
     })
 
     it('should build a parameter name that starts with amp; on a row without the mark', () => {
-      const table = defineTable([{ key: 'list', main: 'https://example.com/list.rss?amp;x=1&a=1' }])
+      const table = defineTable([{ key: 'list', main: 'https://example.com/list.rss?a=1&amp;x=1' }])
       const expected = 'https://example.com/list.rss?a=1&amp;x=1'
 
       expect(table.buildUrl('list')).toBe(expected)
-    })
-
-    it('should write &amp; as & in a query that is sorted already', () => {
-      const value = 'https://example.com/Feed.ashx?GUID=a1b2&amp;ID=7&amp;M=LD'
-      const expected = 'https://example.com/Feed.ashx?GUID=a1b2&ID=7&M=LD'
-
-      expect(ampersands.getMainUrl(value)).toBe(expected)
     })
 
     it('should return undefined for a selector after &amp; under a value no row lists', () => {
@@ -3544,14 +3565,14 @@ describe('defineTable', () => {
   describe('with a question mark inside a query', () => {
     it('should write an alias that gives a parameter of the main URL behind a name that opens with a question mark', () => {
       const value = 'https://old.example.com/feed??page=2&alt=rss'
-      const expected = 'https://example.com/feed??page=2&alt=rss'
+      const expected = 'https://example.com/feed?alt=rss&?page=2'
 
       expect(movedFormat.getMainUrl(value)).toBe(expected)
     })
 
     it('should write an alias that gives a parameter of the main URL behind a value with a question mark', () => {
       const value = 'https://old.example.com/feed?a=1?&alt=rss'
-      const expected = 'https://example.com/feed?a=1?&alt=rss'
+      const expected = 'https://example.com/feed?alt=rss&a=1?'
 
       expect(movedFormat.getMainUrl(value)).toBe(expected)
     })
@@ -3578,9 +3599,9 @@ describe('defineTable', () => {
       expect(marked.getMainUrl(value)).toBe(expected)
     })
 
-    it('should drop a bare fragment mark of a URL it sorts the query of', () => {
-      const value = 'https://example.com/feed?type=RSS&q=news#'
-      const expected = 'https://example.com/feed?q=news&type=RSS'
+    it('should drop a bare fragment mark of a URL it writes the query of in another order', () => {
+      const value = 'https://example.com/feed?q=news&type=RSS#'
+      const expected = 'https://example.com/feed?type=RSS&q=news'
 
       expect(unsorted.getMainUrl(value)).toBe(expected)
     })
@@ -3592,9 +3613,9 @@ describe('defineTable', () => {
       expect(flaggedMain.getMainUrl(value)).toBe(expected)
     })
 
-    it('should keep a question mark that opens the first name under the ampersand mark', () => {
+    it('should keep a question mark that opens a name under the ampersand mark', () => {
       const value = 'https://example.com/old.rss??page=2&amp;a=1'
-      const expected = 'https://example.com/feed.rss??page=2&a=1'
+      const expected = 'https://example.com/feed.rss?a=1&?page=2'
 
       expect(ampersandAlias.getMainUrl(value)).toBe(expected)
     })

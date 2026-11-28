@@ -285,13 +285,14 @@ Builds come in two spellings, picked per call with `{ encoding }`:
 
 `getMainUrl` takes the same option. Pretty keeps each value as the URL spelled it, and strict builds the main URL from the values it reads, so a strict main URL equals a strict build of the same values.
 
+A query is written in the order the template writes it, then every other pair in the order the URL or the passed map gives it. Two URLs that differ only in that order stay two spellings, and trousse's `normalizeUrl` with `sortQueryParams` gives them one.
+
 ### Where it differs from RFC 6570
 
 RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own:
 
 - A template is a full URL, and each placeholder reads from one part of it.
 - A name may hold a hyphen, as `{?max-results}`, since platforms write them that way.
-- Query pairs are written sorted by name, so one URL has one spelling.
 - `{?a,b}` ends a URL with no query, and `{&a,b}` one behind a query.
 - A list slot given an empty list builds no URL, so a missing value never builds a URL that names nothing.
 - `{+x}` sits in the path and reads its value as written, never decoded. In front of fixed text it takes the shortest text that lets the whole URL read. At the end of a template with no query and no fragment it takes the rest of the URL, query and fragment included, so a URL inside a URL comes back whole. It builds the same under both encodings.
