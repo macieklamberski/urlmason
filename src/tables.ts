@@ -599,15 +599,14 @@ const compileRowTemplate = (
     }
   }
 
-  const isSemicolonEscaped = lenient?.semicolon === true
   const compiled: CompiledTemplate = compileTemplate(
     parsed,
     pathPatterns,
     writtenPathPatterns,
-    isSemicolonEscaped,
+    lenient,
   )
   const builtCompiled = hasBase
-    ? compileTemplate(built, pathPatterns, writtenPathPatterns, isSemicolonEscaped)
+    ? compileTemplate(built, pathPatterns, writtenPathPatterns, lenient)
     : compiled
   const ownParams = compiled.params
   const { getCaptured } = compiled
