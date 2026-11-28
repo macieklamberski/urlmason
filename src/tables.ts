@@ -26,6 +26,7 @@ import {
   parseQuery,
   type QueryPair,
   readAmpersandEntities,
+  readSemicolons,
   readUrlQuery,
   sortPairs,
   toPair,
@@ -474,6 +475,11 @@ const compileRowTemplate = (
     throw new Error(t(locales.errors.ampersandEntityName, { key, name: entityName }))
   }
 
+  // A `;` the row writes in its own query is a separator to a table under the mark.
+  if (lenient?.semicolon === true && parsed.search?.includes(';')) {
+    throw new Error(t(locales.errors.semicolonInQuery, { key }))
+  }
+
   const hosts = options.hosts?.exact ?? []
   const tenantDomains = (options.hosts?.tenant ?? []).map((domain) => toEntrySource(domain))
   const domainSource = `(?:${tenantDomains.join('|')})`
@@ -539,9 +545,15 @@ const compileRowTemplate = (
     }
   }
 
-  const compiled: CompiledTemplate = compileTemplate(parsed, pathPatterns, writtenPathPatterns)
+  const isSemicolonEscaped = lenient?.semicolon === true
+  const compiled: CompiledTemplate = compileTemplate(
+    parsed,
+    pathPatterns,
+    writtenPathPatterns,
+    isSemicolonEscaped,
+  )
   const builtCompiled = hasBase
-    ? compileTemplate(built, pathPatterns, writtenPathPatterns)
+    ? compileTemplate(built, pathPatterns, writtenPathPatterns, isSemicolonEscaped)
     : compiled
   const ownParams = compiled.params
   const { getCaptured } = compiled
@@ -1466,6 +1478,14 @@ const createTable = <const Row extends UrlRow>(
       const { pairs, hash } = readQuery(tableUrl)
 
       readableUrl = { ...tableUrl, query: toUrlQuery(readAmpersandEntities(pairs), hash) }
+    }
+
+    const hasSemicolon = readableUrl.url.search.includes(';')
+
+    if (lenient.semicolon === true && hasSemicolon && takesHostPath()) {
+      const { pairs, hash } = readQuery(readableUrl)
+
+      readableUrl = { ...readableUrl, query: toUrlQuery(readSemicolons(pairs), hash) }
     }
 
     const found = readTableTemplate(readableUrl, base)

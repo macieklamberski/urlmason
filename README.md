@@ -308,8 +308,8 @@ const table = defineTable(rows, {
   },
   // A check per placeholder: a pattern anchored at both ends, or a function.
   checks: { id: /^\d+$/, locale: (value) => value.length === 2 },
-  // Values read in any letter case, which a main URL writes in lowercase.
-  lenient: { case: ['user'] },
+  // Values read in any letter case, which a main URL writes in lowercase, and `;` read as `&`.
+  lenient: { case: ['user'], semicolon: true },
   // A rewrite keeps no query parameter the row does not name.
   isQueryKept: false,
   // A row that refuses a URL passes it to the next row, read in the order written.

@@ -894,6 +894,8 @@ export const compileTemplate = (
   parsed: ParsedTemplate,
   pathPatterns: Record<string, string> = {},
   writtenPathPatterns: Record<string, string> = pathPatterns,
+  // Whether a `;` in a query value is escaped, where the table reads it as a separator.
+  isSemicolonEscaped = false,
 ): CompiledTemplate => {
   const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
   const captured: Array<Captured> = []
@@ -1162,6 +1164,11 @@ export const compileTemplate = (
 
   // Non-ASCII fixed text is written percent-encoded, as any URL carries it.
   const writtenPath = encodeLiteral(path)
+  const encodePrettyQueryValue = (value: string): string => {
+    const written = encodeQueryValue(value)
+
+    return isSemicolonEscaped ? written.replaceAll(';', '%3B') : written
+  }
   const writtenFragment = fragment === undefined ? undefined : encodeLiteral(fragment)
   const fill: CompiledTemplate['fill'] = (values, encoding = 'pretty') => {
     const isStrict = encoding === 'strict'
@@ -1210,7 +1217,7 @@ export const compileTemplate = (
       const text = fillQueryValue(
         own.value,
         values,
-        isStrict ? encodeStrictValue : encodeQueryValue,
+        isStrict ? encodeStrictValue : encodePrettyQueryValue,
       )
 
       pairs.push(appendValue(own.pair, text))
@@ -1224,7 +1231,7 @@ export const compileTemplate = (
       }
 
       const writtenName = isStrict ? encodeStrictValue(name) : encodeText(name)
-      const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodeQueryValue)
+      const writtenValue = encodeSlot(value, isStrict ? encodeStrictValue : encodePrettyQueryValue)
 
       pairs.push(toPair(`${writtenName}=${writtenValue}`))
     }

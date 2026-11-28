@@ -5,6 +5,8 @@ export type UrlLenient = {
   case?: Array<string>
   // `&amp;` between query pairs read as `&`.
   ampersandEntity?: boolean
+  // `;` between query pairs read as `&`. A row under it that writes `;` in its own query throws.
+  semicolon?: boolean
 }
 
 export type UrlRow<Key extends string = string> = {

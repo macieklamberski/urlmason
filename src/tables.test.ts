@@ -307,6 +307,22 @@ const escapedName = defineTable([
   },
 ])
 
+const semicolons = defineTable(
+  [
+    {
+      key: 'story',
+      main: 'https://example.com/story.php?storyId={id}&ft={format}',
+      aliases: ['https://old.example.com/story?id={id}&ft={format}'],
+    },
+    { key: 'share', main: 'https://example.com/share{?url,title}' },
+  ],
+  { lenient: { semicolon: true } },
+)
+
+const unmarkedSemicolons = defineTable([
+  { key: 'story', main: 'https://example.com/story.php?storyId={id}&ft={format}' },
+])
+
 const joined = defineTable([{ key: 'plain', main: 'https://example.com/search?q={first}{second}' }])
 
 const escapedFlag = defineTable([
@@ -2498,6 +2514,85 @@ describe('defineTable', () => {
       marked.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with the semicolon mark', () => {
+    it('should read ; between query pairs as &', () => {
+      const value = 'https://example.com/story.php?storyId=5;ft=nprml'
+      const expected = {
+        id: '5',
+        format: 'nprml',
+      }
+      const match = semicolons.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL whose pairs the mark splits as exact', () => {
+      const value = 'https://example.com/story.php?storyId=5;ft=nprml'
+      const match = semicolons.readUrl(value)
+
+      expect(match?.isExact).toBe(true)
+    })
+
+    it('should read ; and & side by side', () => {
+      const value = 'https://example.com/share?url=a;title=b&page=2'
+      const expected = {
+        url: 'a',
+        title: 'b',
+      }
+      const match = semicolons.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read an escaped ; as part of a value', () => {
+      const value = 'https://example.com/share?url=a%3Bb'
+      const expected = {
+        url: 'a;b',
+      }
+      const match = semicolons.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should write ; between query pairs as &', () => {
+      const value = 'https://example.com/story.php?storyId=5;ft=nprml'
+      const expected = 'https://example.com/story.php?ft=nprml&storyId=5'
+
+      expect(semicolons.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should rewrite an alias with ; between its pairs to the main URL', () => {
+      const value = 'https://old.example.com/story?id=5;ft=nprml'
+      const expected = 'https://example.com/story.php?ft=nprml&storyId=5'
+
+      expect(semicolons.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should build a ; in a value escaped, so the mark reads it back as one value', () => {
+      const value = {
+        url: 'a;b',
+      }
+      const expected = 'https://example.com/share?url=a%3Bb'
+
+      expect(semicolons.buildUrl('share', value)).toBe(expected)
+    })
+
+    it('should return undefined for ; on a row without the mark', () => {
+      const value = 'https://example.com/story.php?storyId=5;ft=nprml'
+
+      expect(unmarkedSemicolons.readUrl(value)).toBeUndefined()
+    })
+
+    it('should throw for a row that writes ; in its own query', () => {
+      const value = [{ key: 'board', main: 'https://example.com/index.php?action=.xml;type=rss2' }]
+      const throwing = () => defineTable(value, { lenient: { semicolon: true } })
+
+      expect(throwing).toThrow(
+        'The board row writes ; in its query, which the semicolon mark reads as a separator',
+      )
     })
   })
 
