@@ -132,6 +132,9 @@ type RowTemplate = {
   restName?: string
   // Whether the template writes a fragment, which a URL it takes has to carry.
   hasFragment: boolean
+  // The flags whose name holds a value, as `?article{id}`, and whether a pair is one of them.
+  nameFlagCount: number
+  isFlagPair: (pair: QueryPair) => boolean
   getUrl: (params?: UrlValues, encoding?: UrlEncoding) => string | undefined
 }
 
@@ -513,7 +516,12 @@ const compileRowTemplate = (
   const hasTwoMultiSegment = names.filter(isMultiSegment).length > 1
   const sharedPieces = hasTwoMultiSegment
     ? [parsed.text]
-    : [...host.split('.'), ...splitPath(path), ...parsed.params.map((param) => param.value)]
+    : [
+        ...host.split('.'),
+        ...splitPath(path),
+        ...parsed.params.map((param) => param.value),
+        ...parsed.nameFlags,
+      ]
   const sharedName = sharedPieces
     .map((piece) => [...piece.matchAll(placeholderRegex)].map(([, name]) => toBareName(name)))
     .filter((pieceNames) => pieceNames.length > 1)
@@ -524,12 +532,12 @@ const compileRowTemplate = (
     throw new Error(t(locales.errors.sharedCaseMark, { key, name: sharedName }))
   }
 
-  // Two values in one segment: one whose check is a pattern is read by that pattern. A URL read as
-  // written is matched case-sensitively, so a pattern of any case stays out of that read.
+  // Two values in one segment or flag name: one whose check is a pattern is read by that pattern.
+  // A URL read as written is matched case-sensitively, so a pattern of any case stays out of it.
   const pathPatterns: Record<string, string> = {}
   const writtenPathPatterns: Record<string, string> = {}
 
-  for (const segment of splitPath(path)) {
+  for (const segment of [...splitPath(path), ...parsed.nameFlags]) {
     const segmentNames = [...segment.matchAll(placeholderRegex)].map(([, name]) => name)
 
     for (const name of segmentNames.length > 1 ? segmentNames : []) {
@@ -653,7 +661,10 @@ const compileRowTemplate = (
   const rawAsGivenRegex = toHostPathRegex(false, rawPathSource, 'd')
   const rawOptionalWwwRegex = toHostPathRegex(true, rawPathSource, 'd')
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
-  const shapeNames = ownNames
+  const flagShapes = parsed.nameFlags.map((text) =>
+    text.replace(placeholderRegex, toShapePlaceholder),
+  )
+  const shapeNames = [...ownNames, ...flagShapes]
     .map((name) => name.toLowerCase())
     .sort((left, right) => left.localeCompare(right))
   const shapeQuery = shapeNames.join('&')
@@ -987,6 +998,25 @@ const compileRowTemplate = (
       }
     }
 
+    // A flag whose name holds a value is the first pair with no value its name pattern takes.
+    for (const flag of compiled.nameFlags) {
+      const index = pairs.findIndex((pair) => !pair.rawValue && flag.rawRegex.test(pair.rawName))
+      const flagMatch = index === -1 ? null : flag.rawRegex.exec(pairs[index].rawName)
+
+      if (!flagMatch) {
+        return
+      }
+
+      const respelledName = lowercaseValues(flagMatch, params)
+
+      if (!readRawGroups(rawParams, respelledName.groups)) {
+        return
+      }
+
+      // A flag written with an equals sign and no value, as `?article12=`, is the flag.
+      respelledPairs[index] = toPair(respelledName.text)
+    }
+
     if (parsed.fragment !== undefined) {
       const rawFragment = compiled.readRawFragment(url.hash.slice(1))
       const hasOtherValue = Object.entries(rawFragment ?? {}).some(([name, value]) => {
@@ -1048,6 +1078,11 @@ const compileRowTemplate = (
 
       return appendValue(own.pair, fill(own.value, 'query', encodeText))
     })
+
+    for (const { text } of compiled.nameFlags) {
+      pairs.push(toPair(fill(text, 'query', encodeText)))
+    }
+
     const filledPath = fill(path, 'path', encodeLiteral)
     const hash =
       parsed.fragment === undefined
@@ -1151,6 +1186,10 @@ const compileRowTemplate = (
     openDepth: isOpenEnded ? openDepth : Number.POSITIVE_INFINITY,
     restName,
     hasFragment: parsed.fragment !== undefined,
+    nameFlagCount: parsed.nameFlags.length,
+    isFlagPair: (pair) => {
+      return !pair.rawValue && compiled.nameFlags.some((flag) => flag.regex.test(pair.name))
+    },
     getUrl,
   }
 }
@@ -1214,7 +1253,7 @@ const createTable = <const Row extends UrlRow>(
     }
 
     if (a.ownNames.length !== b.ownNames.length) {
-      return b.ownNames.length - a.ownNames.length
+      return b.ownNames.length + b.nameFlagCount - (a.ownNames.length + a.nameFlagCount)
     }
 
     // A template that writes a fragment is read before one that takes any.
@@ -1773,7 +1812,9 @@ const createTable = <const Row extends UrlRow>(
       }
 
       const stayingPairs = sortPairs(
-        pairs.filter((pair) => isNamed(pair, main.ownNames) || isKept(pair)),
+        pairs.filter((pair) => {
+          return isNamed(pair, main.ownNames) || main.isFlagPair(pair) || isKept(pair)
+        }),
       )
       // A query that needs no change stays as written, an empty one, an empty pair and a bare `#`
       // included.
@@ -1786,7 +1827,11 @@ const createTable = <const Row extends UrlRow>(
     }
 
     const ownNames = [...template.ownNames, ...main.ownNames]
-    const keptPairs = pairs.filter((pair) => !isNamed(pair, ownNames) && isKept(pair))
+    const isOwnFlag = (pair: QueryPair): boolean =>
+      template.isFlagPair(pair) || main.isFlagPair(pair)
+    const keptPairs = pairs.filter((pair) => {
+      return !isNamed(pair, ownNames) && !isOwnFlag(pair) && isKept(pair)
+    })
     const rawUrl = main.getRawUrl(rawRead.params, keptPairs)
 
     if (!rawUrl) {
