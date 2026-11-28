@@ -148,7 +148,6 @@ const unsorted = defineTable([
     main: 'https://example.com/feed?type=RSS&q={query}',
     aliases: ['https://old.example.com/feed?type=RSS&q={query}'],
   },
-  { key: 'cased', main: 'https://example.com/list.rss?b=2&B=1&a={id}' },
   { key: 'site', main: '{scheme}://{host}{/base*}/index.php?type=rss&format=feed' },
 ])
 
@@ -1821,10 +1820,11 @@ describe('defineTable', () => {
       expect(unsorted.buildUrl('search', value)).toBe(expected)
     })
 
-    it('should build nothing from a template that writes one name twice in two cases', () => {
-      const value = { id: '7' }
+    it('should throw for a template that writes one name twice in two cases', () => {
+      const value = [{ key: 'cased', main: 'https://example.com/list.rss?b=2&B=1&a={id}' }]
+      const throwing = () => defineTable(value)
 
-      expect(unsorted.buildUrl('cased', value)).toBeUndefined()
+      expect(throwing).toThrow('Not a URL template: https://example.com/list.rss?b=2&B=1&a={id}')
     })
 
     it('should write a URL the main URL of its row leaves alone', () => {
@@ -3828,6 +3828,30 @@ describe('defineTable', () => {
       const match = passedQueries.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should leave out of the map a pair the template names in another case', () => {
+      const value = 'https://example.com/search?Q=feeds&page=2'
+      const expected = {
+        q: 'feeds',
+        query: {
+          page: '2',
+        },
+      }
+      const match = passedQueries.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build nothing from a map name the template names in another case', () => {
+      const value = {
+        q: 'feeds',
+        query: {
+          Q: 'news',
+        },
+      }
+
+      expect(passedQueries.buildUrl('search', value)).toBeUndefined()
     })
 
     it('should read a name given twice as a list of its values', () => {

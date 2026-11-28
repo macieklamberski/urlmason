@@ -241,7 +241,10 @@ export const validateQueryValueNames = (names: TemplateNames): void => {
 
 // A parameter the template names twice, as `types=page&types=post`, has no one value to read.
 export const validateParamNames = (template: string, paramNames: Array<string>): void => {
-  if (paramNames.some((name, index) => paramNames.indexOf(name) !== index)) {
+  // Query names match in any case, so `a` and `A` name one parameter.
+  const names = paramNames.map((name) => name.toLowerCase())
+
+  if (names.some((name, index) => names.indexOf(name) !== index)) {
     throwInvalidTemplate(template)
   }
 }
