@@ -275,7 +275,7 @@ const toTextBytes = (text: string): Uint8Array => {
 }
 
 // Text decoded to the bytes it writes and read as UTF-8, so a byte no character holds reads as
-// U+FFFD, as a query read decodes it, and `%E9` and a path value kept as `%E9` read the same.
+// U+FFFD, as `URLSearchParams` decodes it, and `%E9` and `%EF%BF%BD` read the same.
 const toDecodedText = (text: string): string => {
   return textDecoder.decode(toTextBytes(text))
 }
@@ -1176,8 +1176,12 @@ const compileRowTemplate = (
     const respelledPairs = [...pairs]
     // A parameter given twice or under another spelling than the row builds or names it by, as
     // another case, is read differently from server to server.
+    // A server that reads an escape no UTF-8 holds as U+FFFD takes `id%FF` and `id%EF%BF%BD` as
+    // one name.
     const isGivenOnce = (name: string, spellings: Array<string>): boolean => {
-      const named = pairs.filter((pair) => isNamed(pair, name))
+      const named = pairs.filter((pair) =>
+        isLooseMatch(toDecodedText(pair.name), toDecodedText(name)),
+      )
 
       const isSpelled = (pair: QueryPair): boolean => {
         const rawName = toUpperCaseEscapes(pair.rawName)
@@ -1219,7 +1223,7 @@ const compileRowTemplate = (
     }
 
     for (const param of ownParams) {
-      if (!isGivenOnce(param.name, [param.writtenName, param.name])) {
+      if (!isGivenOnce(param.name, [param.writtenName])) {
         return
       }
 
@@ -2456,11 +2460,6 @@ const createTable = <const Row extends UrlRow>(
 
     const isStrict = writeOptions?.encoding === 'strict'
 
-    // A strict build writes `caf%E9` and `caf%25E9` alike as `caf%25E9`, both read as one value.
-    if (isStrict && found.template.hasNonUtf8Value(rawRead)) {
-      return
-    }
-
     if (!isStrict && mainUrl === sourceUrl.href) {
       return mainUrl
     }
@@ -2468,6 +2467,14 @@ const createTable = <const Row extends UrlRow>(
     const readBack = readMainUrl(mainUrl, found)
 
     if (!readBack) {
+      return
+    }
+
+    // A strict build writes `caf%E9` and `caf%25E9` alike as `caf%25E9`, both read as one value. A
+    // pair an alias keeps can land in the main URL's passed query.
+    const mainRawRead = isStrict ? readRawParams(readBack) : undefined
+
+    if (mainRawRead && readBack.template.hasNonUtf8Value(mainRawRead)) {
       return
     }
 

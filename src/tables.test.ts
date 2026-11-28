@@ -3262,7 +3262,6 @@ describe('defineTable', () => {
           )
       }
 
-      const characterSamples = samples.filter((sample) => sample !== 'caf%E9')
       const encodings = ['pretty', 'strict'] as const
       type Build = {
         table: SpellingTable
@@ -3272,7 +3271,7 @@ describe('defineTable', () => {
       }
       const builds: Array<Build> = tables
         .flatMap((table) => table.rows.map((row) => ({ table, row })))
-        .flatMap((build) => characterSamples.map((sample) => ({ ...build, sample })))
+        .flatMap((build) => samples.map((sample) => ({ ...build, sample })))
         .flatMap((build) => encodings.map((encoding) => ({ ...build, encoding })))
       const toHostname = (text: string): string | undefined => {
         return URL.parse(`https://${text}`)?.hostname
