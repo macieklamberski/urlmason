@@ -138,6 +138,9 @@ type RowTemplate = {
     lowercaseNames: Array<string>,
     isRespelled: boolean,
   ) => RawRead | undefined
+  // Whether a value the URL spells holds an escape no UTF-8 character holds, as `caf%E9`, which
+  // reads as the value of `caf%25E9` too. A reserved value keeps its escapes as written.
+  hasNonUtf8Value: (rawRead: RawRead) => boolean
   // Whether the trailing slash mark covers the template.
   isSlashFree: boolean
   // The template's URL with values written as they were read, and the pairs no row names kept.
@@ -251,20 +254,37 @@ const anyHostSource = '[^/]+'
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
+const strictTextDecoder = new TextDecoder('utf-8', { fatal: true })
 
 // A placeholder in a template's shape: its name left out, its reach over several segments kept.
 const toShapePlaceholder = (_: string, name: string): string => {
   return name.endsWith('*') ? '{*}' : '{}'
 }
 
-// Text decoded to the bytes it writes and read as UTF-8, so a byte no character holds reads as
-// U+FFFD, as a query read decodes it, and `%E9` and a path value kept as `%E9` read the same.
-const toDecodedText = (text: string): string => {
+// The bytes a text writes, each escape as its byte.
+const toTextBytes = (text: string): Uint8Array => {
   const bytes = text.split(escapeSplitRegex).flatMap((piece, index) => {
     return index % 2 === 1 ? [Number.parseInt(piece.slice(1), 16)] : [...textEncoder.encode(piece)]
   })
 
-  return textDecoder.decode(new Uint8Array(bytes))
+  return new Uint8Array(bytes)
+}
+
+// Text decoded to the bytes it writes and read as UTF-8, so a byte no character holds reads as
+// U+FFFD, as a query read decodes it, and `%E9` and a path value kept as `%E9` read the same.
+const toDecodedText = (text: string): string => {
+  return textDecoder.decode(toTextBytes(text))
+}
+
+// Whether every escape of a text decodes to a UTF-8 character.
+const isUtf8Text = (text: string): boolean => {
+  try {
+    strictTextDecoder.decode(toTextBytes(text))
+
+    return true
+  } catch {
+    return false
+  }
 }
 
 // A value in lowercase, with its percent escapes as written.
@@ -1321,6 +1341,21 @@ const compileRowTemplate = (
     }
   }
 
+  const hasNonUtf8Value: RowTemplate['hasNonUtf8Value'] = (rawRead) => {
+    const reservedNames = [...parsed.reservedNames, ...parsed.fragmentReservedNames]
+    const values = Object.entries(rawRead.params)
+      .filter(([name]) => !reservedNames.includes(name))
+      .map(([, param]) => param.value)
+    // A passed query takes every pair no other part of the template names.
+    const namedNames = [...ownNames, ...parsed.optionalNames]
+    const passedPairs =
+      parsed.passedName === undefined
+        ? []
+        : rawRead.pairs.filter((pair) => !isNamed(pair, namedNames))
+
+    return [...values, ...passedPairs.map((pair) => pair.text)].some((text) => !isUtf8Text(text))
+  }
+
   const getRawUrl: RowTemplate['getRawUrl'] = (rawRead, keptPairs) => {
     const rawParams = rawRead.params
     let isFilled = true
@@ -1530,6 +1565,7 @@ const compileRowTemplate = (
     hostHint: toHostHint(),
     readParams,
     readRawParams,
+    hasNonUtf8Value,
     isSlashFree,
     getRawUrl,
     getHttpsOrigin,
@@ -2403,6 +2439,11 @@ const createTable = <const Row extends UrlRow>(
     }
 
     const isStrict = writeOptions?.encoding === 'strict'
+
+    // A strict build writes `caf%E9` and `caf%25E9` alike as `caf%25E9`, both read as one value.
+    if (isStrict && found.template.hasNonUtf8Value(rawRead)) {
+      return
+    }
 
     if (!isStrict && mainUrl === sourceUrl.href) {
       return mainUrl
