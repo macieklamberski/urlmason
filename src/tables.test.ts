@@ -2834,6 +2834,13 @@ describe('defineTable', () => {
       expect(items.buildUrl('search', value)).toBe(expected)
     })
 
+    it('should write an escaped item comma in a query value as the item comma it decodes to', () => {
+      const value = { ids: ['a%2Cb', 'c'] }
+      const expected = 'https://example.com/search?ids=a%2Cb,c'
+
+      expect(items.buildUrl('search', value)).toBe(expected)
+    })
+
     it('should write a list strictly as its encoded items joined by commas', () => {
       const value = { ids: ['a,b', 'c!'] }
       const options = { encoding: 'strict' } as const
