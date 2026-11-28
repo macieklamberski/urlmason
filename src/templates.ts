@@ -163,10 +163,10 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
   fill: (values: Record<string, UrlValue>, encoding?: UrlEncoding) => string | undefined
-  // The values of a fragment the template takes, given without its `#`: decoded, and as written
-  // for a URL read in its own spelling.
+  // The values of a fragment the template takes, given without its `#`: decoded, and as a match
+  // of the fragment as written for a URL read in its own spelling.
   readFragment: (hash: string) => Record<string, UrlValue> | undefined
-  readRawFragment: (hash: string) => Record<string, string> | undefined
+  readRawFragment: (hash: string) => RegExpExecArray | undefined
   // The pairs in the order the template writes them, and every other pair behind them as given.
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
   // A value as a pretty build writes it in a part of the URL other than the host.
@@ -1133,7 +1133,6 @@ export const compileTemplate = (
     return values
   }
 
-  // A name the fragment holds twice reads one value, so two different ones read nothing.
   const readRawFragment: CompiledTemplate['readRawFragment'] = (hash) => {
     const match = rawFragmentRegex?.exec(hash)
 
@@ -1141,19 +1140,7 @@ export const compileTemplate = (
       return
     }
 
-    const values: Record<string, string> = {}
-
-    for (const [group, value] of Object.entries(match.groups ?? {})) {
-      const name = getCaptured(group)?.name ?? group
-
-      if (values[name] !== undefined && values[name] !== value) {
-        return
-      }
-
-      values[name] = value
-    }
-
-    return values
+    return match
   }
 
   const takenNames = [...parsed.params.map((param) => param.name), ...parsed.optionalNames]
