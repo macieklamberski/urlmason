@@ -611,6 +611,11 @@ const toWrittenLength = (segment: string, length: number): number | undefined =>
 
 // Where an offset in a decoded path sits in the path as written.
 export const toWrittenOffset = (path: string, offset: number): number | undefined => {
+  // A path without an escape is written as it decodes.
+  if (!path.includes('%')) {
+    return offset
+  }
+
   let written = 0
   let decoded = 0
 
