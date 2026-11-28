@@ -503,62 +503,6 @@ const encodeQueryValue = (value: string): string => {
   return encodeDecoded(value, encodeText)
 }
 
-// A list's items are joined by commas and their own commas written as `%2C`, so the separators
-// stay apart from them.
-const fillQueryValue = (
-  template: string,
-  values: Record<string, UrlValue>,
-  encodeValue: (text: string) => string,
-): string => {
-  const runs: Array<QueryRun> = []
-  const push = (text: string, kind: QueryRun['kind']) => {
-    runs.push({ text, kind })
-  }
-
-  for (const [index, piece] of template.split(placeholderRegex).entries()) {
-    if (index % 2 === 0) {
-      if (piece) {
-        push(piece, 'literal')
-      }
-
-      continue
-    }
-
-    const value = values[piece]
-    const items = isPlainObject(value) ? toMapItems(value) : value
-
-    if (!Array.isArray(items)) {
-      push(items, 'value')
-
-      continue
-    }
-
-    for (const [itemIndex, item] of items.entries()) {
-      if (itemIndex > 0) {
-        push(',', 'separator')
-      }
-
-      for (const [partIndex, part] of item.split(',').entries()) {
-        if (partIndex > 0) {
-          push('%2C', 'separator')
-        }
-
-        push(part, 'value')
-      }
-    }
-  }
-
-  return runs
-    .map((run) => {
-      if (run.kind === 'separator') {
-        return run.text
-      }
-
-      return run.kind === 'literal' ? encodeText(run.text) : encodeValue(run.text)
-    })
-    .join('')
-}
-
 // A value in a slot of one value, as `{id}`. A list is its items joined by commas, each item's own
 // commas encoded, so the separators stay apart from them.
 const encodeSlot = (value: UrlValue, encode: (value: string) => string): string => {
@@ -569,6 +513,15 @@ const encodeSlot = (value: UrlValue, encode: (value: string) => string): string 
   }
 
   return items.map((item) => encode(item).replaceAll(',', '%2C')).join(',')
+}
+
+// A query value or flag name filled: each value in its slot, and the fixed text around it.
+const fillQueryValue = (
+  template: string,
+  values: Record<string, UrlValue>,
+  encodeValue: MapText,
+): string => {
+  return mapTemplate(template, (name) => encodeSlot(values[name], encodeValue), encodeText)
 }
 
 // A map in a list slot, one `name=value` segment per name.
@@ -593,11 +546,6 @@ const toPercentEscape = (character: string): string => {
 // A value as RFC 6570 writes it: every character outside the unreserved set encoded, `%` too.
 const encodeStrictValue = (value: string): string => {
   return encodeURIComponent(value).replace(subDelimiterRegex, toPercentEscape)
-}
-
-type QueryRun = {
-  text: string
-  kind: 'literal' | 'value' | 'separator'
 }
 
 // A query name or value spelled strictly. A `+` stays, since a server may read it as a space.
