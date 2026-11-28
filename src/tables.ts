@@ -20,6 +20,7 @@ import {
 import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
+  cutHref,
   decodeQueryValue,
   entityPrefix,
   isEntityPair,
@@ -484,6 +485,13 @@ const readQuery = (tableUrl: TableUrl): UrlQuery => {
   return tableUrl.query
 }
 
+// The query and fragment as the URL spells them, which a mark's rewrite of the query leaves alone.
+const readWrittenRest = (tableUrl: TableUrl): string => {
+  const { search, hash } = cutHref(tableUrl.url)
+
+  return `${search}${hash}`
+}
+
 // Every table is asked about the same URL in turn, so the last URL read is kept for the next one.
 let lastTableUrl: { url: string; tableUrl: TableUrl | undefined } | undefined
 
@@ -916,9 +924,7 @@ const compileRowTemplate = (
       return writtenPath.slice(start, end)
     }
 
-    const { pairs, hash } = readQuery(tableUrl)
-
-    return `${writtenPath.slice(start)}${writeQuery(pairs)}${hash}`
+    return `${writtenPath.slice(start)}${readWrittenRest(tableUrl)}`
   }
 
   const readReserved = (
@@ -981,9 +987,7 @@ const compileRowTemplate = (
     let rest = ''
 
     if (split.reserved === restName) {
-      const { pairs, hash } = readQuery(tableUrl)
-
-      rest = `${writtenPath.slice(end)}${writeQuery(pairs)}${hash}`
+      rest = `${writtenPath.slice(end)}${readWrittenRest(tableUrl)}`
     }
 
     const hasListCheck = (checks[split.list] ?? rowChecks[split.list]) !== undefined
@@ -2003,7 +2007,9 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    const isMarkNeeded = found.isMarkNeeded || readableUrl !== tableUrl
+    // A rest value reads the query as the URL spells it, so a mark's rewrite of it read nothing.
+    const isRewriteRead = readableUrl !== tableUrl && found.template.restName === undefined
+    const isMarkNeeded = found.isMarkNeeded || isRewriteRead
 
     return { ...found, params: found.params, isMarkNeeded }
   }
@@ -2247,7 +2253,7 @@ const createTable = <const Row extends UrlRow>(
     const { url } = tableUrl
     const [main] = compiledRows[template.rowIndex]
     // The query and the fragment behind a reserved value are part of it, and stay as written.
-    const reservedRest = `${writeQuery(rawRead.pairs)}${readQuery(tableUrl).hash}`
+    const reservedRest = readWrittenRest(tableUrl)
     const hasReserved = template.restName !== undefined
     const pairs = hasReserved ? [] : rawRead.pairs.filter((pair) => pair.text)
     // A parameter the main URL does not name stays, only when its `{?a,b}` names it where it has

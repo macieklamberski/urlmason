@@ -938,6 +938,14 @@ const checkedImages = defineTable(
   { checks: { options: optionsRegex, source: sourceRegex } },
 )
 
+const semicolonRests = defineTable(
+  [
+    { key: 'go', main: 'https://example.com/go/{+target}' },
+    { key: 'image', main: 'https://cdn.example.com{/options*}/{+source}' },
+  ],
+  { checks: { options: optionsRegex }, lenient: { semicolon: true } },
+)
+
 const subdomainRegex = /^example\.(?:de|fr)$/
 
 const keptAliases = defineTable([
@@ -3192,6 +3200,7 @@ describe('defineTable', () => {
         images,
         sizedImages,
         checkedImages,
+        semicolonRests,
         keptAliases,
         unicodeHosts,
         capitalHosts,
@@ -5927,6 +5936,41 @@ describe('defineTable', () => {
   })
 
   describe('with a reserved value', () => {
+    it('should read the rest of the URL as written under the semicolon mark', () => {
+      const value = 'https://example.com/go/x.com/a?p=1;q=2'
+      const expected = {
+        target: 'x.com/a?p=1;q=2',
+      }
+      const match = semicolonRests.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read the rest behind a list as written under the semicolon mark', () => {
+      const value = 'https://cdn.example.com/w=100/x.com/a.jpg?p=1;q=2'
+      const expected = {
+        options: ['w=100'],
+        source: 'x.com/a.jpg?p=1;q=2',
+      }
+      const match = semicolonRests.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a rest the semicolon mark left alone as exact', () => {
+      const value = 'https://example.com/go/x.com/a?p=1;q=2'
+      const match = semicolonRests.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(true)
+    })
+
+    it('should write the rest of the URL as written under the semicolon mark', () => {
+      const value = 'http://example.com/go/x.com/a?p=1;q=2'
+      const expected = 'https://example.com/go/x.com/a?p=1;q=2'
+
+      expect(semicolonRests.getMainUrl(value)).toBe(expected)
+    })
+
     it('should read the rest of the URL as written, its query and fragment included', () => {
       const value = 'https://archive.example.com/web/2020/https://example.com/a%20b/?b=2&a=1#top'
       const expected = {
