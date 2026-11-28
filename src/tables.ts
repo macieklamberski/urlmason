@@ -2011,8 +2011,15 @@ const createTable = <const Row extends UrlRow>(
     // A value moved into the main URL can hold its fixed text, as `Alice_by_Bob` written into
     // `{board}_by_{user}`, so the main URL reads under other values.
     const caseNames = [...(lenient.case ?? []), ...readBack.template.hostNames]
+    const { optionalNames, passedName } = readBack.template
     const isReadAsWritten = Object.entries(readBack.params).every(([name, value]) => {
       const sourceValue = found.params[name]
+
+      // A pair the source does not name is copied into the main URL as written, as `page=3` from
+      // an alias into `{?page}`, so it holds no fixed text of the main URL.
+      if (sourceValue === undefined && (optionalNames.includes(name) || name === passedName)) {
+        return true
+      }
 
       if (caseNames.includes(name)) {
         return isSameValue(value, sourceValue, isLooseMatch)
