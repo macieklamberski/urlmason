@@ -2975,6 +2975,26 @@ describe('defineTable', () => {
       expect(atHandles.getMainUrl(value, strict)).toBe(expected)
     })
 
+    it('should return undefined for a value holding an escape no UTF-8 decodes', () => {
+      const value = 'https://example.com/notes/caf%E9'
+
+      expect(notes.getMainUrl(value, strict)).toBeUndefined()
+    })
+
+    it('should return undefined for a passed pair holding an escape no UTF-8 decodes', () => {
+      const table = defineTable([{ key: 'search', main: 'https://example.com/search{?query*}' }])
+      const value = 'https://example.com/search?q=caf%E9'
+
+      expect(table.getMainUrl(value, strict)).toBeUndefined()
+    })
+
+    it('should keep an escape no UTF-8 decodes in a reserved value', () => {
+      const table = defineTable([{ key: 'raw', main: 'https://example.com/p/{+path}/feed' }])
+      const value = 'https://example.com/p/caf%E9/feed'
+
+      expect(table.getMainUrl(value, strict)).toBe(value)
+    })
+
     it('should return undefined for a value the strict build reads back as another', () => {
       const table = defineTable([{ key: 'raw', main: 'https://example.com/p/{+path}/feed' }])
       const value = 'https://example.com/p/a|b/feed'
