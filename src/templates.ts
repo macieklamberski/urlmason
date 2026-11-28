@@ -187,6 +187,7 @@ export const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 
 // The characters that end a host in a URL.
 const hostDelimiterRegex = /[/?#@\\]/
+const nonAsciiLabelRegex = /\P{ASCII}/u
 
 export const schemePlaceholder = '{scheme}'
 // The folder a site sits in, `{/base*}` behind the host.
@@ -783,6 +784,24 @@ const cutFragment = (template: string): [body: string, fragment?: string] => {
   return index === -1 ? [template] : [template.slice(0, index), template.slice(index + 1)]
 }
 
+// A host as a parsed URL spells it: in lowercase, with a label outside ASCII in punycode. A label
+// that holds a placeholder is left as written.
+export const toAsciiHost = (host: string): string => {
+  const toAsciiLabel = (label: string): string => {
+    if (label.includes('{')) {
+      return label
+    }
+
+    if (!nonAsciiLabelRegex.test(label)) {
+      return label.toLowerCase()
+    }
+
+    return parseUrl(`https://${label}`)?.host ?? label
+  }
+
+  return host.split('.').map(toAsciiLabel).join('.')
+}
+
 // A template as its scheme, host, path, query parameters and fragment.
 export const parseTemplate = (template: string): ParsedTemplate => {
   checkExpressions(template)
@@ -806,7 +825,8 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     throw new Error(t(locales.errors.invalidTemplate, { template }))
   }
 
-  const [, scheme, host, givenPath = '', search] = match
+  const [, scheme, givenHost, givenPath = '', search] = match
+  const host = toAsciiHost(givenHost)
   const reservedNames = [...givenPath.matchAll(reservedRegex)].map(([, name]) => name)
   const split = listSplitRegex.exec(givenPath)
   const hasSplit = split !== null && `{/${split[1]}*}` !== basePlaceholder
@@ -1400,14 +1420,16 @@ export const compileTemplate = (
       }
     }
 
-    // A host reads in any case, so a value that fills a host label is written in lowercase.
-    const filledHost = fillPlaceholders(host).toLowerCase()
+    const givenHost = fillPlaceholders(host)
 
     // A value carried into a host from a path, as `a/b`, would move the URL to another host that
     // still parses, so a delimiter there builds nothing.
-    if (hostDelimiterRegex.test(filledHost)) {
+    if (hostDelimiterRegex.test(givenHost)) {
       return
     }
+
+    // A host reads in any case and a parser spells it in punycode, so a value is written so too.
+    const filledHost = toAsciiHost(givenHost)
 
     const filledScheme = fillPlaceholders(scheme)
     const filledPath = fillPlaceholders(writtenPath, isStrict ? encodeStrict : encodePath)

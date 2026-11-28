@@ -268,6 +268,8 @@ A list that only says yes or no to a value belongs here, in the table. A list th
 
 `hosts.exact` lists the hosts a `{host}` placeholder stands for, and `hosts.tenant` the domains that `{domain}` stands for and that tenants live under. `hosts.subdomain` lists domains that `{host}` stands for together with every host under them, so `example.com` covers `player.eu.example.com` too. An entry is a string, a pattern anchored at both ends, or a function that takes a host. A fixed host matches with or without `www`.
 
+A host reads as a parsed URL spells it: in lowercase, with a label outside ASCII in punycode. A host in a template or a string entry can be written either way: a template on `bücher.example` reads `https://bücher.example/` and `https://xn--bcher-kva.example/` alike, and a build writes the punycode. A pattern or a function sees the host only in that form.
+
 ### Limits
 
 A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists or a list and a `{+name}`, and for a path or a fragment with two `{+name}` values or a `{+name}` with a value behind it, as `{+path}.{format}`.
