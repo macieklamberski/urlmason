@@ -693,6 +693,8 @@ const apps = defineTable([
   { key: 'pair', main: 'https://pair.example.com/#{+left}/-/{+right}' },
   { key: 'twice', main: 'https://twice.example.com/#{name}/{name}' },
   { key: 'cut', main: 'https://cut.example.com/#{+text}Fb' },
+  { key: 'note', main: 'https://notes.example.com/#{+path}.{format}' },
+  { key: 'board', main: 'https://boards.example.com/#{board}-{user}-{page}.xml' },
 ])
 
 const openPages = defineTable([
@@ -4425,6 +4427,29 @@ describe('defineTable', () => {
       expect(files.readUrl(value)).toBeUndefined()
     })
 
+    it('should read a value beside another one in a path of 1,000 characters', () => {
+      const value = `https://files.example.com/${'a'.repeat(995)}.pdf`
+      const expected = 'file'
+      const match = files.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a value beside another one in a path over 1,000 characters', () => {
+      const value = `https://files.example.com/${'a'.repeat(996)}.pdf`
+
+      expect(files.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read 100 kB of a crafted path of a value beside another one within a second', () => {
+      const value = `https://files.example.com/a/${'a.'.repeat(50000)}/`
+      const startedAt = performance.now()
+
+      files.readUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
     it('should return undefined for two values in a path past the length limit', () => {
       const value = `https://pair.example.com/${'a/'.repeat(600)}-/b`
 
@@ -4606,6 +4631,17 @@ describe('defineTable', () => {
       expect(throwing).toThrow(
         'The image row writes options in front of source with a check on neither, so the two are split by a guess',
       )
+    })
+
+    it('should read a list and a value behind it of 1,000 characters 50 times within 200 ms', () => {
+      const value = `https://cdn.example.com${'/w=1'.repeat(249)}`
+      const startedAt = performance.now()
+
+      for (let index = 0; index < 50; index++) {
+        images.readUrl(value)
+      }
+
+      expect(performance.now() - startedAt).toBeLessThan(200)
     })
   })
 
@@ -4905,6 +4941,43 @@ describe('defineTable', () => {
       const value = 'https://app.example.com/view#!/home/Sales/Sheet1'
 
       expect(apps.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read a fragment of values 1,000 characters long', () => {
+      const value = `https://boards.example.com/#${'a'.repeat(988)}-alice-2.xml`
+      const expected = 'board'
+      const match = apps.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a fragment of values over 1,000 characters', () => {
+      const value = `https://boards.example.com/#${'a'.repeat(989)}-alice-2.xml`
+
+      expect(apps.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read a reserved value beside another one in a fragment of 1,000 characters', () => {
+      const value = `https://notes.example.com/#${'a'.repeat(996)}.xml`
+      const expected = 'note'
+      const match = apps.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should return undefined for a reserved value beside another one in a fragment over 1,000 characters', () => {
+      const value = `https://notes.example.com/#${'a'.repeat(997)}.xml`
+
+      expect(apps.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read 200 kB of a crafted fragment of a reserved value beside another one within a second', () => {
+      const value = `https://notes.example.com/#${'a.'.repeat(100000)}/`
+      const startedAt = performance.now()
+
+      apps.readUrl(value)
+
+      expect(performance.now() - startedAt).toBeLessThan(1000)
     })
   })
 

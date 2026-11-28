@@ -223,6 +223,15 @@ const countValues = (pieces: Array<string>): number => {
   return Math.floor(pieces.length / 2)
 }
 
+// A reserved value crosses slashes, so one with a value behind it shares the whole text with it.
+const hasValueBehindReserved = (text: string, reservedNames: Array<string>): boolean => {
+  const pieces = text.split(placeholderRegex)
+
+  return pieces.some((piece, index) => {
+    return index % 2 === 1 && index < pieces.length - 2 && reservedNames.includes(piece)
+  })
+}
+
 const pathCapture: Capture = {
   source: '[^/]+',
   unit: '[^/]',
@@ -682,7 +691,12 @@ export const toRegexSource = (
       if (index % 2 === 0) {
         const slash = piece.lastIndexOf('/')
 
-        if (!capture.segmentMaxLength || slash === -1 || countSegmentValues(index) < 2) {
+        // A text that opens on its values opens a segment too, as a fragment of `#{a}{b}` does.
+        if (
+          !capture.segmentMaxLength ||
+          (slash === -1 && index > 0) ||
+          countSegmentValues(index) < 2
+        ) {
           return escapeRegex(piece)
         }
 
@@ -993,10 +1007,12 @@ export const compileTemplate = (
     ...splitCaptures,
     ...Object.fromEntries(reservedNames.map((name) => [name, reservedCapture])),
   }
-  // Two lists share the whole path, as two reserved values do.
-  const hasTwoLists = names.filter(isMultiSegment).length + reservedNames.length > 1
-  const pathGuard = hasTwoLists ? toLengthGuard(sharedPartMaxLength) : ''
-  const rawPathGuard = hasTwoLists ? toLengthGuard(writtenPartMaxLength) : ''
+  // Two lists share the whole path, as two reserved values do, or one with a value behind it.
+  const isSharedPath =
+    names.filter(isMultiSegment).length + reservedNames.length > 1 ||
+    hasValueBehindReserved(path, reservedNames)
+  const pathGuard = isSharedPath ? toLengthGuard(sharedPartMaxLength) : ''
+  const rawPathGuard = isSharedPath ? toLengthGuard(writtenPartMaxLength) : ''
   const pathSource = toRegexSource(
     path.replace(trailingSlashRegex, ''),
     captureIn('path'),
@@ -1047,7 +1063,9 @@ export const compileTemplate = (
       {},
       fragmentReservedNames,
     )
-    const guard = fragmentReservedNames.length > 1 ? toLengthGuard(maxLength) : ''
+    const isShared =
+      fragmentReservedNames.length > 1 || hasValueBehindReserved(fragment, fragmentReservedNames)
+    const guard = isShared ? toLengthGuard(maxLength) : ''
 
     return new RegExp(`^${guard}${source}$`, flags)
   }

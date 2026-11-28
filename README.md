@@ -270,7 +270,7 @@ A list that only says yes or no to a value belongs here, in the table. A list th
 
 ### Limits
 
-A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists, two `{+name}` values, or a list and a `{+name}`.
+A URL part that holds two or more values, such as `{slug}-{id}` in one segment, is read only up to 1,000 characters. Values side by side can be split in many ways, and the limit keeps a crafted URL from taking long to read. The same limit holds for a path with two lists or a list and a `{+name}`, and for a path or a fragment with two `{+name}` values or a `{+name}` with a value behind it, as `{+path}.{format}`.
 
 ## Encoding
 
