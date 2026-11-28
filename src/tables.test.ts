@@ -452,6 +452,8 @@ const escapedPipes = defineTable(
   [
     { key: 'raw', main: 'https://example.com/p/{+path}/feed' },
     { key: 'clip', main: 'https://example.com/clip{#clip}' },
+    { key: 'proxy', main: 'https://example.com/proxy/{+url}' },
+    { key: 'route', main: 'https://example.com/r/{+from}/to/{+to}' },
   ],
   { lenient: { escapedPipe: true } },
 )
@@ -4865,6 +4867,52 @@ describe('defineTable', () => {
       expect(match?.isLenientMatch).toBe(true)
     })
 
+    it('should write a pretty main URL with a bare pipe for %7C', () => {
+      const value = 'https://example.com/p/a%7Cb/feed'
+      const expected = 'https://example.com/p/a|b/feed'
+
+      expect(escapedPipes.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a pretty main URL with a bare pipe for %7C in a fragment', () => {
+      const value = 'https://example.com/clip#a%7Cb'
+      const expected = 'https://example.com/clip#a|b'
+
+      expect(escapedPipes.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a pretty main URL with a bare pipe for %7C in the query of a rest value', () => {
+      const value = 'https://example.com/proxy/a?q=b%7Cc'
+      const expected = 'https://example.com/proxy/a?q=b|c'
+
+      expect(escapedPipes.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a pretty main URL with a bare pipe for %7C in two reserved values', () => {
+      const value = 'https://example.com/r/a%7Cb/to/c%7Cd'
+      const expected = 'https://example.com/r/a|b/to/c|d'
+
+      expect(escapedPipes.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should build a bare pipe in a reserved fragment', () => {
+      const value = {
+        clip: 'a|b',
+      }
+      const expected = 'https://example.com/clip#a|b'
+
+      expect(escapedPipes.buildUrl('clip', value)).toBe(expected)
+    })
+
+    it('should build a pipe in a reserved value as %7C under strict encoding', () => {
+      const value = {
+        path: 'a|b',
+      }
+      const expected = 'https://example.com/p/a%7Cb/feed'
+
+      expect(escapedPipes.buildUrl('raw', value, { encoding: 'strict' })).toBe(expected)
+    })
+
     it('should write a strict main URL that reads back a bare pipe in a fragment', () => {
       const value = 'https://example.com/clip#a|b'
       const expected = 'https://example.com/clip#a%7Cb'
@@ -6108,7 +6156,7 @@ describe('defineTable', () => {
       const value = {
         url: 'a b|"c"é[1]',
       }
-      const expected = 'https://reader.example.com/a%20b%7C%22c%22%C3%A9[1]'
+      const expected = 'https://reader.example.com/a%20b|%22c%22%C3%A9[1]'
 
       expect(snapshots.buildUrl('reader', value)).toBe(expected)
     })
