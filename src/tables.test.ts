@@ -1978,6 +1978,47 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
+    it('should return undefined for an https alias of a main URL that writes http, strictly', () => {
+      const value = 'https://new.example.com/feed'
+
+      expect(spellings.getMainUrl(value, { encoding: 'strict' })).toBeUndefined()
+    })
+
+    it('should keep https in a strict main URL of a template that writes http', () => {
+      const value = 'https://legacy.example.com/feed.xml'
+
+      expect(spellings.getMainUrl(value, { encoding: 'strict' })).toBe(value)
+    })
+
+    it('should keep the port in a strict main URL', () => {
+      const value = 'http://feeds.example.com:8080/alice/rss20.xml'
+
+      expect(spellings.getMainUrl(value, { encoding: 'strict' })).toBe(value)
+    })
+
+    const spellingValues = {
+      username: 'alice',
+      blog: 'alice',
+      blogId: '1234',
+      tag: 'news',
+      topic: 'art',
+      issue: '42',
+    }
+    const httpsSources = spellings.rows.flatMap((row) => {
+      const urls = spellings.buildUrls(row.key, spellingValues) ?? []
+
+      return urls.map((url) => url.replace('http:', 'https:'))
+    })
+
+    it.each(httpsSources)('should never write %s down to http', (value) => {
+      const mainUrls = [
+        spellings.getMainUrl(value) ?? '',
+        spellings.getMainUrl(value, { encoding: 'strict' }) ?? '',
+      ]
+
+      expect(mainUrls.filter((mainUrl) => mainUrl.startsWith('http:'))).toEqual([])
+    })
+
     it('should return a main URL that writes http, under http, as it is', () => {
       const value = 'http://legacy.example.com/feed.xml'
 

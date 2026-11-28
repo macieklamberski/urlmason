@@ -222,6 +222,7 @@ const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
 const percentEscapeRegex = /%[0-9a-f]{2}/gi
 const fixedPathTextRegex = /[^/]/
+const originRegex = /^[^:/?#]+:\/\/[^/?#]*/
 
 // The host a `{host}` row is read on in any-host reads, with the path behind the base as its path.
 const standInOrigin = 'https://root.invalid'
@@ -2154,12 +2155,16 @@ const createTable = <const Row extends UrlRow>(
     const [main] = compiledRows[readBack.template.rowIndex]
     const values = omit(readBack.params, [openTailName])
 
-    const builtUrl = main.getUrl(values, 'strict')
+    const templateUrl = main.getUrl(values, 'strict')
     const parsedMainUrl = parseUrl(mainUrl)
 
-    if (!builtUrl || !parsedMainUrl) {
+    if (!templateUrl || !parsedMainUrl) {
       return
     }
+
+    // The origin is the one the main URL writes, so an `https` URL on an `http` template keeps
+    // `https`, and a port stays.
+    const builtUrl = templateUrl.replace(originRegex, parsedMainUrl.origin)
 
     // A reserved value holds the query, which stays as the value writes it.
     if (main.restName !== undefined) {
