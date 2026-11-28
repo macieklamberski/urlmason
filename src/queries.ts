@@ -1,4 +1,4 @@
-import { composeQuery, decodePercent, getQueryParam, isAnyOf } from 'trousse'
+import { composeQuery, decodePercent, isAnyOf } from 'trousse'
 
 // One pair of a query: the text between two `&`, written back as it is.
 export type QueryPair = {
@@ -6,11 +6,8 @@ export type QueryPair = {
   // The text before the first `=` and the text behind it, undefined for a bare name such as `rss`.
   rawName: string
   rawValue?: string
-  // The name as `URLSearchParams` reads it: `+` and `%20` a space, an escape that is no UTF-8
-  // U+FFFD. Two pairs under one name are one parameter given twice.
+  // The name as `decodeQueryValue` reads it. Two pairs under one name are one parameter given twice.
   name: string
-  // The name with an escape that is no UTF-8 as written.
-  sortName: string
 }
 
 // A URL's href cut once. `search` holds a bare `?` and `hash` a bare `#`, which the `search` and
@@ -21,8 +18,8 @@ export type HrefParts = {
   hash: string
 }
 
-// The query of a URL: its pairs, those pairs as `URLSearchParams` reads them, and the fragment
-// as written, a bare `#` included.
+// The query of a URL: its pairs, their names and values decoded, and the fragment as written, a
+// bare `#` included.
 export type UrlQuery = {
   pairs: Array<QueryPair>
   searchParams: URLSearchParams
@@ -34,8 +31,6 @@ export const entityPrefix = 'amp;'
 
 const leadingQuestionMarkRegex = /^\?/
 const pairSeparatorRegex = /=(.*)/s
-// A name `URLSearchParams` reads as it is written.
-const plainNameRegex = /^[\w.~-]*$/
 // A lone surrogate has no UTF-8 form and stays as given. A control character is no URL character,
 // so it is encoded with the rest.
 export const nonAsciiRegex = /[^\p{ASCII}\p{Cs}]+|\p{Cc}+/gu
@@ -60,36 +55,20 @@ export const encodeText = (text: string): string => {
   return pair.slice(pair.indexOf('=') + 1).replace(nonAsciiRegex, encodeURIComponent)
 }
 
-// A raw value as `URLSearchParams` reads it: a `+` is a space, an escape that is no UTF-8 U+FFFD.
+// The only decoder of a query name or value: a `+` is a space, and an escape that is no UTF-8
+// stays as written, as a path keeps it.
 export const decodeQueryValue = (value: string): string => {
-  const options = { preserveEmptyValues: true, trimValues: false }
-
-  return getQueryParam(`=${value}`, '', options) ?? ''
+  return decodePercent(value.replaceAll('+', ' '))
 }
 
-// A pair is under a name as `URLSearchParams` reads it, or with an escape that is no UTF-8 as
-// written, which is how some servers read it.
 export const isNamed = (pair: QueryPair, names: string | Array<string>): boolean => {
-  return isAnyOf(pair.name, names) || isAnyOf(pair.sortName, names)
+  return isAnyOf(pair.name, names)
 }
 
 export const toPair = (text: string): QueryPair => {
   const [rawName, rawValue] = text.split(pairSeparatorRegex)
 
-  if (plainNameRegex.test(rawName)) {
-    return { text, rawName, rawValue, name: rawName, sortName: rawName }
-  }
-
-  // Behind `&` a name that opens with `?` keeps it, where `URLSearchParams` drops a leading one.
-  const [[name]] = new URLSearchParams(`&${rawName}`)
-
-  return {
-    text,
-    rawName,
-    rawValue,
-    name,
-    sortName: decodePercent(rawName.replaceAll('+', ' ')),
-  }
+  return { text, rawName, rawValue, name: decodeQueryValue(rawName) }
 }
 
 // A pair written behind `&amp;`: it sits behind another pair and starts with `amp;`.
@@ -143,9 +122,17 @@ export const writeQuery = (pairs: Array<QueryPair>): string => {
   return `?${pairs.map((pair) => pair.text).join('&')}`
 }
 
-// The pairs as `URLSearchParams` reads them: the names and values of the query they write.
+// The names and values of the pairs, decoded. An empty pair holds neither.
 export const toSearchParams = (pairs: Array<QueryPair>): URLSearchParams => {
-  return new URLSearchParams(writeQuery(pairs))
+  const searchParams = new URLSearchParams()
+
+  for (const pair of pairs) {
+    if (pair.text) {
+      searchParams.append(pair.name, decodeQueryValue(pair.rawValue ?? ''))
+    }
+  }
+
+  return searchParams
 }
 
 export const toUrlQuery = (pairs: Array<QueryPair>, hash: string): UrlQuery => {

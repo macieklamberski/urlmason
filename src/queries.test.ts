@@ -23,7 +23,6 @@ describe('toPair', () => {
       rawName: 'id',
       rawValue: '5=7',
       name: 'id',
-      sortName: 'id',
     }
 
     expect(toPair(value)).toEqual(expected)
@@ -60,9 +59,9 @@ describe('toPair', () => {
     expect(pair.name).toBe(expected)
   })
 
-  it('should read an escape that is no UTF-8 in a name as U+FFFD', () => {
+  it('should keep an escape that is no UTF-8 in a name as written', () => {
     const value = 'id%FF=5'
-    const expected = 'id\uFFFD'
+    const expected = 'id%FF'
     const pair = toPair(value)
 
     expect(pair.name).toBe(expected)
@@ -75,14 +74,6 @@ describe('toPair', () => {
 
     expect(pair.name).toBe(expected)
   })
-
-  it('should order a name with an escape that is no UTF-8 as written', () => {
-    const value = 'id%FF=5'
-    const expected = 'id%FF'
-    const pair = toPair(value)
-
-    expect(pair.sortName).toBe(expected)
-  })
 })
 
 describe('appendValue', () => {
@@ -94,7 +85,6 @@ describe('appendValue', () => {
       rawName: 'id',
       rawValue: '5',
       name: 'id',
-      sortName: 'id',
     }
 
     expect(appendValue(value, valueText)).toEqual(expected)
@@ -181,7 +171,7 @@ describe('writeQuery', () => {
 })
 
 describe('isNamed', () => {
-  it('should take a pair under a name as URLSearchParams reads it', () => {
+  it('should take a pair under its decoded name', () => {
     const value = toPair('%61lt=rss')
 
     expect(isNamed(value, 'alt')).toBe(true)
@@ -268,6 +258,14 @@ describe('toSearchParams', () => {
     expect(entries).toEqual(expected)
   })
 
+  it('should keep an escape that is no UTF-8 in a value as written', () => {
+    const value = parseQuery('?q=caf%E9')
+    const expected: Array<[string, string]> = [['q', 'caf%E9']]
+    const entries = [...toSearchParams(value)]
+
+    expect(entries).toEqual(expected)
+  })
+
   it('should give no entry for an empty pair', () => {
     const value = parseQuery('?a=1&&')
     const expected: Array<[string, string]> = [['a', '1']]
@@ -302,6 +300,20 @@ describe('decodeQueryValue', () => {
   it('should return an empty string for an empty value', () => {
     const value = ''
     const expected = ''
+
+    expect(decodeQueryValue(value)).toBe(expected)
+  })
+
+  it('should keep an escape that is no UTF-8 as written', () => {
+    const value = 'x%E0%A4'
+    const expected = 'x%E0%A4'
+
+    expect(decodeQueryValue(value)).toBe(expected)
+  })
+
+  it('should read %2B as a plus sign', () => {
+    const value = 'a%2Bb'
+    const expected = 'a+b'
 
     expect(decodeQueryValue(value)).toBe(expected)
   })
