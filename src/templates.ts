@@ -512,7 +512,7 @@ type QueryRun = {
 const encodeStrictQueryText = (text: string): string => {
   return text
     .split('+')
-    .map((piece) => encodeStrictValue(decodePercent(piece)))
+    .map((piece) => encodeDecoded(piece, encodeStrictValue))
     .join('+')
 }
 
