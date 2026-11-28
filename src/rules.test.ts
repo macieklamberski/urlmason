@@ -492,6 +492,13 @@ describe('validateParamNames', () => {
     expect(throwing).toThrow(`Not a URL template: ${value}`)
   })
 
+  it('should throw for a parameter named twice in two cases', () => {
+    const value = 'https://example.com/feed{?a,A}'
+    const throwing = () => validateParamNames(value, ['a', 'A'])
+
+    expect(throwing).toThrow(`Not a URL template: ${value}`)
+  })
+
   it('should take parameters named once', () => {
     const value = 'https://example.com/feed?types=page&format=rss'
     const throwing = () => validateParamNames(value, ['types', 'format'])

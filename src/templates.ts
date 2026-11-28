@@ -4,6 +4,7 @@ import {
   encodePathSegment,
   escapeRegex,
   getQueryParamValues,
+  isAnyOf,
   isBoolean,
   isHttpUrl,
   isNullish,
@@ -1229,7 +1230,7 @@ export const compileTemplate = (
     for (const [name, value] of searchParams) {
       const isFlag = !value && nameFlags.some((flag) => flag.regex.test(name))
 
-      if (takenNames.includes(name) || isFlag) {
+      if (isAnyOf(name, takenNames) || isFlag) {
         continue
       }
 
@@ -1491,7 +1492,7 @@ export const compileTemplate = (
 
       for (const [name, item] of toMapEntries(map)) {
         // A name the template writes itself, or one a flag takes, would not read back into the map.
-        if (takenNames.includes(name) || nameFlags.some((flag) => flag.regex.test(name))) {
+        if (isAnyOf(name, takenNames) || nameFlags.some((flag) => flag.regex.test(name))) {
           return
         }
 
