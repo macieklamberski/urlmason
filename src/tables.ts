@@ -68,6 +68,7 @@ import {
   splitPath,
   type TemplatePart,
   toAsciiHost,
+  toAsciiLowerCaseText,
   toBareName,
   toLengthGuard,
   toRegexSource,
@@ -303,24 +304,18 @@ const toUpperCaseEscapes = (text: string): string => {
   return text.replace(percentEscapeRegex, (triplet) => triplet.toUpperCase())
 }
 
-const asciiUpperCaseRegex = /[A-Z]+/g
-
 // A value with its ASCII letters in lowercase, as a rewrite lowercases a URL whose other letters
 // are percent escapes.
 const toAsciiLowerCase = (value: UrlValue): UrlValue => {
-  const lowercase = (text: string) => {
-    return text.replace(asciiUpperCaseRegex, (letters) => letters.toLowerCase())
-  }
-
   if (isPlainObject(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([name, text]) => {
-        return [name, isString(text) ? lowercase(text) : text.map(lowercase)]
+        return [name, isString(text) ? toAsciiLowerCaseText(text) : text.map(toAsciiLowerCaseText)]
       }),
     )
   }
 
-  return Array.isArray(value) ? value.map(lowercase) : lowercase(value)
+  return Array.isArray(value) ? value.map(toAsciiLowerCaseText) : toAsciiLowerCaseText(value)
 }
 
 const toCheckParams = (params: Record<string, UrlValue>): Record<string, string> => {
@@ -1043,7 +1038,7 @@ const compileRowTemplate = (
 
     // A template that writes a fragment takes only a URL with one it reads.
     if (parsed.fragment !== undefined) {
-      const fragmentValues = compiled.readFragment(url.hash.slice(1))
+      const fragmentValues = compiled.readFragment(url.hash.slice(1), params)
 
       if (!fragmentValues) {
         return

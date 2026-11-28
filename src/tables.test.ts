@@ -235,6 +235,20 @@ const listed = defineTable([{ key: 'list', main: 'https://example.com/lists/{use
   lenient: { case: ['user'] },
 })
 
+const markedCopies = defineTable(
+  [
+    { key: 'mirror', main: 'https://example.com/m/{user}/{user}' },
+    { key: 'search', main: 'https://example.com/search{?q}' },
+    { key: 'anchor', main: 'https://example.com/a/{user}#{user}' },
+    { key: 'flag', main: 'https://example.com/f/{user}?u-{user}' },
+    { key: 'locale', main: 'https://example.com/l/{locale}/{locale}' },
+  ],
+  {
+    lenient: { case: ['user', 'q', 'locale'] },
+    checks: { locale: (value) => regionLocaleRegex.test(value) },
+  },
+)
+
 const checkedFormats = defineTable(
   [{ key: 'feed', main: 'https://example.com/feed?format={format}' }],
   { checks: { format: /^(?:rss|atom)$/ }, lenient: { case: ['format'] } },
@@ -1483,6 +1497,13 @@ describe('defineTable', () => {
     it('should return undefined for two values of a name two segments hold', () => {
       const table = defineTable([{ key: 'mirror', main: 'https://example.com/{user}/{user}' }])
       const value = 'https://example.com/alice/bob'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for two values of a name the path and the fragment hold', () => {
+      const table = defineTable([{ key: 'anchor', main: 'https://example.com/{user}#{user}' }])
+      const value = 'https://example.com/alice#bob'
 
       expect(table.readUrl(value)).toBeUndefined()
     })
@@ -3626,6 +3647,83 @@ describe('defineTable', () => {
       marked.getMainUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+
+    it('should read two segments of a marked name that differ only in case as one value', () => {
+      const value = 'https://example.com/m/Alice/alice'
+      const expected = {
+        user: 'alice',
+      }
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a marked name the query gives twice in two cases as one value', () => {
+      const value = 'https://example.com/search?q=Cats&q=cats'
+      const expected = {
+        q: 'cats',
+      }
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a marked name of the path and the fragment in two cases as one value', () => {
+      const value = 'https://example.com/a/Alice#alice'
+      const expected = {
+        user: 'alice',
+      }
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a marked name of the path and a flag in two cases as one value', () => {
+      const value = 'https://example.com/f/Alice?u-alice'
+      const expected = {
+        user: 'alice',
+      }
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read copies of a marked name in two cases as lenient, not exact', () => {
+      const value = 'https://example.com/m/Alice/alice'
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should write copies of a marked name in two cases in lowercase', () => {
+      const value = 'https://example.com/m/Alice/alice'
+      const expected = 'https://example.com/m/alice/alice'
+
+      expect(markedCopies.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for copies of a marked name that differ in more than case', () => {
+      const value = 'https://example.com/m/Alice/bob'
+
+      expect(markedCopies.readUrl(value)).toBeUndefined()
+    })
+
+    it('should read copies whose lowercase the check refuses as the first copy', () => {
+      const value = 'https://example.com/l/en-US/en-us'
+      const expected = {
+        locale: 'en-US',
+      }
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should return undefined for the main URL of copies whose lowercase the check refuses', () => {
+      const value = 'https://example.com/l/en-US/en-us'
+
+      expect(markedCopies.getMainUrl(value)).toBeUndefined()
     })
   })
 

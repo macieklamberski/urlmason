@@ -94,6 +94,14 @@ const toGroupValue = (captured: Captured, value: string): UrlValue => {
     .map(decodePercent)
 }
 
+const asciiUpperCaseRegex = /[A-Z]+/g
+
+// A text with its ASCII letters in lowercase, as the case mark lowercases a value whose other
+// letters are percent escapes.
+export const toAsciiLowerCaseText = (text: string): string => {
+  return text.replace(asciiUpperCaseRegex, (letters) => letters.toLowerCase())
+}
+
 // A template read into its parts. Its text writes a list as `{/name*}` and the open tail as
 // `{/tail*}`.
 export type ParsedTemplate = {
@@ -168,9 +176,13 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
   fill: (values: Record<string, UrlValue>, encoding?: UrlEncoding) => string | undefined
-  // The values of a fragment the template takes, given without its `#`: decoded, and as a match
-  // of the fragment as written for a URL read in its own spelling.
-  readFragment: (hash: string) => Record<string, UrlValue> | undefined
+  // The values of a fragment the template takes, given without its `#`, beside the values read
+  // elsewhere in the URL: decoded, and as a match of the fragment as written for a URL read in its
+  // own spelling.
+  readFragment: (
+    hash: string,
+    known: Record<string, UrlValue>,
+  ) => Record<string, UrlValue> | undefined
   readRawFragment: (hash: string) => RegExpExecArray | undefined
   // The pairs in the order the template writes them, and every other pair behind them as given.
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
@@ -1015,8 +1027,8 @@ export const compileTemplate = (
   pathPatterns: Record<string, string> = {},
   writtenPathPatterns: Record<string, string> = pathPatterns,
   // The marks a table reads a query under, where a `;` or a leading `amp;` written in a name or a
-  // value would split its pair.
-  lenient: Pick<UrlLenient, 'semicolon' | 'ampersandEntity'> = {},
+  // value would split its pair, and the names whose copies read in any letter case.
+  lenient: Pick<UrlLenient, 'semicolon' | 'ampersandEntity' | 'case'> = {},
 ): CompiledTemplate => {
   const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
   const captured: Array<Captured> = []
@@ -1038,6 +1050,17 @@ export const compileTemplate = (
     }
 
     return captured[Number(group.slice(captureGroupPrefix.length))]
+  }
+  // Two copies of a name hold one value: the same text, in any case where the case mark covers it.
+  const isSameCopy = (name: string, copy: UrlValue, other: UrlValue): boolean => {
+    const copyText = JSON.stringify(copy)
+    const otherText = JSON.stringify(other)
+
+    if (lenient.case?.includes(name)) {
+      return toAsciiLowerCaseText(copyText) === toAsciiLowerCaseText(otherText)
+    }
+
+    return copyText === otherText
   }
   const params = parsed.params.map((param): CompiledParam => {
     const source = toRegexSource(param.value, captureIn('query'), queryCapture)
@@ -1176,7 +1199,7 @@ export const compileTemplate = (
     'd',
   )
 
-  const readFragment: CompiledTemplate['readFragment'] = (hash) => {
+  const readFragment: CompiledTemplate['readFragment'] = (hash, known) => {
     const match = fragmentRegex?.exec(decodePath(hash))
 
     if (!match) {
@@ -1202,8 +1225,10 @@ export const compileTemplate = (
         value = hash.slice(start, end)
       }
 
-      // A name the fragment holds twice has one value, so two different ones read nothing.
-      if (values[name] !== undefined && values[name] !== value) {
+      // A name the URL holds twice has one value, so two different ones read nothing.
+      const copy = values[name] ?? known[name]
+
+      if (copy !== undefined && !isSameCopy(name, copy, value)) {
         return
       }
 
@@ -1269,7 +1294,7 @@ export const compileTemplate = (
       const known = values[groupCaptured.name]
 
       if (known !== undefined) {
-        return JSON.stringify(known) === JSON.stringify(read)
+        return isSameCopy(groupCaptured.name, known, read)
       }
 
       values[groupCaptured.name] = read
@@ -1285,7 +1310,7 @@ export const compileTemplate = (
       trimValues: false,
     })
 
-    return rest.every((value) => value === first)
+    return rest.every((value) => isSameCopy(name, first, value))
   }
 
   const read: CompiledTemplate['read'] = (groups, getSearchParams) => {
