@@ -336,7 +336,7 @@ Each option, and each field of a row, such as `variant` and its own `checks`, is
 
 A read matches the trailing slash exactly, so `/feed/` reads only where a template or an alias writes `/feed/`. The `trailingSlash` mark reads both, on the whole table or on one row, and a row's mark wins over the table's. A URL with the other slash isn't exact, and `getMainUrl` writes the slash of the template. Fixed text reads in any letter case, but only `fixedCase` lets `getMainUrl` respell it, as `/Rss.aspx` to `/rss.aspx` or `format=RSS` to `format=rss`. A server can treat path letters as case-sensitive, so the table has to say that its own doesn't.
 
-A `{x}` value reads `%7C` as `|`, but a `{+x}` value reads as written, so `a%7Cb` and `a|b` are two values there. A strict main URL writes `|` as `%7C`, so a `{+x}` value holding `|` gets none. The `escapedPipe` mark reads `%7C` and `%7c` as `|` in a `{+x}` value of the path, on the whole table or on one row, and such a read isn't exact. Under it the strict main URL of `/p/a|b/feed` is `/p/a%7Cb/feed`, which reads back `a|b`.
+A `{x}` value reads `%7C` as `|`, but a `{+x}` or `{#x}` value reads as written, so `a%7Cb` and `a|b` are two values there. A strict main URL writes `|` as `%7C`, so a `{+x}` or `{#x}` value holding `|` gets none. The `escapedPipe` mark reads `%7C` and `%7c` as `|` in a `{+x}` value of the path or a `{#x}` fragment, on the whole table or on one row, and such a read isn't exact. Under it the strict main URL of `/p/a|b/feed` is `/p/a%7Cb/feed`, which reads back `a|b`.
 
 ### `table.readUrl(url, options?)`
 
