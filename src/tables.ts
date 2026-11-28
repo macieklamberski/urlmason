@@ -34,18 +34,27 @@ import {
   writeQuery,
 } from './queries.js'
 import {
+  validateCaseMark,
+  validateCheckRegex,
+  validateEntityNames,
+  validateListNames,
+  validateListSplit,
+  validateOpenTail,
+  validateOpenTailPlacement,
+  validateSemicolons,
+  validateTenantHost,
+} from './rules.js'
+import {
   basePlaceholder,
   type CompiledTemplate,
   compileTemplate,
   decodePath,
   dotSegmentRegex,
   encodeLiteral,
-  isMultiSegment,
   type ListSplit,
   type MapText,
   mapTemplate,
   openTailName,
-  openTailSuffix,
   type ParsedTemplate,
   parseTemplate,
   placeholderRegex,
@@ -310,8 +319,7 @@ const hasFixedPath = (parsed: ParsedTemplate): boolean => {
   return fixedPathTextRegex.test(parsed.path.replace(placeholderRegex, ''))
 }
 
-// Every check as a function. A pattern with a `g` or `y` flag answers differently on a second
-// call, and one without both anchors takes a value that only holds a match.
+// Every check as a function.
 const toCheckFunctions = <Rest extends Array<unknown>>(
   checks: Record<string, CheckFunction<Rest> | RegExp | undefined> = {},
 ): Record<string, CheckFunction<Rest>> => {
@@ -328,13 +336,7 @@ const toCheckFunctions = <Rest extends Array<unknown>>(
       continue
     }
 
-    if (check.global || check.sticky) {
-      throw new Error(t(locales.errors.statefulCheckRegex, { name }))
-    }
-
-    if (!check.source.startsWith('^') || !check.source.endsWith('$')) {
-      throw new Error(t(locales.errors.unanchoredCheckRegex, { name }))
-    }
+    validateCheckRegex(name, check)
 
     // The anchors bind the whole pattern only where no `|` sits outside a group, as in `^\d+|x$`.
     const wholeRegex = new RegExp(`^(?:${check.source})$`, check.flags)
@@ -513,40 +515,19 @@ const compileRowTemplate = (
         names: built.names.filter((name) => name !== 'base*'),
       }
     : built
-  const { scheme, host, path, isOpen, names, reservedNames, restName, listSplit } = parsed
-  const hasSplitCheck = [listSplit?.list, listSplit?.reserved].some((name) => {
-    return name !== undefined && (checks[name] ?? rowChecks[name]) !== undefined
-  })
+  const { scheme, host, path, isOpen, reservedNames, restName, listSplit } = parsed
 
-  // A list in front of a reserved value shares its segments with it, and only a check tells where
-  // one ends.
-  if (listSplit && !hasSplitCheck) {
-    throw new Error(t(locales.errors.uncheckedListSplit, { key, ...listSplit }))
-  }
+  validateListSplit(key, listSplit, [...Object.keys(checks), ...Object.keys(rowChecks)])
 
   // A reserved value that ends a template takes whatever follows, as an open tail does.
   const isOpenEnded = isOpen || restName !== undefined
-  const rest = `${host}${path}${parsed.search ?? ''}`
 
-  // An open tail anywhere but at the end of the path, as `{/tail*}/feed`, has no end to read it to.
-  if (rest.includes(openTailSuffix)) {
-    throw new Error(t(locales.errors.misplacedOpenTail, { key }))
-  }
+  validateOpenTailPlacement(key, parsed)
 
   const ownNames = parsed.params.map((param) => param.name)
 
-  // Behind another pair a name that starts with `amp;` is written `&amp;`, which a table under the
-  // mark reads as `&`.
-  const entityName = ownNames.find((name) => name.startsWith(entityPrefix))
-
-  if (hasAmpersandMark && entityName !== undefined) {
-    throw new Error(t(locales.errors.ampersandEntityName, { key, name: entityName }))
-  }
-
-  // A `;` the row writes in its own query is a separator to a table under the mark.
-  if (lenient?.semicolon === true && parsed.search?.includes(';')) {
-    throw new Error(t(locales.errors.semicolonInQuery, { key }))
-  }
+  validateEntityNames(key, parsed.params, hasAmpersandMark)
+  validateSemicolons(key, parsed.search, lenient)
 
   const hosts = options.hosts?.exact ?? []
   const tenantDomains = (options.hosts?.tenant ?? []).map((domain) => toEntrySource(domain))
@@ -558,44 +539,9 @@ const compileRowTemplate = (
   const hasHosts = hosts.length > 0 || tenantDomains.length > 0 || subdomains.length > 0
   const hasHostCheck = [...hosts, ...(options.hosts?.tenant ?? []), ...subdomains].some(isFunction)
 
-  if (host.includes('{domain}') && tenantDomains.length === 0) {
-    throw new Error(t(locales.errors.missingHosts, { key }))
-  }
-
-  const pathNames = [...path.matchAll(placeholderRegex)].map(([, name]) => name)
-  const multiSegmentName = pathNames.find(isMultiSegment)
-
-  // A list takes every segment it can, so the tail behind it starts at a guess.
-  if (isOpen && multiSegmentName !== undefined) {
-    const name = toBareName(multiSegmentName)
-
-    throw new Error(t(locales.errors.openTailBesideMultiSegment, { key, name }))
-  }
-
-  if (isOpen && names.some((name) => toBareName(name) === openTailName)) {
-    throw new Error(t(locales.errors.openTailName, { key }))
-  }
-
-  // Two values in one host label, path segment or query value are split by a guess, and a
-  // lowercase can move the split to another place. So are two lists in one template.
-  const hasTwoMultiSegment = names.filter(isMultiSegment).length > 1
-  const sharedPieces = hasTwoMultiSegment
-    ? [parsed.text]
-    : [
-        ...host.split('.'),
-        ...splitPath(path),
-        ...parsed.params.map((param) => param.value),
-        ...parsed.nameFlags,
-      ]
-  const sharedName = sharedPieces
-    .map((piece) => [...piece.matchAll(placeholderRegex)].map(([, name]) => toBareName(name)))
-    .filter((pieceNames) => pieceNames.length > 1)
-    .flat()
-    .find((name) => lenient?.case?.includes(name))
-
-  if (sharedName !== undefined) {
-    throw new Error(t(locales.errors.sharedCaseMark, { key, name: sharedName }))
-  }
+  validateTenantHost(key, host, tenantDomains.length)
+  validateOpenTail(key, parsed)
+  validateCaseMark(key, parsed, lenient)
 
   // Two values in one segment or flag name: one whose check is a pattern is read by that pattern.
   // A URL read as written is matched case-sensitively, so a pattern of any case stays out of it.
@@ -1317,19 +1263,9 @@ const createTable = <const Row extends UrlRow>(
   })
   const compiled = compiledRows.flat()
 
-  // A name written as a list in one template and as one value in another builds the list joined
-  // in the one-value slot, as `/events,RSS/RSS` from values read beside the list.
-  const listNames = new Set(
-    compiled.flatMap((template) => template.names.filter(isMultiSegment).map(toBareName)),
+  validateListNames(
+    compiled.map((template) => ({ key: rows[template.rowIndex].key, names: template.names })),
   )
-
-  for (const candidate of compiled) {
-    const name = candidate.names.find((name) => listNames.has(name))
-
-    if (name) {
-      throw new Error(t(locales.errors.mixedListName, { key: rows[candidate.rowIndex].key, name }))
-    }
-  }
 
   // A template without an open tail is read before one with it, and of two with one the deeper
   // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes

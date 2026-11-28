@@ -8,10 +8,8 @@ import {
   isPlainObject,
   isString,
   parseUrl,
-  t,
   trimArray,
 } from 'trousse'
-import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
   encodeText,
@@ -24,6 +22,18 @@ import {
   toSearchParams,
   writeQuery,
 } from './queries.js'
+import {
+  type TemplateNames,
+  validateExpressions,
+  validateFragment,
+  validateOptionalPlacement,
+  validateParamNames,
+  validateQueryPlaceholders,
+  validateQueryValueNames,
+  validateReservedNames,
+  validateReservedPlacement,
+  validateTemplateMatch,
+} from './rules.js'
 import type { UrlEncoding, UrlLenient, UrlMap, UrlValue, UrlValues } from './types.js'
 
 export type TemplatePart = 'host' | 'path' | 'query' | 'fragment'
@@ -144,30 +154,14 @@ export const trailingSlashRegex = /\/$/
 // A host ends where a path, a query or a list starts, as `{host}{/base*}`.
 const templateRegex =
   /^(https?|\{scheme\}):\/\/((?:[^/?#{]|\{[^/{}]*\})+)((?:\/|\{\/)[^?#]*)?(\?(?!\?)[^#]*)?$/i
-const expressionRegex = /\{([^{}]*)\}/g
-const braceRegex = /[{}]/
-// An old spelling of a list and of the open tail, with the slash in front of the brace: `/{name*}`
-// and `/{*}`. The slashes after the scheme are no path.
-const oldListRegex = /(?<!\/)\/\{(\w*)\*\}/
-// The old spellings of the open tail anywhere else and of a passed query.
-const oldTail = '{*}'
-const oldQuery = '?{query}'
-// A value, and a list with its slash.
-const plainExpressionRegex = /^(?:\w+|\/\w+\*)$/
 // Query names a URL may carry, as `{?max-results,q}`, and behind a fixed query `{&q}`. A name may
 // hold a hyphen, as the platforms write them. The last may be a passed query, as `{?page,query*}`.
-const optionalQueryExpressionRegex = /^[?&][\w-]+(?:,[\w-]+)*\*?$/
 const optionalQueryRegex = /\{([?&])([\w-]+(?:,[\w-]+)*\*?)\}$/
 // A reserved value, as `{+url}`.
-const reservedExpressionRegex = /^\+\w+$/
 const reservedRegex = /\{\+(\w+)\}/g
-const reservedAnywhereRegex = /\{\+[^{}]*\}/
 const listSplitRegex = /\{\/(\w+)\*\}\/\{\+(\w+)\}/
 // The whole fragment as one value, which ends a template: `{#section}`.
-const fragmentExpressionRegex = /^#\w+$/
 const fragmentSuffixRegex = /\{#(\w+)\}$/
-// A list and query names are no part of a fragment.
-const fragmentRefusedRegex = /\{[/?&#]/
 const tripletRegex = /^%[0-9a-f]{2}$/i
 // An escape, kept by `split`.
 const singleEscapeRegex = /(%[0-9a-f]{2})/i
@@ -732,44 +726,6 @@ export const toRegexSource = (
     .join('')
 }
 
-// An old spelling is refused with the one that replaces it, a passed query as one no template
-// takes, and any operator or modifier but a list with its slash.
-const checkExpressions = (template: string): void => {
-  const throwOldSpelling = (expression: string, spelling: string): never => {
-    throw new Error(t(locales.errors.oldTemplateSpelling, { template, expression, spelling }))
-  }
-  const oldList = oldListRegex.exec(template)
-
-  if (oldList) {
-    throwOldSpelling(oldList[0], `{/${oldList[1] || openTailName}*}`)
-  }
-
-  if (template.includes(oldQuery)) {
-    throwOldSpelling(oldQuery, '{?query*}')
-  }
-
-  // A brace left once every expression is taken out opens or closes nothing, as `{/id*`.
-  if (braceRegex.test(template.replace(expressionRegex, ''))) {
-    throw new Error(t(locales.errors.unbalancedBrace, { template }))
-  }
-
-  for (const [expression, body] of template.matchAll(expressionRegex)) {
-    if (expression === oldTail) {
-      throwOldSpelling(oldTail, openTailSuffix)
-    }
-
-    if (plainExpressionRegex.test(body) || optionalQueryExpressionRegex.test(body)) {
-      continue
-    }
-
-    if (reservedExpressionRegex.test(body) || fragmentExpressionRegex.test(body)) {
-      continue
-    }
-
-    throw new Error(t(locales.errors.unsupportedTemplateExpression, { template, expression }))
-  }
-}
-
 // A template without its fragment, and the fragment: the text behind a `#`, or `{#name}` at the
 // end, which is the whole fragment as a reserved value.
 const cutFragment = (template: string): [body: string, fragment?: string] => {
@@ -804,26 +760,18 @@ export const toAsciiHost = (host: string): string => {
 
 // A template as its scheme, host, path, query parameters and fragment.
 export const parseTemplate = (template: string): ParsedTemplate => {
-  checkExpressions(template)
+  validateExpressions(template)
 
   const [body, givenFragment] = cutFragment(template)
-  const isFragmentRefused =
-    givenFragment !== undefined && (!givenFragment || fragmentRefusedRegex.test(givenFragment))
-  // A `#` inside an expression cuts it in two, as `{#section}` in front of more of the template.
-  const isCutExpression = braceRegex.test(body.replace(expressionRegex, ''))
 
-  if (isFragmentRefused || isCutExpression || body.includes('#')) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateFragment(template, body, givenFragment)
 
   // The optional names close the template: `{?a,b}` where it has no query, `{&a,b}` behind one.
   const optional = optionalQueryRegex.exec(body)
   const base = optional ? body.slice(0, optional.index) : body
   const match = templateRegex.exec(base)
 
-  if (!match || base.includes('{?') || base.includes('{&')) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateTemplateMatch(template, base, match)
 
   const [, scheme, givenHost, givenPath = '', search] = match
   const host = toAsciiHost(givenHost)
@@ -833,23 +781,15 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const listSplit = hasSplit ? { list: split[1], reserved: split[2] } : undefined
   const baseNames = givenPath.startsWith(basePlaceholder) ? ['base*'] : []
   const splitNames = listSplit ? [`${listSplit.list}*`] : []
-  // A list or an open tail shares the path with a reserved value by a guess, so only the base
-  // sits beside one, and a list right in front of it, which the checks tell from it.
-  const hasListBeside = [...base.matchAll(placeholderRegex)].some(([, name]) => {
-    return isMultiSegment(name) && ![...baseNames, ...splitNames].includes(name)
+
+  validateReservedPlacement({
+    template,
+    base,
+    ownText: `${scheme}${host}${search ?? ''}`,
+    reservedNames,
+    besideNames: [...baseNames, ...splitNames],
   })
-  // A reserved value sits in the path alone: a host takes no slash, and a query value reads whole.
-  const misplaced = reservedAnywhereRegex.exec(
-    reservedNames.length > 0 && hasListBeside ? template : `${scheme}${host}${search ?? ''}`,
-  )
-
-  if (misplaced) {
-    throw new Error(t(locales.errors.misplacedReserved, { template, expression: misplaced[0] }))
-  }
-
-  if (optional && (optional[1] === '?') === Boolean(search)) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateOptionalPlacement(template, optional?.[1], search)
 
   const queryNames = optional ? optional[2].split(',') : []
   const passedName = queryNames.at(-1)?.endsWith('*') ? queryNames.pop()?.slice(0, -1) : undefined
@@ -857,16 +797,11 @@ export const parseTemplate = (template: string): ParsedTemplate => {
   const isOpen = givenPath.endsWith(openTailSuffix)
   const entries = search ? [...toSearchParams(parseQuery(search))] : []
 
-  // A placeholder names a parameter only in a flag, as `?article{id}`, and never one with a value,
-  // as `?{name}=1`, or one written escaped, as `?%7Bname%7D`.
   const isNameFlag = ([name, value]: [string, string]): boolean => name.includes('{') && !value
   const nameFlags = entries.filter(isNameFlag).map(([name]) => name)
   const valueEntries = entries.filter((entry) => !isNameFlag(entry))
-  const isEscapedName = nameFlags.some((name) => !(search ?? '').includes(name))
 
-  if (isEscapedName || valueEntries.some(([name]) => name.includes('{'))) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateQueryPlaceholders(template, nameFlags, valueEntries, search)
 
   // A name with no value, such as `?rss`, is a flag, built with no value.
   const flagNames = valueEntries.filter(([, value]) => !value).map(([name]) => name)
@@ -898,30 +833,20 @@ export const parseTemplate = (template: string): ParsedTemplate => {
     ([, name]) => toBareName(name),
   )
 
-  // A name read from the query and a placeholder of the same name would give one value two sources.
-  const allReservedNames = [...reservedNames, ...fragmentReservedNames]
-
-  const queryValueNames = paramNames.slice(params.length)
-
-  if (queryValueNames.some((name) => [...placeholderNames, ...allReservedNames].includes(name))) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
+  const names: TemplateNames = {
+    template,
+    queryValueNames: paramNames.slice(params.length),
+    placeholderNames,
+    reservedNames: [...reservedNames, ...fragmentReservedNames],
   }
 
-  // A parameter the template names twice, as `types=page&types=post`, has no one value to read.
-  if (paramNames.some((name, index) => paramNames.indexOf(name) !== index)) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateQueryValueNames(names)
+  validateParamNames(template, paramNames)
 
   const plainPath = givenPath.replace(reservedRegex, '{$1}')
   const path = isOpen ? plainPath.slice(0, -openTailSuffix.length) : plainPath
-  // A name read as written and decoded, or as written twice, would give one value two sources.
-  const isRepeated = allReservedNames.some((name, index) => {
-    return placeholderNames.includes(name) || allReservedNames.indexOf(name) !== index
-  })
 
-  if (isRepeated) {
-    throw new Error(t(locales.errors.invalidTemplate, { template }))
-  }
+  validateReservedNames(names)
 
   const lastName = reservedNames.at(-1)
   // A template that writes a query or a fragment keeps the URL's own for itself.

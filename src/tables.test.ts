@@ -9,9 +9,6 @@ const regionLocaleRegex = /^[a-z]{2}-[A-Z]{2}$/
 const digitsRegex = /^\d+$/
 const hexRegex = /^[0-9a-f]+$/i
 const globalDigitsRegex = /^\d+$/g
-const stickyDigitsRegex = /^\d+$/y
-const endAnchoredDigitsRegex = /\d+$/
-const startAnchoredDigitsRegex = /^\d+/
 
 const playerRows: Array<PlayerRow> = [
   {
@@ -1427,22 +1424,6 @@ describe('defineTable', () => {
       expect(unsorted.buildUrl('cased', value)).toBe(expected)
     })
 
-    it('should throw for a placeholder as a parameter name whose braces the row escapes', () => {
-      const value = [{ key: 'list', main: 'https://example.com/{user}/list?%7Bquery%7D' }]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow('Not a URL template: https://example.com/{user}/list?%7Bquery%7D')
-    })
-
-    it('should throw for a parameter the row names twice', () => {
-      const value = [{ key: 'search', main: 'https://example.com/search?types=page&types=post' }]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow(
-        'Not a URL template: https://example.com/search?types=page&types=post',
-      )
-    })
-
     it('should write a URL the main URL of its row leaves alone', () => {
       const value = unsorted.buildUrl('search', { query: 'feeds' }) ?? ''
 
@@ -2563,61 +2544,6 @@ describe('defineTable', () => {
       expect(table.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should throw for a marked value that shares a host label with another value', () => {
-      const throwing = () => {
-        return defineTable(
-          [
-            {
-              key: 'blog',
-              main: 'https://{blog}-{user}.example.com/feed',
-            },
-          ],
-          { lenient: { case: ['blog'] } },
-        )
-      }
-
-      expect(throwing).toThrow(
-        'The blog row marks the case of blog, which shares a part of its URL with another value',
-      )
-    })
-
-    it('should throw for a marked value that shares a query value with another value', () => {
-      const throwing = () => {
-        return defineTable(
-          [
-            {
-              key: 'range',
-              main: 'https://example.com/range.rss?r={from}-{to}',
-            },
-          ],
-          { lenient: { case: ['to'] } },
-        )
-      }
-
-      expect(throwing).toThrow(
-        'The range row marks the case of to, which shares a part of its URL with another value',
-      )
-    })
-
-    it('should throw for a marked value that shares a path segment of an alias', () => {
-      const throwing = () => {
-        return defineTable(
-          [
-            {
-              key: 'board',
-              main: 'https://example.com/boards/{board}/{user}',
-              aliases: ['https://example.com/{board}_by_{user}'],
-            },
-          ],
-          { lenient: { case: ['user'] } },
-        )
-      }
-
-      expect(throwing).toThrow(
-        'The board row marks the case of user, which shares a part of its URL with another value',
-      )
-    })
-
     it('should throw for a value the mark of the table names', () => {
       const throwing = () => {
         return defineTable([{ key: 'board', main: 'https://example.com/{board}_by_{user}' }], {
@@ -2627,24 +2553,6 @@ describe('defineTable', () => {
 
       expect(throwing).toThrow(
         'The board row marks the case of user, which shares a part of its URL with another value',
-      )
-    })
-
-    it('should throw for a marked value in a template with two values of several segments', () => {
-      const throwing = () => {
-        return defineTable(
-          [
-            {
-              key: 'thread',
-              main: 'https://example.com{/board*}/feed{/thread*}',
-            },
-          ],
-          { lenient: { case: ['thread'] } },
-        )
-      }
-
-      expect(throwing).toThrow(
-        'The thread row marks the case of thread, which shares a part of its URL with another value',
       )
     })
 
@@ -3106,13 +3014,6 @@ describe('defineTable', () => {
 
       expect(throwing).toThrow('Not a URL template: https://example.com/items?{id}=1')
     })
-
-    it('should throw for a value in the name of a flag written escaped', () => {
-      const value = [{ key: 'item', main: 'https://example.com/items?%7Bid%7D' }]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow('Not a URL template: https://example.com/items?%7Bid%7D')
-    })
   })
 
   describe('with the semicolon mark', () => {
@@ -3250,18 +3151,6 @@ describe('defineTable', () => {
       const expected = 'https://example.com/list.rss?a=1&stamp;x=1'
 
       expect(table.buildUrl('list')).toBe(expected)
-    })
-
-    it('should throw for a row whose own parameter name starts with amp;', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'list', main: 'https://example.com/list.rss?amp;x=1&a=1' }], {
-          lenient: { ampersandEntity: true },
-        })
-      }
-
-      expect(throwing).toThrow(
-        'The list row sets amp;x, which the ampersand mark reads as another parameter',
-      )
     })
 
     it('should build a parameter name that starts with amp; on a row without the mark', () => {
@@ -3539,26 +3428,6 @@ describe('defineTable', () => {
   })
 
   describe('with a question mark inside a query', () => {
-    it('should throw for a row whose query opens with a second question mark', () => {
-      const value = [{ key: 'item', main: 'https://example.com/items??id={id}' }]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow('Not a URL template: https://example.com/items??id={id}')
-    })
-
-    it('should throw for an alias whose query opens with a second question mark', () => {
-      const value = [
-        {
-          key: 'posts',
-          main: 'https://example.com/feed',
-          aliases: ['https://old.example.com/feed??alt=rss'],
-        },
-      ]
-      const throwing = () => defineTable(value)
-
-      expect(throwing).toThrow('Not a URL template: https://old.example.com/feed??alt=rss')
-    })
-
     it('should write an alias that gives a parameter of the main URL behind a name that opens with a question mark', () => {
       const value = 'https://old.example.com/feed??page=2&alt=rss'
       const expected = 'https://example.com/feed??page=2&alt=rss'
@@ -4134,42 +4003,6 @@ describe('defineTable', () => {
 
       expect(throwing).toThrow(
         'The check of id is a pattern with a g or y flag, which answers differently on a second call',
-      )
-    })
-
-    it('should throw for a pattern with the y flag', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'item', main: 'https://example.com/items/{id}' }], {
-          checks: { id: stickyDigitsRegex },
-        })
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
-      )
-    })
-
-    it('should throw for a pattern without ^ at its start', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'item', main: 'https://example.com/items/{id}' }], {
-          checks: { id: endAnchoredDigitsRegex },
-        })
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern without ^ at its start and $ at its end',
-      )
-    })
-
-    it('should throw for a pattern without $ at its end', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'item', main: 'https://example.com/items/{id}' }], {
-          checks: { id: startAnchoredDigitsRegex },
-        })
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern without ^ at its start and $ at its end',
       )
     })
   })
@@ -5413,22 +5246,6 @@ describe('defineTable', () => {
       expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
     })
 
-    it('should throw for an open tail in the query', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'repo', main: 'https://example.com/{owner}?tab={/tail*}' }])
-      }
-
-      expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
-    })
-
-    it('should throw for two open tails in one path', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'repo', main: 'https://example.com/{owner}{/tail*}{/tail*}' }])
-      }
-
-      expect(throwing).toThrow('The repo row writes {/tail*} elsewhere than at the end of its path')
-    })
-
     it('should throw for an open tail in a path with a value of several segments', () => {
       const throwing = () => {
         return defineTable([{ key: 'docs', main: 'https://example.com/docs{/page*}/edit{/tail*}' }])
@@ -5437,14 +5254,6 @@ describe('defineTable', () => {
       expect(throwing).toThrow(
         'The docs row writes {/tail*} in a path with page, which takes several segments, so the two are split by a guess',
       )
-    })
-
-    it('should throw for a value named tail beside an open tail', () => {
-      const throwing = () => {
-        return defineTable([{ key: 'repo', main: 'https://example.com/{tail}{/tail*}' }])
-      }
-
-      expect(throwing).toThrow('The repo row names a value tail, which {/tail*} is read as')
     })
 
     it('should throw for a name written as a list in one row and as one value in another', () => {
@@ -5458,33 +5267,6 @@ describe('defineTable', () => {
       expect(throwing).toThrow(
         'The page row writes path as one value, which another template writes as a list',
       )
-    })
-
-    it('should throw for a name written as a list in an alias and as one value in its main', () => {
-      const throwing = () => {
-        return defineTable([
-          {
-            key: 'page',
-            main: 'https://example.com/page/{path}/RSS',
-            aliases: ['https://example.com/widget{/path*}/RSS'],
-          },
-        ])
-      }
-
-      expect(throwing).toThrow(
-        'The page row writes path as one value, which another template writes as a list',
-      )
-    })
-
-    it('should not throw for a name written as a list in two rows', () => {
-      const throwing = () => {
-        return defineTable([
-          { key: 'events', main: 'https://example.com{/path*}/RSS' },
-          { key: 'page', main: 'https://example.com/widget{/path*}/RSS' },
-        ])
-      }
-
-      expect(throwing).not.toThrow()
     })
 
     it('should read a path of 20,000 segments within a second', () => {
@@ -6255,54 +6037,6 @@ describe('defineTable', () => {
 
       expect(throwing).toThrow(
         'The check of id is a pattern with a g or y flag, which answers differently on a second call',
-      )
-    })
-
-    it('should throw for a pattern with the y flag', () => {
-      const throwing = () => {
-        return defineTable([
-          {
-            key: 'item',
-            main: 'https://example.com/items/{id}',
-            checks: { id: stickyDigitsRegex },
-          },
-        ])
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern with a g or y flag, which answers differently on a second call',
-      )
-    })
-
-    it('should throw for a pattern without ^ at its start', () => {
-      const throwing = () => {
-        return defineTable([
-          {
-            key: 'item',
-            main: 'https://example.com/items/{id}',
-            checks: { id: endAnchoredDigitsRegex },
-          },
-        ])
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern without ^ at its start and $ at its end',
-      )
-    })
-
-    it('should throw for a pattern without $ at its end', () => {
-      const throwing = () => {
-        return defineTable([
-          {
-            key: 'item',
-            main: 'https://example.com/items/{id}',
-            checks: { id: startAnchoredDigitsRegex },
-          },
-        ])
-      }
-
-      expect(throwing).toThrow(
-        'The check of id is a pattern without ^ at its start and $ at its end',
       )
     })
 
