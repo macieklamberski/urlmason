@@ -19,7 +19,6 @@ import {
 import locales from './locales.json' with { type: 'json' }
 import {
   appendValue,
-  decodeQueryValue,
   encodeText,
   entityPrefix,
   isEntityPair,
@@ -239,6 +238,37 @@ const toCheckParams = (params: Record<string, UrlValue>): Record<string, string>
   return Object.fromEntries(
     Object.entries(params).map(([name, value]) => [name, toValueText(value)]),
   )
+}
+
+// The values with each one the case mark covers in lowercase, as its main URL holds it. A value
+// whose table or row check refuses the lowercase, as `en-US`, stays as written.
+const lowercaseMarked = (
+  params: Record<string, UrlValue>,
+  caseNames: Array<string> | undefined,
+  checks: Record<string, CheckFunction>,
+  rowChecks: Record<string, RowCheckFunction>,
+): Record<string, UrlValue> => {
+  const values = { ...params }
+
+  for (const name of caseNames ?? []) {
+    const value = values[name]
+
+    if (value === undefined) {
+      continue
+    }
+
+    const lowercase = toAsciiLowerCase(value)
+    const text = toValueText(lowercase)
+    const lowercaseParams = toCheckParams({ ...values, [name]: lowercase })
+
+    if (checks[name]?.(text) === false || rowChecks[name]?.(text, lowercaseParams) === false) {
+      continue
+    }
+
+    values[name] = lowercase
+  }
+
+  return values
 }
 
 // Two values read the same: two strings, or two lists of the same segments.
@@ -908,41 +938,23 @@ const compileRowTemplate = (
     })
   }
 
-  // A raw value as `readParams` reads it.
-  const decodeValue = (value: string, part: TemplatePart): string => {
-    if (part === 'host') {
-      return value
-    }
-
-    return part === 'path' ? decodePercent(decodePath(value)) : decodeQueryValue(value).trim()
-  }
-
-  // The text a match ran on and its values, the values the case mark covers in lowercase.
-  const lowercaseValues = (match: RegExpExecArray, listParams: Record<string, UrlValue>) => {
-    const params = toCheckParams(listParams)
+  // The text a match ran on and its values, in lowercase where the read holds them in lowercase.
+  const lowercaseValues = (
+    match: RegExpExecArray,
+    params: Record<string, UrlValue>,
+    lowercaseParams: Record<string, UrlValue>,
+  ) => {
     const groups = { ...match.groups }
     let text = match.input
 
     for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
       const captured = getCaptured(group)
 
-      if (!range || !captured || !lenient?.case?.includes(captured.name)) {
+      if (!range || !captured || lowercaseParams[captured.name] === params[captured.name]) {
         continue
       }
 
       const value = toLowerCaseValue(text.slice(range[0], range[1]))
-
-      const { name } = captured
-      const decoded = decodeValue(value, captured.part)
-
-      // A value whose check refuses the lowercase, as `en-US`, stays as written.
-      if (checks[name]?.(decoded) === false) {
-        continue
-      }
-
-      if (rowChecks[name]?.(decoded, { ...params, [name]: decoded }) === false) {
-        continue
-      }
 
       groups[group] = value
       text = `${text.slice(0, range[0])}${value}${text.slice(range[1])}`
@@ -962,7 +974,8 @@ const compileRowTemplate = (
       return
     }
 
-    const respelledHostPath = lowercaseValues(match, params)
+    const lowercaseParams = lowercaseMarked(params, lenient?.case, checks, rowChecks)
+    const respelledHostPath = lowercaseValues(match, params, lowercaseParams)
 
     if (!readRawGroups(rawParams, respelledHostPath.groups)) {
       return
@@ -1003,7 +1016,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledValue = lowercaseValues(queryMatch, params)
+      const respelledValue = lowercaseValues(queryMatch, params, lowercaseParams)
 
       if (!readRawGroups(rawParams, respelledValue.groups)) {
         return
@@ -1023,7 +1036,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledName = lowercaseValues(flagMatch, params)
+      const respelledName = lowercaseValues(flagMatch, params, lowercaseParams)
 
       if (!readRawGroups(rawParams, respelledName.groups)) {
         return
@@ -1136,26 +1149,21 @@ const compileRowTemplate = (
       return
     }
 
-    for (const [name, value] of Object.entries(values)) {
-      const check = checks[toBareName(name)]
+    const bareValues = Object.fromEntries(
+      Object.entries(values).map(([name, value]) => [toBareName(name), value]),
+    )
+    const isTableRefused = Object.entries(bareValues).some(([name, value]) => {
+      return checks[name]?.(toValueText(value)) === false
+    })
 
-      if (check && !check(toValueText(value))) {
-        return
-      }
-
-      // A value the case mark covers is written in lowercase, as its main URL holds it. A value
-      // whose check refuses the lowercase, as `en-US`, stays as written.
-      const lowercase = lenient?.case?.includes(toBareName(name)) ? toAsciiLowerCase(value) : value
-      const isLowercaseRefused = check && !check(toValueText(lowercase))
-
-      values[name] = isLowercaseRefused ? value : lowercase
+    if (isTableRefused) {
+      return
     }
 
-    if (hasRowChecks) {
-      const filled = Object.fromEntries(
-        built.names.map((name) => [toBareName(name), toValueText(values[name])]),
-      )
+    const lowercaseValues = lowercaseMarked(bareValues, lenient?.case, checks, rowChecks)
 
+    if (hasRowChecks) {
+      const filled = toCheckParams(lowercaseValues)
       const isRefused = Object.entries(filled).some(([name, value]) => {
         return rowChecks[name]?.(value, filled) === false
       })
@@ -1163,6 +1171,10 @@ const compileRowTemplate = (
       if (isRefused) {
         return
       }
+    }
+
+    for (const name of Object.keys(values)) {
+      values[name] = lowercaseValues[toBareName(name)]
     }
 
     return builtCompiled.fill(values, encoding)
@@ -1735,38 +1747,6 @@ const createTable = <const Row extends UrlRow>(
 
   // A URL read by the table's own rows. A row on the stand-in host gets the scheme, host and base
   // the URL is read under.
-  // A value the case mark covers is read in lowercase, as its main URL writes it. A value whose
-  // check refuses the lowercase, as `en-US`, stays as written.
-  const lowercaseMarked = (
-    params: Record<string, UrlValue>,
-    rowIndex: number,
-  ): Record<string, UrlValue> => {
-    const values = { ...params }
-
-    for (const name of lenient.case ?? []) {
-      const value = values[name]
-
-      if (value === undefined) {
-        continue
-      }
-
-      const lowercase = toAsciiLowerCase(value)
-      const text = toValueText(lowercase)
-      const lowercaseValues = toCheckParams({ ...values, [name]: lowercase })
-
-      if (
-        checks[name]?.(text) === false ||
-        rowChecks[rowIndex][name]?.(text, lowercaseValues) === false
-      ) {
-        continue
-      }
-
-      values[name] = lowercase
-    }
-
-    return values
-  }
-
   const readOwn = (url: string, base?: UrlValues): UrlMatch<Key, Row> | undefined => {
     const found = readTemplate(url, base)
 
@@ -1780,7 +1760,7 @@ const createTable = <const Row extends UrlRow>(
 
     return toMatch({
       key: row.key,
-      values: lowercaseMarked(params, found.template.rowIndex),
+      values: lowercaseMarked(params, lenient.case, checks, rowChecks[found.template.rowIndex]),
       row: copyRow(row),
       isAlias: found.template.isAlias,
       isExact: readRawParams(found) !== undefined,
