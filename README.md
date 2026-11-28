@@ -344,9 +344,11 @@ Returns the row a URL is and its values, or `undefined`. `isAliasMatch` says the
 
 Builds the first URL the values fill, or `undefined`. The key's rows are tried in order, each row's main URL before its aliases. A value that would move the URL to another path, scheme or host returns `undefined`. `{ select }` limits the rows to the ones a function picks, and `{ encoding }` picks the spelling.
 
+A built URL reads back the values it was built from, and the checks see each value as the URL writes it, so `a%20b` is checked as `a b`. A value that fails its check, one the URL would read back as another value, and one outside the types, such as a nested map or text cut inside an emoji, return `undefined`. The build doesn't fall back to an alias that has no place for the value, so a page that fails its check never builds the home feed. A value that only a row's own check refuses skips that row and moves on to the next one.
+
 ### `table.buildUrls(key, values, options?)`
 
-Builds every spelling the values fill of the first row that has one: its main URL, then each alias.
+Builds every spelling the values fill of the first row that has one: its main URL, then each alias, each URL once. It refuses the same values `buildUrl` does, with an empty list.
 
 ### `table.getMainUrl(url, options?)`
 
@@ -354,7 +356,7 @@ Rewrites a URL to its row's main URL, and returns a main URL as itself, written 
 
 ### `table.forSite(url)`
 
-Returns `buildUrl` and `buildUrls` with `{scheme}`, `{host}` and `{domain}` filled from a page's URL.
+Returns `buildUrl` and `buildUrls` with `{scheme}`, `{host}` and `{domain}` filled from a page's URL. `{domain}` is the page's host or the nearest parent domain `hosts.tenant` lists, so a page on `example.com` itself fills it too.
 
 ## Thanks
 

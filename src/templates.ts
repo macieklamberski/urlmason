@@ -4,8 +4,13 @@ import {
   encodePathSegment,
   escapeRegex,
   getQueryParamValues,
+  isBoolean,
   isHttpUrl,
+  isNullish,
+  isNumber,
+  isObject,
   isPlainObject,
+  isPresent,
   isString,
   parseUrl,
   trimArray,
@@ -209,6 +214,7 @@ export const dotSegmentRegex = /^(?:\.|%2e){1,2}$/i
 // The characters that end a host in a URL.
 const hostDelimiterRegex = /[/?#@\\]/
 const nonAsciiLabelRegex = /\P{ASCII}/u
+const loneSurrogateRegex = /\p{Cs}/u
 
 export const schemePlaceholder = '{scheme}'
 // The folder a site sits in, `{/base*}` behind the host.
@@ -296,11 +302,70 @@ const toMapEntries = (map: UrlMap): Array<[string, string]> => {
   })
 }
 
+// Text a value builds from: a string, a number or a boolean, or nothing. A lone surrogate, as text
+// cut inside an emoji, has no UTF-8 form.
+const isTypedText = (item: unknown): boolean => {
+  if (isString(item)) {
+    return !loneSurrogateRegex.test(item)
+  }
+
+  return isNullish(item) || isNumber(item) || isBoolean(item)
+}
+
+// Whether a value builds: text, a list of text, or a map of text or lists of text.
+export const isTypedValue = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return value.every(isTypedText)
+  }
+
+  if (!isObject(value)) {
+    return isTypedText(value)
+  }
+
+  return Object.entries(value).every(([name, item]) => {
+    return isTypedText(name) && (Array.isArray(item) ? item.every(isTypedText) : isTypedText(item))
+  })
+}
+
+// A value as the types write it: a number or a boolean as its text, null as no value, and a map of
+// any prototype as a plain one. A list item or a map entry that holds nothing is left out.
+const toTypedValue = (value: unknown): UrlValue | undefined => {
+  const toTexts = (items: Array<unknown>): Array<string> => items.filter(isPresent).map(String)
+
+  if (isNullish(value)) {
+    return
+  }
+
+  if (Array.isArray(value)) {
+    return toTexts(value)
+  }
+
+  if (!isObject(value)) {
+    return String(value)
+  }
+
+  const map: UrlMap = {}
+
+  for (const [name, item] of Object.entries(value)) {
+    if (Array.isArray(item)) {
+      map[name] = toTexts(item)
+
+      continue
+    }
+
+    if (isPresent(item)) {
+      map[name] = String(item)
+    }
+  }
+
+  return map
+}
+
 // A list is one or more segments, and `base` and `tail` zero or more. An empty segment is dropped,
 // as a doubled slash names the same page, and any other list with no segment left is no value. A
 // string is read as segments joined by `/`, and a list is no value of a placeholder of one segment.
 const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue | undefined => {
-  const value = params[toBareName(placeholder)]
+  const value = toTypedValue(params[toBareName(placeholder)])
 
   // A map with no name is no value, as a list with no item.
   if (isPlainObject(value)) {
@@ -330,6 +395,22 @@ const getPlaceholderValue = (params: UrlValues, placeholder: string): UrlValue |
 // its segments at every slash.
 export const splitPath = (path: string): Array<string> => {
   return path.replaceAll('{/', '/{').split('/')
+}
+
+// A value as one text, as its slot writes it: in a list slot a segment per item and a `name=value`
+// segment per name of a map, and in a slot of one value its items joined by commas.
+export const toSlotText = (value: UrlValue, placeholder: string): string => {
+  if (!isMultiSegment(placeholder)) {
+    return (isPlainObject(value) ? toMapItems(value) : coerceArray(value)).join(',')
+  }
+
+  if (!isPlainObject(value)) {
+    return coerceArray(value).join('/')
+  }
+
+  return toMapEntries(value)
+    .map(([name, item]) => `${name}=${item}`)
+    .join('/')
 }
 
 // A value as text, as a check sees it: a list as its segments joined by `/`.
@@ -385,10 +466,9 @@ const encodeEscapeRun = (run: string, encode: MapText): string => {
 }
 
 // A value with its valid escapes decoded and written again by `encode`, so `Hello%21` and
-// `Hello!` are one value, and a URL read and built again is the URL it was. A value that is no
-// text past the types, as `true`, is its text.
+// `Hello!` are one value, and a URL read and built again is the URL it was.
 const encodeDecoded = (value: string, encode: MapText): string => {
-  return String(value)
+  return value
     .split(escapeRunRegex)
     .map((piece, index) => (index % 2 === 0 ? encode(piece) : encodeEscapeRun(piece, encode)))
     .join('')
@@ -436,7 +516,7 @@ const fillQueryValue = (
     const items = isPlainObject(value) ? toMapItems(value) : value
 
     if (!Array.isArray(items)) {
-      push(String(items), 'value')
+      push(items, 'value')
 
       continue
     }
@@ -533,7 +613,7 @@ export const toStrictPair = (pair: QueryPair): QueryPair => {
 // A value as RFC 6570 writes a reserved one: the reserved characters and every escape kept, so a
 // URL stays a URL, and everything else outside the unreserved set encoded.
 const encodeReservedValue = (value: string): string => {
-  return String(value)
+  return value
     .split(singleEscapeRegex)
     .map((piece, index) => {
       if (index % 2 === 1) {
