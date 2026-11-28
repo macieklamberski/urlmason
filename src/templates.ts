@@ -1240,18 +1240,20 @@ export const compileTemplate = (
       readGroups(values, queryMatch.groups)
     }
 
-    // A flag is the first pair with no value whose name the flag's pattern takes.
+    const flagNames = [...getSearchParams()].filter(([, value]) => !value).map(([name]) => name)
+
+    // A flag is the first pair with no value whose name the flag's pattern takes and no earlier
+    // flag took.
     for (const { regex } of nameFlags) {
-      const flagMatch = [...getSearchParams()]
-        .filter(([, value]) => !value)
-        .map(([name]) => regex.exec(name))
-        .find((match) => match !== null)
+      const index = flagNames.findIndex((name) => regex.test(name))
+      const flagMatch = index === -1 ? null : regex.exec(flagNames[index])
 
       if (!flagMatch) {
         return
       }
 
       readGroups(values, flagMatch.groups)
+      flagNames.splice(index, 1)
     }
 
     for (const name of parsed.optionalNames) {
@@ -1376,8 +1378,14 @@ export const compileTemplate = (
       pairs.push(appendValue(own.pair, text))
     }
 
+    let hasFlagSlash = false
     // A `=` in a flag's name would end the name there.
     const encodeFlagValue = (value: string): string => {
+      // A flag's value stops at a slash, as a path segment's does, in either spelling of it.
+      if (value.includes('/')) {
+        hasFlagSlash = true
+      }
+
       return isStrict
         ? encodeStrictValue(value)
         : encodePrettyQueryValue(value).replaceAll('=', '%3D')
@@ -1385,6 +1393,10 @@ export const compileTemplate = (
 
     for (const { text } of nameFlags) {
       pairs.push(toPair(fillQueryValue(text, values, encodeFlagValue)))
+    }
+
+    if (hasFlagSlash) {
+      return
     }
 
     for (const name of parsed.optionalNames) {

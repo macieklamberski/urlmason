@@ -231,7 +231,7 @@ const pages = defineTable(
 )
 ```
 
-Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
+Rows are read most specific first: a template without `{/tail*}` before one with it, then the one with more query names, flags with a value in the name counted, then the earlier row. Two rows can share a key, such as the Atom and the RSS feed of one blog. A build goes through them in order and writes the first URL the values fill: a row's main URL, then its aliases, then the next row.
 
 ### Checks
 
@@ -297,6 +297,7 @@ RFC 6570 defines how a template builds a URL. Reading one back is urlmason's own
 - A template may write a fragment, as `#!/video/{id}` or `{#x}`, and then reads only a URL that carries it. A value in it stops at a slash, as in a path, and `{+x}` and `{#x}` read as written. A template without a fragment reads a URL whatever its fragment.
 - `{?query*}` reads every pair the template doesn't name into a map, a name given twice as a list of its values, so a URL read and built again keeps every pair.
 - A map that holds a name the template writes itself, or one a flag in it takes, builds no URL, since the table would read that pair into the template's own value.
+- A value inside the name of a flag stops at a slash, as in a path, so a value with a slash builds no URL. Two flags whose names start alike each read their own pair, and a flag given twice reads as not exact.
 - Operators beyond these, such as `{.x}`, `{;x}` and `{x:3}`, are refused when a table is defined.
 
 ## API

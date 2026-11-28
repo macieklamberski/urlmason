@@ -339,6 +339,12 @@ const nameFlags = defineTable(
   { checks: { id: digitsRegex } },
 )
 
+const uncheckedNameFlags = defineTable([
+  { key: 'home', main: 'https://example.com/spip.php' },
+  { key: 'article', main: 'https://example.com/spip.php?article{id}' },
+  { key: 'compare', main: 'https://example.com/compare.php?item{first}&item{second}' },
+])
+
 const passedQueries = defineTable([
   {
     key: 'search',
@@ -2983,6 +2989,68 @@ describe('defineTable', () => {
       const expected = 'https://example.com/spip.php?article12&lang=fr'
 
       expect(nameFlags.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a row with a flag before an earlier row without one', () => {
+      const value = 'https://example.com/spip.php?article12'
+      const expected = 'article'
+      const match = uncheckedNameFlags.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a flag given twice as not exact', () => {
+      const value = 'https://example.com/spip.php?article12&article13'
+      const match = nameFlags.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should read two flags of one fixed text each from its own pair', () => {
+      const value = 'https://example.com/compare.php?item1&item2'
+      const expected = {
+        first: '1',
+        second: '2',
+      }
+      const match = uncheckedNameFlags.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should write the flag once in a strict main URL', () => {
+      const value = 'http://example.com/spip.php?article12'
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should write the flag once in a strict main URL of an alias', () => {
+      const value = 'http://old.example.com/articles/12'
+      const expected = 'https://example.com/spip.php?article12'
+
+      expect(nameFlags.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should return undefined for an alias with a flag of another value', () => {
+      const value = 'http://old.example.com/articles/12?article13'
+
+      expect(nameFlags.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value with a slash in the name of a flag', () => {
+      const value = {
+        id: 'news/12',
+      }
+
+      expect(uncheckedNameFlags.buildUrl('article', value)).toBeUndefined()
+    })
+
+    it('should return undefined for a value with a slash in the name of a flag strictly', () => {
+      const value = {
+        id: 'news/12',
+      }
+
+      expect(uncheckedNameFlags.buildUrl('article', value, { encoding: 'strict' })).toBeUndefined()
     })
 
     it('should throw for a value in the name of a pair with a value', () => {
