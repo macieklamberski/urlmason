@@ -143,6 +143,8 @@ type RowTemplate = {
   hasNonUtf8Value: (rawRead: RawRead) => boolean
   // Whether the trailing slash mark covers the template.
   isSlashFree: boolean
+  // The reserved values of the path the escaped pipe mark covers.
+  pipeNames: Array<string>
   // The template's URL with values written as they were read, and the pairs no row names kept.
   getRawUrl: (rawRead: RawRead, keptPairs: Array<QueryPair>) => RawUrl | undefined
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
@@ -240,6 +242,7 @@ const anchorsRegex = /^\^|\$$/g
 const plainValueRegex = /^[\w.~-]+$/
 const captureRegex = /\(\?<p\d+>/g
 const escapeSplitRegex = /(%[0-9a-f]{2})/i
+const escapedPipeRegex = /%7c/gi
 const percentEscapeRegex = /%[0-9a-f]{2}/gi
 const fixedPathTextRegex = /[^/]/
 const originRegex = /^[^:/?#]+:\/\/[^/?#]*/
@@ -836,6 +839,7 @@ const compileRowTemplate = (
   const isSlashFree =
     hasSlash !== undefined && (rowLenient?.trailingSlash ?? lenient?.trailingSlash) === true
   const isFixedCaseFree = lenient?.fixedCase === true
+  const isPipeFree = (rowLenient?.escapedPipe ?? lenient?.escapedPipe) === true
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const flagShapes = parsed.nameFlags.map((text) =>
     text.replace(placeholderRegex, toShapePlaceholder),
@@ -1567,6 +1571,7 @@ const compileRowTemplate = (
     readRawParams,
     hasNonUtf8Value,
     isSlashFree,
+    pipeNames: isPipeFree ? reservedNames : [],
     getRawUrl,
     getHttpsOrigin,
     passesChecks,
@@ -1826,8 +1831,8 @@ const createTable = <const Row extends UrlRow>(
     lowercaseNames: Array<string>
     tableUrl: TableUrl
     isWwwOptional: boolean
-    // Whether a mark was needed for the URL to read: the other trailing slash, or `;` or `&amp;`
-    // read as `&`.
+    // Whether a mark was needed for the URL to read: the other trailing slash, `;` or `&amp;`
+    // read as `&`, or `%7C` read as `|`.
     isMarkNeeded: boolean
   }
   type FoundTemplate = Required<TakenTemplate>
@@ -1856,20 +1861,40 @@ const createTable = <const Row extends UrlRow>(
         continue
       }
 
+      const pipedParams = { ...writtenParams }
+
+      for (const name of template.pipeNames) {
+        const value = pipedParams[name]
+
+        if (isString(value)) {
+          pipedParams[name] = value.replace(escapedPipeRegex, '|')
+        }
+      }
+
+      const isPipeRead = template.pipeNames.some((name) => {
+        return pipedParams[name] !== writtenParams[name]
+      })
       // The checks and everything that reads the values later see a marked value in lowercase.
       const params = lowercaseMarked(
-        writtenParams,
+        pipedParams,
         lenient.case,
         checks,
         rowChecks[template.rowIndex],
       )
       const lowercaseNames = Object.keys(params).filter((name) => {
-        return !isSameValue(params[name], writtenParams[name], (left, right) => left === right)
+        return !isSameValue(params[name], pipedParams[name], (left, right) => left === right)
       })
       const isCheckRefused = !template.passesChecks(params)
 
       if (!isCheckRefused && !hasUnlistedSelector(template, tableUrl, isWwwOptional)) {
-        return { template, params, lowercaseNames, tableUrl, isWwwOptional, isMarkNeeded: false }
+        return {
+          template,
+          params,
+          lowercaseNames,
+          tableUrl,
+          isWwwOptional,
+          isMarkNeeded: isPipeRead,
+        }
       }
 
       if (!isCheckRefused) {
