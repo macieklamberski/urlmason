@@ -234,6 +234,8 @@ export type UrlTable<Key extends string, Row> = {
     url: string,
     options?: Options,
   ) => UrlMatch<Key, Row, Options> | undefined
+  // The URL written as its row's main URL, a main URL as itself, or undefined for a URL the table
+  // does not hold or cannot rewrite safely.
   getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
   forSite: (url: string) => Pick<UrlTable<Key, Row>, 'buildUrl' | 'buildUrls'> | undefined
 }

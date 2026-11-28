@@ -2176,9 +2176,9 @@ const createTable = <const Row extends UrlRow>(
     return `${base}${writeQuery(pairs)}${hash}`
   }
 
-  // A URL written as its row's main URL, every value as spelled but where a mark covers it. A main
-  // URL under `http` or another `www` is rewritten too. Any other difference, a URL with
-  // credentials and a value or a port the main URL cannot keep give nothing.
+  // A URL written as its row's main URL, every value as spelled but where a mark covers it, and a
+  // main URL as itself. A main URL under `http` or another `www` is rewritten too. Any other
+  // difference, a URL with credentials and a value or a port the main URL cannot keep give nothing.
   const getMainUrl: UrlTable<Key, Row>['getMainUrl'] = (url, writeOptions) => {
     const found = readTemplate(url)
 
@@ -2212,7 +2212,7 @@ const createTable = <const Row extends UrlRow>(
     const isStrict = writeOptions?.encoding === 'strict'
 
     if (!isStrict && mainUrl === sourceUrl.href) {
-      return
+      return mainUrl
     }
 
     // A kept parameter can pick another row on the main URL's path, as `type=comments` on `/feed`.
@@ -2243,11 +2243,9 @@ const createTable = <const Row extends UrlRow>(
 
     const writtenUrl = isStrict ? writeStrictMainUrl(readBack, mainUrl) : mainUrl
 
-    if (!writtenUrl || writtenUrl === sourceUrl.href) {
-      return
-    }
-
-    return writtenUrl
+    // A main URL is written as a URL parser writes it, a value moved into the host in lowercase,
+    // so the main URL of a main URL is itself.
+    return parseUrl(writtenUrl)?.href
   }
 
   // The table for one page: `{scheme}` and `{host}` come from the page URL, `{domain}` is its host

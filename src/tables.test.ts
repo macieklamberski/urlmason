@@ -1572,7 +1572,7 @@ describe('defineTable', () => {
     it('should write a URL the main URL of its row leaves alone', () => {
       const value = unsorted.buildUrl('search', { query: 'feeds' }) ?? ''
 
-      expect(unsorted.getMainUrl(value)).toBeUndefined()
+      expect(unsorted.getMainUrl(value)).toBe(value)
     })
 
     it('should write a value that is no text as its text', () => {
@@ -1830,10 +1830,10 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for a sorted main URL with one name in two cases', () => {
+    it('should return a sorted main URL with one name in two cases as it is', () => {
       const value = 'https://feeds.example.com/alice/rss20.xml?tag=news&Tag=art'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
     })
 
     it('should sort 200 kB of parameters within a second', () => {
@@ -1901,10 +1901,10 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for an https URL whose main URL writes http', () => {
+    it('should return an https URL whose main URL writes http as it is', () => {
       const value = 'https://legacy.example.com/feed.xml'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
     })
 
     it('should return undefined for a www host where www can be a tenant', () => {
@@ -1977,16 +1977,16 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for a main URL that writes http, under http', () => {
+    it('should return a main URL that writes http, under http, as it is', () => {
       const value = 'http://legacy.example.com/feed.xml'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
     })
 
-    it('should return undefined for a main URL on a port', () => {
+    it('should return a main URL on a port as it is', () => {
       const value = 'http://feeds.example.com:8080/alice/rss20.xml'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
     })
 
     it('should write a main URL with a tenant in its host under http as https', () => {
@@ -1996,10 +1996,10 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for a main URL with an empty query', () => {
+    it('should return a main URL with an empty query as it is', () => {
       const value = 'https://feeds.example.com/alice/rss20.xml?'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
     })
 
     it('should keep an empty query on a main URL it writes as https', () => {
@@ -2042,10 +2042,11 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for a main URL only a parser respells', () => {
+    it('should return a main URL only a parser respells as the parser writes it', () => {
       const value = 'HTTPS://FEEDS.EXAMPLE.COM/alice/rss20.xml'
+      const expected = 'https://feeds.example.com/alice/rss20.xml'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(expected)
     })
 
     it('should write an alias on a host the table lists', () => {
@@ -2085,9 +2086,9 @@ describe('defineTable', () => {
       expect(movedBoards.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should write a value an alias moves into the host of the main URL as written', () => {
+    it('should write a value an alias moves into the host of the main URL in lowercase', () => {
       const value = 'https://example.com/blogs/Alice/feed'
-      const expected = 'https://Alice.example.com/feed'
+      const expected = 'https://alice.example.com/feed'
 
       expect(tenantBlogs.getMainUrl(value)).toBe(expected)
     })
@@ -2098,10 +2099,53 @@ describe('defineTable', () => {
       expect(spellings.getMainUrl(value)).toBeUndefined()
     })
 
-    it('should return undefined for a main URL', () => {
+    it('should return a main URL as it is', () => {
       const value = 'https://feeds.example.com/alice/rss20.xml'
 
-      expect(spellings.getMainUrl(value)).toBeUndefined()
+      expect(spellings.getMainUrl(value)).toBe(value)
+    })
+
+    it('should return a main URL without its default port', () => {
+      const value = 'https://feeds.example.com:443/alice/rss20.xml'
+      const expected = 'https://feeds.example.com/alice/rss20.xml'
+
+      expect(spellings.getMainUrl(value)).toBe(expected)
+    })
+
+    const mainUrlSources = [
+      'https://example.com/alice/rss20.xml',
+      'http://feeds.example.com/alice/rss20.xml',
+      'HTTPS://FEEDS.EXAMPLE.COM/alice/rss20.xml',
+      'https://feeds.example.com:443/alice/rss20.xml',
+      'https://feeds.example.com/alice/rss20.xml?',
+      'https://example.com/alice/rss20.xml?b=2&a=1#top',
+      'https://example.com/tags.rss?tag=Hello!',
+    ]
+
+    it.each(mainUrlSources)('should give the main URL of %s as its own main URL', (value) => {
+      const mainUrl = spellings.getMainUrl(value) ?? ''
+
+      expect(spellings.getMainUrl(mainUrl)).toBe(mainUrl)
+    })
+
+    it.each(mainUrlSources)('should give the strict main URL of %s as its own', (value) => {
+      const mainUrl = spellings.getMainUrl(value, { encoding: 'strict' }) ?? ''
+
+      expect(spellings.getMainUrl(mainUrl, { encoding: 'strict' })).toBe(mainUrl)
+    })
+
+    it('should give the main URL of a URL with a parameter it drops as its own main URL', () => {
+      const value = 'https://old.example.com/alice?utm_source=newsletter'
+      const mainUrl = bare.getMainUrl(value) ?? ''
+
+      expect(bare.getMainUrl(mainUrl)).toBe(mainUrl)
+    })
+
+    it('should give the main URL with a value moved into its host as its own main URL', () => {
+      const value = 'https://example.com/blogs/Alice/feed'
+      const mainUrl = tenantBlogs.getMainUrl(value) ?? ''
+
+      expect(tenantBlogs.getMainUrl(mainUrl)).toBe(mainUrl)
     })
 
     it('should return undefined for a URL no row takes', () => {
@@ -2568,10 +2612,10 @@ describe('defineTable', () => {
       expect(notes.getMainUrl(value, strict)).toBe(expected)
     })
 
-    it('should return undefined for a main URL already spelled strictly', () => {
+    it('should return a main URL already spelled strictly as it is', () => {
       const value = 'https://example.com/notes/Hello%21'
 
-      expect(notes.getMainUrl(value, strict)).toBeUndefined()
+      expect(notes.getMainUrl(value, strict)).toBe(value)
     })
 
     it('should write a plus sign in a query value as the space it reads as', () => {
@@ -2602,10 +2646,10 @@ describe('defineTable', () => {
       expect(notes.getMainUrl(value, strict)).toBe(expected)
     })
 
-    it('should return undefined for a main URL with optional pairs already spelled strictly', () => {
+    it('should return a main URL with optional pairs already spelled strictly as it is', () => {
       const value = 'https://example.com/lists/news?page=2&limit=5'
 
-      expect(notes.getMainUrl(value, strict)).toBeUndefined()
+      expect(notes.getMainUrl(value, strict)).toBe(value)
     })
 
     it('should keep fixed text of a main URL as the template writes it', () => {
@@ -2755,7 +2799,7 @@ describe('defineTable', () => {
       })
       const value = 'https://example.com/users/Alice'
 
-      expect(table.getMainUrl(value)).toBeUndefined()
+      expect(table.getMainUrl(value)).toBe(value)
     })
 
     it('should throw for a value the mark of the table names', () => {
@@ -3658,10 +3702,10 @@ describe('defineTable', () => {
       expect(paged.getMainUrl(value)).toBe(expected)
     })
 
-    it('should return undefined for a sorted main URL whose parameters are all listed', () => {
+    it('should return a sorted main URL whose parameters are all listed as it is', () => {
       const value = 'https://feeds.example.com/posts.xml?max-results=5&start-index=10'
 
-      expect(paged.getMainUrl(value)).toBeUndefined()
+      expect(paged.getMainUrl(value)).toBe(value)
     })
 
     it('should keep the fragment of an alias', () => {
@@ -4900,10 +4944,10 @@ describe('defineTable', () => {
       expect(snapshots.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
     })
 
-    it('should return undefined for a main URL whose query is not sorted', () => {
+    it('should return a main URL whose query is not sorted as it is', () => {
       const value = 'https://archive.example.com/web/2020/https://example.com/feed?b=2&a=1'
 
-      expect(snapshots.getMainUrl(value)).toBeUndefined()
+      expect(snapshots.getMainUrl(value)).toBe(value)
     })
 
     it('should rewrite a main URL under http with the value as written', () => {
@@ -5622,10 +5666,10 @@ describe('defineTable', () => {
       expect(apps.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
     })
 
-    it('should return undefined for a main URL already written as the row writes it', () => {
+    it('should return a main URL that writes its values in its fragment as it is', () => {
       const value = 'https://app.example.com/view#!/home/Sales/Sheet1'
 
-      expect(apps.getMainUrl(value)).toBeUndefined()
+      expect(apps.getMainUrl(value)).toBe(value)
     })
 
     it('should read a fragment of values 1,000 characters long', () => {

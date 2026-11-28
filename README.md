@@ -107,7 +107,7 @@ feeds.getMainUrl('http://old.example.com/alice/feed?page=2&utm_source=newsletter
 
 // Already the main URL:
 feeds.getMainUrl('https://example.com/@alice/feed.xml')
-// undefined
+// 'https://example.com/@alice/feed.xml'
 ```
 
 ### Encode strictly
@@ -347,7 +347,7 @@ Builds every spelling the values fill of the first row that has one: its main UR
 
 ### `table.getMainUrl(url, options?)`
 
-Rewrites a URL to its row's main URL, or returns `undefined` where it's already the main URL or can't be rewritten safely, such as a URL with credentials. It reads only the table's own hosts, as `readUrl` does without `isAnyHost`, so a `{host}` alias on a table with no `hosts` gets no main URL.
+Rewrites a URL to its row's main URL, and returns a main URL as itself, written as a URL parser writes it. It returns `undefined` for a URL the table doesn't hold or can't rewrite safely, such as a URL with credentials. It reads only the table's own hosts, as `readUrl` does without `isAnyHost`, so a `{host}` alias on a table with no `hosts` gets no main URL.
 
 ### `table.forSite(url)`
 
