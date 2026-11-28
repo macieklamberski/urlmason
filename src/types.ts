@@ -13,6 +13,8 @@ export type UrlLenient = {
   ampersandEntity?: boolean
   // `;` between query pairs read as `&`. A row under it that writes `;` in its own query throws.
   semicolon?: boolean
+  // `%7C` and `%7c` read as `|` in a `{+x}` value of the path, as a strict main URL writes `|`.
+  escapedPipe?: boolean
 }
 
 export type UrlRow<Key extends string = string> = {
@@ -38,8 +40,9 @@ export type UrlRow<Key extends string = string> = {
   // left undefined is no check: a list of rows that check different names types each name a row
   // does not check as undefined.
   checks?: Record<string, UrlRowCheck | undefined>
-  // The row's trailing slash mark over the table's, so `{ trailingSlash: false }` turns it off.
-  lenient?: Pick<UrlLenient, 'trailingSlash'>
+  // The row's trailing slash and escaped pipe marks over the table's, so
+  // `{ trailingSlash: false }` turns it off.
+  lenient?: Pick<UrlLenient, 'trailingSlash' | 'escapedPipe'>
 }
 
 // Names and their values, as `{ lang: 'en' }`. A slot of one value builds it as `lang,en`, a list

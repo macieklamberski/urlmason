@@ -399,6 +399,14 @@ const unmarkedSemicolons = defineTable([
   { key: 'story', main: 'https://example.com/story.php?storyId={id}&ft={format}' },
 ])
 
+const escapedPipes = defineTable(
+  [
+    { key: 'raw', main: 'https://example.com/p/{+path}/feed' },
+    { key: 'clip', main: 'https://example.com/clip{#clip}' },
+  ],
+  { lenient: { escapedPipe: true } },
+)
+
 const nameFlags = defineTable(
   [
     {
@@ -3050,6 +3058,7 @@ describe('defineTable', () => {
         ampersands,
         unmarkedAmpersands,
         ampersandRoutes,
+        escapedPipes,
         ampersandPairs,
         ampersandTags,
         ampersandItems,
@@ -4511,6 +4520,77 @@ describe('defineTable', () => {
       ampersands.readUrl(value)
 
       expect(performance.now() - startedAt).toBeLessThan(1000)
+    })
+  })
+
+  describe('with the escaped pipe mark', () => {
+    it('should read %7C in a reserved value as |', () => {
+      const value = 'https://example.com/p/a%7Cb/feed'
+      const expected = {
+        path: 'a|b',
+      }
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read %7c in a reserved value as |', () => {
+      const value = 'https://example.com/p/a%7cb/feed'
+      const expected = {
+        path: 'a|b',
+      }
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL whose pipe the mark reads as lenient, not exact', () => {
+      const value = 'https://example.com/p/a%7Cb/feed'
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a URL with a bare pipe as exact', () => {
+      const value = 'https://example.com/p/a|b/feed'
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(true)
+    })
+
+    it('should write a strict main URL that reads back a bare pipe', () => {
+      const value = 'https://example.com/p/a|b/feed'
+      const expected = 'https://example.com/p/a%7Cb/feed'
+
+      expect(escapedPipes.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
+    })
+
+    it('should read %7C as | under the mark of a row', () => {
+      const table = defineTable([
+        {
+          key: 'raw',
+          main: 'https://example.com/p/{+path}/feed',
+          lenient: { escapedPipe: true },
+        },
+      ])
+      const value = 'https://example.com/p/a%7Cb/feed'
+      const expected = {
+        path: 'a|b',
+      }
+      const match = table.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should keep %7C in a reserved fragment as written', () => {
+      const value = 'https://example.com/clip#a%7Cb'
+      const expected = {
+        clip: 'a%7Cb',
+      }
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
     })
   })
 
