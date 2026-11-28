@@ -144,7 +144,7 @@ type RowTemplate = {
   hasNonUtf8Value: (rawRead: RawRead) => boolean
   // Whether the trailing slash mark covers the template.
   isSlashFree: boolean
-  // The reserved values of the path the escaped pipe mark covers.
+  // The reserved values of the path and the fragment the escaped pipe mark covers.
   pipeNames: Array<string>
   // The template's URL with values written as they were read, and the pairs no row names kept.
   getRawUrl: (rawRead: RawRead, keptPairs: Array<QueryPair>) => RawUrl | undefined
@@ -1569,7 +1569,7 @@ const compileRowTemplate = (
     readRawParams,
     hasNonUtf8Value,
     isSlashFree,
-    pipeNames: isPipeFree ? reservedNames : [],
+    pipeNames: isPipeFree ? [...reservedNames, ...parsed.fragmentReservedNames] : [],
     getRawUrl,
     getHttpsOrigin,
     passesChecks,

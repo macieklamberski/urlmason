@@ -14,7 +14,8 @@ export type UrlLenient = {
   ampersandEntity?: boolean
   // `;` between query pairs read as `&`. A row under it that writes `;` in its own query throws.
   semicolon?: boolean
-  // `%7C` and `%7c` read as `|` in a `{+x}` value of the path, as a strict main URL writes `|`.
+  // `%7C` and `%7c` read as `|` in a `{+x}` value of the path or a `{#x}` fragment, as a strict
+  // main URL writes `|`.
   escapedPipe?: boolean
 }
 

@@ -4819,14 +4819,29 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should keep %7C in a reserved fragment as written', () => {
+    it('should read %7C in a reserved fragment as |', () => {
       const value = 'https://example.com/clip#a%7Cb'
       const expected = {
-        clip: 'a%7Cb',
+        clip: 'a|b',
       }
       const match = escapedPipes.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a fragment whose pipe the mark reads as lenient, not exact', () => {
+      const value = 'https://example.com/clip#a%7Cb'
+      const match = escapedPipes.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should write a strict main URL that reads back a bare pipe in a fragment', () => {
+      const value = 'https://example.com/clip#a|b'
+      const expected = 'https://example.com/clip#a%7Cb'
+
+      expect(escapedPipes.getMainUrl(value, { encoding: 'strict' })).toBe(expected)
     })
   })
 
