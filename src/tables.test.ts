@@ -4904,6 +4904,15 @@ describe('defineTable', () => {
       expect(escapedPipes.buildUrl('clip', value)).toBe(expected)
     })
 
+    it('should build %7C in a reserved value as written', () => {
+      const value = {
+        path: 'a%7Cb',
+      }
+      const expected = 'https://example.com/p/a%7Cb/feed'
+
+      expect(escapedPipes.buildUrl('raw', value)).toBe(expected)
+    })
+
     it('should build a pipe in a reserved value as %7C under strict encoding', () => {
       const value = {
         path: 'a|b',
@@ -6159,6 +6168,31 @@ describe('defineTable', () => {
       const expected = 'https://reader.example.com/a%20b|%22c%22%C3%A9[1]'
 
       expect(snapshots.buildUrl('reader', value)).toBe(expected)
+    })
+
+    it('should build a bare pipe that reads back', () => {
+      const value = {
+        url: 'a|b',
+      }
+      const expected = 'https://reader.example.com/a|b'
+
+      expect(snapshots.buildUrl('reader', value)).toBe(expected)
+    })
+
+    it('should build no URL for a pipe under strict encoding', () => {
+      const value = {
+        url: 'a|b',
+      }
+
+      expect(snapshots.buildUrl('reader', value, { encoding: 'strict' })).toBeUndefined()
+    })
+
+    it('should build no URL for a value whose query the URL parser respells', () => {
+      const value = {
+        url: "https://example.com/?q=it's",
+      }
+
+      expect(snapshots.buildUrl('reader', value)).toBeUndefined()
     })
 
     it('should keep an escape and encode a bare percent sign', () => {

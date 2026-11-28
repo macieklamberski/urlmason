@@ -55,6 +55,7 @@ import {
   decodePath,
   dotSegmentRegex,
   encodeLiteral,
+  encodeReservedSlot,
   isTypedValue,
   type ListSplit,
   type MapText,
@@ -839,7 +840,8 @@ const compileRowTemplate = (
     hasSlash !== undefined && (rowLenient?.trailingSlash ?? lenient?.trailingSlash) === true
   const isFixedCaseFree = lenient?.fixedCase === true
   const isPipeFree = (rowLenient?.escapedPipe ?? lenient?.escapedPipe) === true
-  const pipeNames = isPipeFree ? [...reservedNames, ...parsed.fragmentReservedNames] : []
+  const everyReservedName = [...reservedNames, ...parsed.fragmentReservedNames]
+  const pipeNames = isPipeFree ? everyReservedName : []
   const fixedParams = ownParams.filter((param) => !param.value.includes('{'))
   const flagShapes = parsed.nameFlags.map((text) =>
     text.replace(placeholderRegex, toShapePlaceholder),
@@ -1474,14 +1476,29 @@ const compileRowTemplate = (
     ...(isOpen ? [openTailName] : []),
   ]
 
-  // Whether a value reads back as it was built: decoded, a host value in any case and in punycode,
-  // and a passed query that is no map as the one pair under its own name a read gives.
+  // A reserved value as text, with `%7C` as `|` where the escaped pipe mark covers it.
+  const toPipedText = (name: string, text: string): string => {
+    return pipeNames.includes(name) ? text.replace(escapedPipeRegex, '|') : text
+  }
+
+  // Whether a value reads back as it was built: decoded, a reserved value as a pretty build writes
+  // it, a host value in any case and in punycode, and a passed query that is no map as the one pair
+  // under its own name a read gives.
   const isReadBack = (
     placeholder: string,
     value: UrlValue,
     readValue: UrlValue | undefined,
   ): boolean => {
     const name = toBareName(placeholder)
+
+    // A reserved value reads as the URL writes it, so `|` built strictly as `%7C` reads as another.
+    if (everyReservedName.includes(name)) {
+      const writtenText = toPipedText(name, encodeReservedSlot(value, false))
+      const readText = toPipedText(name, toSlotText(readValue ?? '', placeholder))
+
+      return writtenText === readText
+    }
+
     const builtValue =
       name === parsed.passedName && !isPlainObject(value) ? { [name]: value } : value
     const text = toDecodedText(toSlotText(builtValue, placeholder))

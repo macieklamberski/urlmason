@@ -597,7 +597,7 @@ const encodeReservedValue = (value: string, isStrict: boolean): string => {
 }
 
 // A reserved value in its slot. A list is its items joined by commas, each item's own kept.
-const encodeReservedSlot = (value: UrlValue, isStrict: boolean): string => {
+export const encodeReservedSlot = (value: UrlValue, isStrict: boolean): string => {
   const items = isPlainObject(value) ? toMapItems(value) : coerceArray(value)
 
   return items.map((item) => encodeReservedValue(item, isStrict)).join(',')
