@@ -66,6 +66,8 @@ export type Captured = {
   name: string
   part: TemplatePart
   isList: boolean
+  // Whether a check pattern reads it, which can take a slash no value of one segment holds.
+  isPatterned: boolean
 }
 
 // A parameter a template sets itself, as `alt=rss`, `id={id}` or the flag `rss`.
@@ -158,7 +160,9 @@ export type CompiledParam = TemplateParam & {
   rawRegex: RegExp
 }
 
-export type CaptureIn = (part: TemplatePart) => (name: string, source: string) => string
+export type CaptureIn = (
+  part: TemplatePart,
+) => (name: string, source: string, isPatterned?: boolean) => string
 
 // The values of a URL, and whether copies of a name matched only in another case, which the case
 // mark made possible.
@@ -804,7 +808,7 @@ const toLiteralSource = (text: string): string => {
 // encoded brace in it stays a literal, and encoded for a raw query value as the template writes it.
 export const toRegexSource = (
   text: string,
-  wrapCapture: (name: string, source: string) => string,
+  wrapCapture: (name: string, source: string, isPatterned?: boolean) => string,
   capture: Capture,
   captures: Record<string, string> = {},
   mapLiteral: MapText = (literal) => literal,
@@ -855,9 +859,11 @@ export const toRegexSource = (
           ? toLaterSource(capture, pieces[index - 1])
           : undefined
 
+      const pattern = captures[piece] === undefined ? patterns[piece] : undefined
       const source = wrapCapture(
         piece,
-        captures[piece] ?? patterns[piece] ?? laterSource ?? capture.source,
+        captures[piece] ?? pattern ?? laterSource ?? capture.source,
+        pattern !== undefined,
       )
 
       // A list holds the slash in front of it, so a list that may be empty leaves out both.
@@ -1057,11 +1063,12 @@ export const compileTemplate = (
   const { scheme, host, path, isOpen, names, reservedNames, restName } = parsed
   const captured: Array<Captured> = []
   const captureIn: CaptureIn = (part) => {
-    return (name, source) => {
+    return (name, source, isPatterned = false) => {
       captured.push({
         name: toBareName(name),
         part,
         isList: part === 'path' && isMultiSegment(name),
+        isPatterned,
       })
 
       return `(?<${captureGroupPrefix}${captured.length - 1}>${source})`
@@ -1354,6 +1361,10 @@ export const compileTemplate = (
       // A list that may be empty and holds no segment leaves its group unset.
       if (!groupCaptured || value === undefined) {
         return true
+      }
+
+      if (groupCaptured.isPatterned && value.includes('/')) {
+        return false
       }
 
       const read = toGroupValue(groupCaptured, value)

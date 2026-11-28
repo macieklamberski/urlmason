@@ -804,7 +804,8 @@ const compileRowTemplate = (
       return new RegExp(`^(?:${sources.join('|')})${pathPattern}$`, flags)
     }
 
-    return new RegExp(`^${prefixSource}${hostSource}${pathPattern}$`, flags)
+    // A host entry pattern can take a slash, and a host ends at the first one.
+    return new RegExp(`^${prefixSource}${hostSource}(?<=^[^/]*)${pathPattern}$`, flags)
   }
   // A URL that lacks the fixed text ending a template with a segment of several values is refused
   // before any split of that segment is tried.
