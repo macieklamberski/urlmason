@@ -358,6 +358,39 @@ const casedPassedQueries = defineTable(
   { lenient: { case: ['query'] } },
 )
 
+const slashed = defineTable(
+  [
+    {
+      key: 'posts',
+      main: 'https://example.com/{user}/feed',
+      aliases: ['https://old.example.com/{user}/rss/'],
+    },
+    { key: 'topic', main: 'https://example.com/topics/{topic}/' },
+    { key: 'tag', main: 'https://example.com/tags/{tag}', lenient: { trailingSlash: false } },
+  ],
+  { lenient: { trailingSlash: true } },
+)
+
+const rowSlashed = defineTable([
+  { key: 'posts', main: 'https://example.com/{user}/feed', lenient: { trailingSlash: true } },
+])
+
+const slashAliases = defineTable([
+  { key: 'posts', main: 'https://example.com/feed/', aliases: ['https://example.com/feed'] },
+])
+
+const fixedCased = defineTable(
+  [
+    {
+      key: 'posts',
+      main: 'https://example.com/{id}/rss.aspx',
+      aliases: ['https://old.example.com/{id}/rss.xml'],
+    },
+    { key: 'search', main: 'https://example.com/search?q={query}&format=rss' },
+  ],
+  { lenient: { fixedCase: true } },
+)
+
 const semicolonPassedQueries = defineTable(
   [{ key: 'search', main: 'https://example.com/search{?query*}' }],
   { lenient: { semicolon: true } },
@@ -494,10 +527,13 @@ const tenantBehindHost = defineTable(
   { hosts: { tenant: ['example.org'] } },
 )
 
-const slashTwins = defineTable([
-  { key: 'post', main: 'https://example.com/p{id}', checks: { id: /^1\d*$/ } },
-  { key: 'page', main: 'https://example.com/p{id}/' },
-])
+const slashTwins = defineTable(
+  [
+    { key: 'post', main: 'https://example.com/p{id}', checks: { id: /^1\d*$/ } },
+    { key: 'page', main: 'https://example.com/p{id}/' },
+  ],
+  { lenient: { trailingSlash: true } },
+)
 
 const fixedBehindValue = defineTable(
   [
@@ -1339,11 +1375,10 @@ describe('defineTable', () => {
       expect(match?.isExact).toBe(false)
     })
 
-    it('should mark a URL with a trailing slash the row does not write as not exact', () => {
+    it('should return undefined for a URL with a trailing slash the row does not write', () => {
       const value = 'https://www.example.com/embed/x8abc/'
-      const match = players.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(players.readUrl(value)).toBeUndefined()
     })
 
     it('should mark a URL under another scheme and without www as exact', () => {
@@ -1743,6 +1778,20 @@ describe('defineTable', () => {
       const value = 'https://example.com/alice/rss20.xml/'
 
       expect(spellings.getMainUrl(value)).toBeUndefined()
+    })
+
+    it('should read a URL as the alias that writes its trailing slash', () => {
+      const value = 'https://example.com/feed'
+      const match = slashAliases.readUrl(value)
+
+      expect(match?.isAlias).toBe(true)
+    })
+
+    it('should write the main URL of an alias that differs from it by the trailing slash', () => {
+      const value = 'https://example.com/feed'
+      const expected = 'https://example.com/feed/'
+
+      expect(slashAliases.getMainUrl(value)).toBe(expected)
     })
 
     it('should write a main URL under http as https', () => {
@@ -3256,6 +3305,94 @@ describe('defineTable', () => {
     })
   })
 
+  describe('with the trailing slash mark', () => {
+    it('should read a URL with a trailing slash the row does not write', () => {
+      const value = 'https://example.com/alice/feed/'
+      const expected = 'posts'
+      const match = slashed.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL with another trailing slash as not exact', () => {
+      const value = 'https://example.com/alice/feed/'
+      const match = slashed.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should write a main URL without the trailing slash its template leaves out', () => {
+      const value = 'https://example.com/alice/feed/'
+      const expected = 'https://example.com/alice/feed'
+
+      expect(slashed.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a main URL with the trailing slash its template writes', () => {
+      const value = 'https://example.com/topics/news?page=2'
+      const expected = 'https://example.com/topics/news/?page=2'
+
+      expect(slashed.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the main URL of an alias with another trailing slash', () => {
+      const value = 'https://old.example.com/alice/rss'
+      const expected = 'https://example.com/alice/feed'
+
+      expect(slashed.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should return undefined for a URL with another trailing slash on a row that turns the mark off', () => {
+      const value = 'https://example.com/tags/news/'
+
+      expect(slashed.readUrl(value)).toBeUndefined()
+    })
+
+    it('should write the main URL of a URL with another trailing slash under the mark of its row', () => {
+      const value = 'https://example.com/alice/feed/'
+      const expected = 'https://example.com/alice/feed'
+
+      expect(rowSlashed.getMainUrl(value)).toBe(expected)
+    })
+  })
+
+  describe('with the fixed case mark', () => {
+    it('should write fixed text of a path in the case of its template', () => {
+      const value = 'https://example.com/3751/Rss.aspx'
+      const expected = 'https://example.com/3751/rss.aspx'
+
+      expect(fixedCased.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read fixed text in another case as not exact', () => {
+      const value = 'https://example.com/3751/Rss.aspx'
+      const match = fixedCased.readUrl(value)
+
+      expect(match?.isExact).toBe(false)
+    })
+
+    it('should write a fixed query value in the case of its template', () => {
+      const value = 'https://example.com/search?q=cats&format=RSS'
+      const expected = 'https://example.com/search?q=cats&format=rss'
+
+      expect(fixedCased.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a query name in the case of its template', () => {
+      const value = 'https://example.com/search?Q=cats&format=rss'
+      const expected = 'https://example.com/search?q=cats&format=rss'
+
+      expect(fixedCased.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write the main URL of an alias with fixed text in another case', () => {
+      const value = 'https://old.example.com/3751/RSS.xml'
+      const expected = 'https://example.com/3751/rss.aspx'
+
+      expect(fixedCased.getMainUrl(value)).toBe(expected)
+    })
+  })
+
   describe('with the semicolon mark', () => {
     it('should read ; between query pairs as &', () => {
       const value = 'https://example.com/story.php?storyId=5;ft=nprml'
@@ -4334,11 +4471,20 @@ describe('defineTable', () => {
       expect(match?.key).toBe('site')
     })
 
-    it('should read a URL with a trailing slash the check of its twin without one refuses', () => {
-      const value = 'https://example.com/p21/'
+    it('should read a URL without a trailing slash under the twin the check of its row refuses', () => {
+      const value = 'https://example.com/p21'
+      const expected = 'page'
       const match = slashTwins.readUrl(value)
 
-      expect(match?.key).toBe('page')
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should read a URL with a trailing slash by the twin that writes it', () => {
+      const value = 'https://example.com/p12/'
+      const expected = 'page'
+      const match = slashTwins.readUrl(value)
+
+      expect(match?.key).toBe(expected)
     })
 
     it('should read a URL without a trailing slash the check of its row takes', () => {
