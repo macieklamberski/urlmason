@@ -133,10 +133,13 @@ type RowTemplate = {
   // The origin of a template that writes `https` itself, with the host values as the URL has them.
   getHttpsOrigin: (rawParams: RawParams) => string | undefined
   passesChecks: (params: Record<string, UrlValue>) => boolean
-  // The host, the path and the own parameter names with every value left out, and whether the
-  // path has an open tail. Two templates of one shape differ only in their values, as two rows
-  // for two values of `format`.
+  // The path without its trailing slash and the own parameter names, with every value left out,
+  // and whether the path has an open tail. Two templates of one shape differ only in their values
+  // and host, as two rows for two values of `format`.
   shape: string
+  // The length of the text a URL the template takes holds outside its values, the trailing slash
+  // of the path left out.
+  fixedTextLength: number
   // The path segments in front of an open tail or a reserved value, and infinity for a template
   // without one.
   openDepth: number
@@ -739,9 +742,12 @@ const compileRowTemplate = (
     .map((name) => name.toLowerCase())
     .sort((left, right) => left.localeCompare(right))
   const shapeQuery = shapeNames.join('&')
-  const shapeHostPath = `${host}${path}`.replace(placeholderRegex, toShapePlaceholder)
+  // A read sees no trailing slash, and two templates that take one URL take it on one host.
+  const readPath = path.replace(trailingSlashRegex, '')
+  const shapePath = readPath.replace(placeholderRegex, toShapePlaceholder)
+  const readText = `${scheme}${host}${readPath}${parsed.search ?? ''}`
   // A `#` is in no template, so an open template shares its shape with no template that is not.
-  const shape = `${shapeHostPath}${isOpenEnded ? '#' : ''}?${shapeQuery}`
+  const shape = `${shapePath}${isOpenEnded ? '#' : ''}?${shapeQuery}`
 
   const toHostNames = (value: string): Array<string> => {
     const bare = stripWww(value.toLowerCase())
@@ -1273,6 +1279,7 @@ const compileRowTemplate = (
     getHttpsOrigin,
     passesChecks,
     shape,
+    fixedTextLength: readText.replace(placeholderRegex, '').length,
     openDepth: isOpenEnded ? openDepth : Number.POSITIVE_INFINITY,
     restName,
     hasFragment: parsed.fragment !== undefined,
@@ -1345,8 +1352,8 @@ const createTable = <const Row extends UrlRow>(
   }
 
   // A template without an open tail is read before one with it, and of two with one the deeper
-  // first. Then the one with more query parameters, then the earlier row, so a `{name*}` row goes
-  // after the rows its paths overlap.
+  // first. Then the one with more query parameters, then the one with more fixed text, then the
+  // earlier row, so a `{name*}` row goes after the rows its paths overlap.
   const claimed = compiled.filter((candidate) => !rows[candidate.rowIndex].isBuildOnly)
   const bySpecificity = [...claimed].sort((a, b) => {
     if (a.openDepth !== b.openDepth) {
@@ -1361,7 +1368,12 @@ const createTable = <const Row extends UrlRow>(
     }
 
     // A template that writes a fragment is read before one that takes any.
-    return Number(b.hasFragment) - Number(a.hasFragment)
+    if (a.hasFragment !== b.hasFragment) {
+      return Number(b.hasFragment) - Number(a.hasFragment)
+    }
+
+    // Fixed text is read before a placeholder that takes it, as `/posts` before `/{id}`.
+    return b.fixedTextLength - a.fixedTextLength
   })
   // A table that passes a refused URL on reads its rows in the order written.
   const inReadOrder = options.isFallThrough ? claimed : bySpecificity
@@ -1524,16 +1536,18 @@ const createTable = <const Row extends UrlRow>(
 
   // The first template that takes the URL decides. A value its check refuses passes the URL on
   // only to a template of the same shape, as a row for another value of `format`, so a looser
-  // row does not take it. Under `isFallThrough` every refusal passes it on to every later row.
+  // row does not take it. A parameter that names a feed the template doesn't know passes it on to
+  // every later template, as one that sets it. Under `isFallThrough` every refusal does.
   const findTemplate = (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
     base?: UrlValues,
   ): TakenTemplate | undefined => {
     let refused: TakenTemplate | undefined
+    let isPassedToAll = options.isFallThrough === true
 
     for (const template of inReadOrder) {
-      if (refused && !options.isFallThrough && refused.template.shape !== template.shape) {
+      if (refused && !isPassedToAll && refused.template.shape !== template.shape) {
         continue
       }
 
@@ -1544,17 +1558,13 @@ const createTable = <const Row extends UrlRow>(
       }
 
       const isCheckRefused = !template.passesChecks(params)
-      const isSelectorRefused =
-        !isCheckRefused && hasUnlistedSelector(template, tableUrl, isWwwOptional)
 
-      if (!isCheckRefused && !isSelectorRefused) {
+      if (!isCheckRefused && !hasUnlistedSelector(template, tableUrl, isWwwOptional)) {
         return { template, params, tableUrl, isWwwOptional }
       }
 
-      // A parameter that names a feed no row knows ends the read of a table that tries only rows
-      // of the same shape.
-      if (isSelectorRefused && !options.isFallThrough) {
-        return { template, tableUrl, isWwwOptional }
+      if (!isCheckRefused) {
+        isPassedToAll = true
       }
 
       if (!refused) {
