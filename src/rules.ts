@@ -77,6 +77,8 @@ const adjacentExpressionRegex = /\{([^{}]*)\}(?=\{([^{}]*)\})/g
 const partExpressionRegex = /^[?&#]/
 // A backreference, as `\1` or `\k<name>`, and a named group, as `(?<name>`.
 const groupReferenceRegex = /(?<!\\)(?:\\\\)*\\(?:[1-9]|k<)|\(\?<(?![=!])/
+// A port or a user in a host.
+const hostTextRegex = /[:@]/
 
 // The old spellings of the open tail anywhere else and of a passed query.
 const oldTail = '{*}'
@@ -171,6 +173,13 @@ export const validateHostNames = (template: string, outsideNames: Array<string>)
 export const validateBasePlacement = (template: string, host: string, path: string): void => {
   if (path.startsWith(basePlaceholder) && host !== hostPlaceholder) {
     throw new Error(t(locales.errors.misplacedBase, { template }))
+  }
+}
+
+// A port or a user in a template's host is read by no row and built into URLs no row reads.
+export const validateHostText = (template: string, host: string): void => {
+  if (hostTextRegex.test(host)) {
+    throw new Error(t(locales.errors.hostPortOrUser, { template }))
   }
 }
 

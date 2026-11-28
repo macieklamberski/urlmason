@@ -35,6 +35,7 @@ import {
   validateExpressions,
   validateFragment,
   validateHostNames,
+  validateHostText,
   validateOptionalPlacement,
   validateParamNames,
   validateQueryPlaceholders,
@@ -253,6 +254,8 @@ const loneSurrogateRegex = /\p{Cs}/u
 export const schemePlaceholder = '{scheme}'
 // The folder a site sits in, `{/base*}` behind the host.
 export const basePlaceholder = '{/base*}'
+// The label a host label is converted in front of.
+const contextLabel = 'example'
 // The open tail: `{/tail*}` at the end of a path, which checks see as the value `tail`.
 export const openTailName = 'tail'
 export const openTailSuffix = '{/tail*}'
@@ -881,19 +884,33 @@ const cutFragment = (template: string): [body: string, fragment?: string] => {
   return index === -1 ? [template] : [template.slice(0, index), template.slice(index + 1)]
 }
 
-// A host as a parsed URL spells it: in lowercase, with a label outside ASCII in punycode. A label
-// that holds a placeholder is left as written.
+// A host as a parsed URL spells it: in lowercase, with a label outside ASCII in punycode. The
+// placeholders of a label are left as written.
 export const toAsciiHost = (host: string): string => {
   const toAsciiLabel = (label: string): string => {
     if (label.includes('{')) {
-      return label
+      return mapTemplate(
+        label,
+        (name) => `{${name}}`,
+        (text) => text.toLowerCase(),
+      )
     }
 
     if (!nonAsciiLabelRegex.test(label)) {
       return label.toLowerCase()
     }
 
-    return parseUrl(`https://${label}`)?.host ?? label
+    // A parser reads a host of one label of digits, as `１２３`, as an IPv4 address, so a label is
+    // converted in front of a fixed one. A label it maps to more labels is left as written.
+    const ascii = parseUrl(`https://${label}.${contextLabel}`)?.hostname
+
+    if (!ascii?.endsWith(`.${contextLabel}`)) {
+      return label
+    }
+
+    const asciiLabel = ascii.slice(0, -contextLabel.length - 1)
+
+    return asciiLabel.includes('.') ? label : asciiLabel
   }
 
   return host.split('.').map(toAsciiLabel).join('.')
@@ -914,7 +931,11 @@ export const parseTemplate = (template: string): ParsedTemplate => {
 
   validateTemplateMatch(template, base, match)
 
-  const [, scheme, givenHost, givenPath = '', search] = match
+  const [, givenScheme, givenHost, givenPath = '', search] = match
+
+  validateHostText(template, givenHost)
+
+  const scheme = givenScheme.toLowerCase()
   const host = toAsciiHost(givenHost)
   const reservedNames = [...givenPath.matchAll(reservedRegex)].map(([, name]) => name)
   const split = listSplitRegex.exec(givenPath)
@@ -1600,7 +1621,8 @@ export const compileTemplate = (
     // A host reads in any case and a parser spells it in punycode, so a value is written so too.
     const filledHost = toAsciiHost(givenHost)
 
-    const filledScheme = fillOrigin(scheme)
+    // A parser writes a scheme in lowercase.
+    const filledScheme = fillOrigin(scheme).toLowerCase()
     const filledPath = fillPlaceholders(writtenPath, 'path')
     // The value that ends the template can hold a query, which is no part of the path.
     const [ownPath] = filledPath.split(reservedEndRegex, 1)
@@ -1622,7 +1644,7 @@ export const compileTemplate = (
       return
     }
 
-    if (parsedUrl.protocol !== `${filledScheme.toLowerCase()}:`) {
+    if (parsedUrl.protocol !== `${filledScheme}:`) {
       return
     }
 
