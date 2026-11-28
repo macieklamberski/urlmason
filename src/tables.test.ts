@@ -3822,6 +3822,34 @@ describe('defineTable', () => {
 
       expect(markedCopies.getMainUrl(value)).toBeUndefined()
     })
+
+    it('should read copies that match only in any case as lenient', () => {
+      const value = 'https://example.com/l/en-US/en-us'
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a lowercase copy beside one in capitals as lenient', () => {
+      const value = 'https://example.com/m/alice/Alice'
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a fragment copy that matches only in any case as lenient', () => {
+      const value = 'https://example.com/a/alice#Alice'
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a query copy that matches only in any case as lenient', () => {
+      const value = 'https://example.com/search?q=alice&q=Alice'
+      const match = markedCopies.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
   })
 
   describe('with a passed query', () => {

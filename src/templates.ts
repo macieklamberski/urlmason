@@ -157,6 +157,15 @@ export type CompiledParam = TemplateParam & {
 
 export type CaptureIn = (part: TemplatePart) => (name: string, source: string) => string
 
+// The values of a URL, and whether copies of a name matched only in another case, which the case
+// mark made possible.
+export type TemplateRead = {
+  values: Record<string, UrlValue>
+  isCaseBlind: boolean
+}
+
+type CopyRead = Pick<TemplateRead, 'isCaseBlind'>
+
 export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   params: Array<CompiledParam>
   nameFlags: Array<CompiledNameFlag>
@@ -172,7 +181,7 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   read: (
     groups: Record<string, string> | undefined,
     getSearchParams: () => URLSearchParams,
-  ) => Record<string, UrlValue> | undefined
+  ) => TemplateRead | undefined
   // The value of each placeholder, or undefined where one has none.
   getValues: (params: UrlValues) => Record<string, UrlValue> | undefined
   // The URL the values of `getValues` write, or undefined where it is no URL.
@@ -180,10 +189,7 @@ export type CompiledTemplate = Omit<ParsedTemplate, 'params' | 'nameFlags'> & {
   // The values of a fragment the template takes, given without its `#`, beside the values read
   // elsewhere in the URL: decoded, and as a match of the fragment as written for a URL read in its
   // own spelling.
-  readFragment: (
-    hash: string,
-    known: Record<string, UrlValue>,
-  ) => Record<string, UrlValue> | undefined
+  readFragment: (hash: string, known: Record<string, UrlValue>) => TemplateRead | undefined
   readRawFragment: (hash: string) => RegExpExecArray | undefined
   // The pairs in the order the template writes them, and every other pair behind them as given.
   orderPairs: (pairs: Array<QueryPair>) => Array<QueryPair>
@@ -997,15 +1003,25 @@ export const compileTemplate = (
     return captured[Number(group.slice(captureGroupPrefix.length))]
   }
   // Two copies of a name hold one value: the same text, in any case where the case mark covers it.
-  const isSameCopy = (name: string, copy: UrlValue, other: UrlValue): boolean => {
+  const isSameCopy = (name: string, copy: UrlValue, other: UrlValue, read: CopyRead): boolean => {
     const copyText = JSON.stringify(copy)
     const otherText = JSON.stringify(other)
 
-    if (lenient.case?.includes(name)) {
-      return toAsciiLowerCaseText(copyText) === toAsciiLowerCaseText(otherText)
+    if (copyText === otherText) {
+      return true
     }
 
-    return copyText === otherText
+    if (!lenient.case?.includes(name)) {
+      return false
+    }
+
+    if (toAsciiLowerCaseText(copyText) !== toAsciiLowerCaseText(otherText)) {
+      return false
+    }
+
+    read.isCaseBlind = true
+
+    return true
   }
   // A `;` would split a pair under the semicolon mark.
   const encodeQueryText = (text: string): string => {
@@ -1182,6 +1198,7 @@ export const compileTemplate = (
     }
 
     const values: Record<string, UrlValue> = {}
+    const copyRead: CopyRead = { isCaseBlind: false }
 
     // Every group of a fragment pattern is a value of the template, and set.
     for (const [group, [from, to]] of Object.entries(match.indices?.groups ?? {})) {
@@ -1203,14 +1220,14 @@ export const compileTemplate = (
       // A name the URL holds twice has one value, so two different ones read nothing.
       const copy = values[name] ?? known[name]
 
-      if (copy !== undefined && !isSameCopy(name, copy, value)) {
+      if (copy !== undefined && !isSameCopy(name, copy, value, copyRead)) {
         return
       }
 
       values[name] = value
     }
 
-    return values
+    return { values, isCaseBlind: copyRead.isCaseBlind }
   }
 
   const readRawFragment: CompiledTemplate['readRawFragment'] = (hash) => {
@@ -1255,6 +1272,7 @@ export const compileTemplate = (
   // read nothing.
   const readGroups = (
     values: Record<string, UrlValue>,
+    copyRead: CopyRead,
     groups: Record<string, string> = {},
   ): boolean => {
     return Object.entries(groups).every(([group, value]) => {
@@ -1269,7 +1287,7 @@ export const compileTemplate = (
       const known = values[groupCaptured.name]
 
       if (known !== undefined) {
-        return isSameCopy(groupCaptured.name, known, read)
+        return isSameCopy(groupCaptured.name, known, read, copyRead)
       }
 
       values[groupCaptured.name] = read
@@ -1279,23 +1297,28 @@ export const compileTemplate = (
   }
 
   // A name the template takes has one value, so a URL that gives it two reads nothing.
-  const hasOneValue = (searchParams: URLSearchParams, name: string): boolean => {
+  const hasOneValue = (
+    searchParams: URLSearchParams,
+    name: string,
+    copyRead: CopyRead,
+  ): boolean => {
     const [first, ...rest] = getQueryParamValues(searchParams, name, {
       preserveEmptyValues: true,
       trimValues: false,
     })
 
-    return rest.every((value) => isSameCopy(name, first, value))
+    return rest.every((value) => isSameCopy(name, first, value, copyRead))
   }
 
   const read: CompiledTemplate['read'] = (groups, getSearchParams) => {
     const values: Record<string, UrlValue> = {}
+    const copyRead: CopyRead = { isCaseBlind: false }
 
-    if (!takenNames.every((name) => hasOneValue(getSearchParams(), name))) {
+    if (!takenNames.every((name) => hasOneValue(getSearchParams(), name, copyRead))) {
       return
     }
 
-    if (!readGroups(values, groups)) {
+    if (!readGroups(values, copyRead, groups)) {
       return
     }
 
@@ -1318,7 +1341,7 @@ export const compileTemplate = (
 
       const queryMatch = regex.exec(value)
 
-      if (!queryMatch || !readGroups(values, queryMatch.groups)) {
+      if (!queryMatch || !readGroups(values, copyRead, queryMatch.groups)) {
         return
       }
     }
@@ -1331,7 +1354,7 @@ export const compileTemplate = (
       const index = flagNames.findIndex((name) => regex.test(name))
       const flagMatch = index === -1 ? null : regex.exec(flagNames[index])
 
-      if (!flagMatch || !readGroups(values, flagMatch.groups)) {
+      if (!flagMatch || !readGroups(values, copyRead, flagMatch.groups)) {
         return
       }
 
@@ -1354,7 +1377,7 @@ export const compileTemplate = (
       }
     }
 
-    return values
+    return { values, isCaseBlind: copyRead.isCaseBlind }
   }
 
   // An empty value is no value: a host label or path segment left empty builds a broken URL, as
