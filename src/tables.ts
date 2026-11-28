@@ -69,6 +69,7 @@ import {
   splitPath,
   type TemplatePart,
   type TemplateRead,
+  type TextPart,
   toAsciiHost,
   toAsciiLowerCaseText,
   toBareName,
@@ -825,7 +826,8 @@ const compileRowTemplate = (
   }
   const readEndingGuard = toEndingGuard(path.replace(trailingSlashRegex, ''), decodePath)
   const readPathSource = `${readEndingGuard}${compiled.readPathSource}`
-  const rawPathSource = `${toEndingGuard(path, encodeLiteral)}${compiled.rawPathSource}`
+  const rawPathEndingGuard = toEndingGuard(path, (literal) => encodeLiteral(literal, 'path'))
+  const rawPathSource = `${rawPathEndingGuard}${compiled.rawPathSource}`
   // A reserved value is read from where its match sits in the URL.
   const readFlags = reservedNames.length > 0 ? 'di' : 'i'
   const asGivenRegex = toHostPathRegex(false, readPathSource, readFlags)
@@ -1420,6 +1422,9 @@ const compileRowTemplate = (
 
       return mapTemplate(text, fillPlaceholder, mapLiteral)
     }
+    const fillText = (text: string, part: TextPart): string => {
+      return fill(text, part, (literal) => encodeLiteral(literal, part))
+    }
     const origin = `${fill(scheme, 'host')}://${fill(host, 'host')}`
     const pairs = ownParams.map((own) => {
       if (!own.isFilled) {
@@ -1439,11 +1444,9 @@ const compileRowTemplate = (
       }
     }
 
-    const filledPath = fill(path, 'path', encodeLiteral)
+    const filledPath = fillText(path, 'path')
     const hash =
-      parsed.fragment === undefined
-        ? undefined
-        : `#${fill(parsed.fragment, 'fragment', encodeLiteral)}`
+      parsed.fragment === undefined ? undefined : `#${fillText(parsed.fragment, 'fragment')}`
 
     // A `.` or `..` segment is resolved away by a parser, so the URL would name another path.
     if (!isFilled || filledPath.split('/').some((segment) => dotSegmentRegex.test(segment))) {
@@ -1493,7 +1496,8 @@ const compileRowTemplate = (
 
     // A reserved value reads as the URL writes it, so `|` built strictly as `%7C` reads as another.
     if (everyReservedName.includes(name)) {
-      const writtenText = toPipedText(name, encodeReservedSlot(value, false))
+      const part = reservedNames.includes(name) ? 'path' : 'fragment'
+      const writtenText = toPipedText(name, encodeReservedSlot(value, false, part))
       const readText = toPipedText(name, toSlotText(readValue ?? '', placeholder))
 
       return writtenText === readText

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from './tables.js'
-import { isTypedValue, parseTemplate, toSlotText } from './templates.js'
+import { encodeParserText, isTypedValue, parseTemplate, toSlotText } from './templates.js'
 import type { UrlMap } from './types.js'
 
 // Query continuation needs a query in front of it, and names no placeholder of the template.
@@ -298,6 +298,14 @@ describe('build with a URI Template', () => {
     expect(table.buildUrl('search', value)).toBe(expected)
   })
 
+  it('should escape a caret in fixed text of a path as a parser does', () => {
+    const table = defineTable([{ key: 'feed', main: 'https://example.com/^rss/{name}.xml' }])
+    const value = { name: 'devarf' }
+    const expected = 'https://example.com/%5Erss/devarf.xml'
+
+    expect(table.buildUrl('feed', value)).toBe(expected)
+  })
+
   it('should write a host value in lowercase', () => {
     const table = defineTable([{ key: 'user', main: '{scheme}://{user}.example.com/feed' }])
     const value = {
@@ -407,6 +415,57 @@ describe('isTypedValue', () => {
   })
 })
 
+describe('encodeParserText', () => {
+  it('should escape the characters a parser escapes in a path', () => {
+    const value = 'a b"c<d>e\\f^g`h{i}'
+    const expected = 'a%20b%22c%3Cd%3Ee%5Cf%5Eg%60h%7Bi%7D'
+
+    expect(encodeParserText(value, 'path')).toBe(expected)
+  })
+
+  it('should keep a pipe in a path', () => {
+    const value = 'a|b'
+    const expected = 'a|b'
+
+    expect(encodeParserText(value, 'path')).toBe(expected)
+  })
+
+  it('should escape a quote in a query and keep a caret and braces', () => {
+    const value = "it's^{x}"
+    const expected = 'it%27s^{x}'
+
+    expect(encodeParserText(value, 'query')).toBe(expected)
+  })
+
+  it('should escape a backtick in a fragment and keep a caret and braces', () => {
+    const value = "a`b^{c}'d"
+    const expected = "a%60b^{c}'d"
+
+    expect(encodeParserText(value, 'fragment')).toBe(expected)
+  })
+
+  it('should escape the text behind a question mark in a path as a query', () => {
+    const value = "a^b?c^d'e"
+    const expected = 'a%5Eb?c^d%27e'
+
+    expect(encodeParserText(value, 'path')).toBe(expected)
+  })
+
+  it('should escape the text behind a hash in a path as a fragment', () => {
+    const value = 'a^b#c^d`e'
+    const expected = 'a%5Eb#c^d%60e'
+
+    expect(encodeParserText(value, 'path')).toBe(expected)
+  })
+
+  it('should escape the text behind a hash in a query as a fragment', () => {
+    const value = "a'b#c'd`e"
+    const expected = "a%27b#c'd%60e"
+
+    expect(encodeParserText(value, 'query')).toBe(expected)
+  })
+})
+
 describe('toSlotText', () => {
   it('should write text as it is', () => {
     const value = 'news'
@@ -460,6 +519,14 @@ describe('read with a URI Template', () => {
     const match = table.readUrl(value)
 
     expect(match?.values).toEqual(expected)
+  })
+
+  it('should read fixed text a parser escapes as exact', () => {
+    const table = defineTable([{ key: 'feed', main: 'https://example.com/^rss/{name}#a`b' }])
+    const value = 'https://example.com/%5Erss/devarf#a%60b'
+    const match = table.readUrl(value)
+
+    expect(match?.isExactMatch).toBe(true)
   })
 
   it('should read a host, a scheme and a query value', () => {
