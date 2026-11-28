@@ -124,13 +124,14 @@ type RowTemplate = {
   ) => Record<string, UrlValue> | undefined
   // The values of a URL in the spelling it has, read only from a URL written as the template is:
   // the same case, the same trailing slash, each own parameter once and under its own name. A
-  // spelling a mark covers is read in the template's, with the path and the pairs written that way.
-  // A respelled read takes the other trailing slash and fixed text in another case too, where a
-  // mark covers them.
+  // spelling a mark covers is read in the template's, with the path, the pairs and the fragment
+  // written that way. A respelled read takes the other trailing slash and fixed text in another
+  // case too, where a mark covers them.
   readRawParams: (
     tableUrl: TableUrl,
     isWwwOptional: boolean,
     params: Record<string, UrlValue>,
+    lowercaseNames: Array<string>,
     isRespelled: boolean,
   ) => RawRead | undefined
   // Whether the trailing slash mark covers the template.
@@ -189,6 +190,8 @@ type RawRead = {
   values: Record<string, UrlValue>
   pathname: string
   pairs: Array<QueryPair>
+  // The fragment of a template that writes one, with its `#`.
+  hash?: string
   // Whether the URL has the other trailing slash or fixed text in another case, which a main URL
   // writes as the template does.
   isRespelled: boolean
@@ -276,7 +279,7 @@ const toCheckParams = (params: Record<string, UrlValue>): Record<string, string>
 }
 
 // The values with each one the case mark covers in lowercase, as its main URL holds it. A value
-// whose table or row check refuses the lowercase, as `en-US`, stays as written.
+// stays as written, as `en-US`, where its table check or any row check refuses its lowercase.
 const lowercaseMarked = (
   params: Record<string, UrlValue>,
   caseNames: Array<string> | undefined,
@@ -293,10 +296,15 @@ const lowercaseMarked = (
     }
 
     const lowercase = toAsciiLowerCase(value)
-    const text = toValueText(lowercase)
     const lowercaseParams = toCheckParams({ ...values, [name]: lowercase })
+    // A row check of another value can read this one, as `topic` reading `group`.
+    const isRefused =
+      checks[name]?.(lowercaseParams[name]) === false ||
+      Object.entries(lowercaseParams).some(([checkName, text]) => {
+        return rowChecks[checkName]?.(text, lowercaseParams) === false
+      })
 
-    if (checks[name]?.(text) === false || rowChecks[name]?.(text, lowercaseParams) === false) {
+    if (isRefused) {
       continue
     }
 
@@ -665,7 +673,6 @@ const compileRowTemplate = (
     : compiled
   const ownParams = compiled.params
   const { getCaptured } = compiled
-  const hasRowChecks = Object.keys(rowChecks).length > 0
   const passesChecks = (listParams: Record<string, UrlValue>): boolean => {
     const params = toCheckParams(listParams)
 
@@ -1034,18 +1041,14 @@ const compileRowTemplate = (
   }
 
   // The text a match ran on and its values, in lowercase where the read holds them in lowercase.
-  const lowercaseValues = (
-    match: RegExpExecArray,
-    params: Record<string, UrlValue>,
-    lowercaseParams: Record<string, UrlValue>,
-  ) => {
+  const lowercaseValues = (match: RegExpExecArray, lowercaseNames: Array<string>) => {
     const groups = { ...match.groups }
     let text = match.input
 
     for (const [group, range] of Object.entries(match.indices?.groups ?? {})) {
       const captured = getCaptured(group)
 
-      if (!range || !captured || lowercaseParams[captured.name] === params[captured.name]) {
+      if (!range || !captured || !lowercaseNames.includes(captured.name)) {
         continue
       }
 
@@ -1073,6 +1076,7 @@ const compileRowTemplate = (
     tableUrl,
     isWwwOptional,
     params,
+    lowercaseNames,
     isRespelled,
   ) => {
     const { url } = tableUrl
@@ -1090,8 +1094,7 @@ const compileRowTemplate = (
       return
     }
 
-    const lowercaseParams = lowercaseMarked(params, lenient?.case, checks, rowChecks)
-    const respelledHostPath = lowercaseValues(match, params, lowercaseParams)
+    const respelledHostPath = lowercaseValues(match, lowercaseNames)
 
     if (!readRawGroups(rawParams, respelledHostPath.groups)) {
       return
@@ -1112,16 +1115,34 @@ const compileRowTemplate = (
       return named.length < 2 && named.every(isSpelled)
     }
 
+    // The value of a pair the read lowercased, written in lowercase in the pair too.
+    const lowercasePair = (index: number): string => {
+      const { rawName, rawValue = '' } = pairs[index]
+      const value = toLowerCaseValue(rawValue)
+
+      if (value !== rawValue) {
+        respelledPairs[index] = toPair(`${rawName}=${value}`)
+      }
+
+      return value
+    }
+
     for (const name of parsed.optionalNames) {
-      const pair = pairs.find((given) => isNamed(given, name))
+      const index = pairs.findIndex((given) => isNamed(given, name))
 
       if (!isGivenOnce(name, [name])) {
         return
       }
 
-      if (pair && params[name] !== undefined) {
-        rawParams[name] = { value: pair.rawValue ?? '', part: 'query' }
+      if (index === -1 || params[name] === undefined) {
+        continue
       }
+
+      const value = lowercaseNames.includes(name)
+        ? lowercasePair(index)
+        : (pairs[index].rawValue ?? '')
+
+      rawParams[name] = { value, part: 'query' }
     }
 
     for (const param of ownParams) {
@@ -1152,7 +1173,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledValue = lowercaseValues(queryMatch, params, lowercaseParams)
+      const respelledValue = lowercaseValues(queryMatch, lowercaseNames)
 
       if (!readRawGroups(rawParams, respelledValue.groups)) {
         return
@@ -1181,7 +1202,7 @@ const compileRowTemplate = (
         return
       }
 
-      const respelledName = lowercaseValues(flagMatch, params, lowercaseParams)
+      const respelledName = lowercaseValues(flagMatch, lowercaseNames)
 
       if (!readRawGroups(rawParams, respelledName.groups)) {
         return
@@ -1197,19 +1218,31 @@ const compileRowTemplate = (
       return
     }
 
-    if (parsed.fragment !== undefined) {
-      const rawFragment = compiled.readRawFragment(url.hash.slice(1))
-      const hasOtherValue = Object.entries(rawFragment ?? {}).some(([name, value]) => {
-        return rawParams[name] !== undefined && rawParams[name].value !== value
-      })
+    // A passed query takes every pair no other part of the template names.
+    if (parsed.passedName !== undefined && lowercaseNames.includes(parsed.passedName)) {
+      for (const [index, pair] of pairs.entries()) {
+        if (!flagIndexes.has(index) && !isNamed(pair, [...ownNames, ...parsed.optionalNames])) {
+          lowercasePair(index)
+        }
+      }
+    }
 
-      if (!rawFragment || hasOtherValue) {
+    let hash: string | undefined
+
+    if (parsed.fragment !== undefined) {
+      const fragmentMatch = compiled.readRawFragment(url.hash.slice(1))
+
+      if (!fragmentMatch) {
         return
       }
 
-      for (const [name, value] of Object.entries(rawFragment)) {
-        rawParams[name] = { value, part: 'fragment' }
+      const respelledFragment = lowercaseValues(fragmentMatch, lowercaseNames)
+
+      if (!readRawGroups(rawParams, respelledFragment.groups)) {
+        return
       }
+
+      hash = `#${respelledFragment.text}`
     }
 
     if ('host' in rawParams) {
@@ -1222,9 +1255,10 @@ const compileRowTemplate = (
 
     return {
       params: rawParams,
-      values: lowercaseParams,
+      values: params,
       pathname: respelledHostPath.text.slice(url.hostname.length),
       pairs: respelledPairs,
+      hash,
       isRespelled,
     }
   }
@@ -1322,25 +1356,10 @@ const compileRowTemplate = (
     const bareValues = Object.fromEntries(
       Object.entries(values).map(([name, value]) => [toBareName(name), value]),
     )
-    const isTableRefused = Object.entries(bareValues).some(([name, value]) => {
-      return checks[name]?.(toValueText(value)) === false
-    })
-
-    if (isTableRefused) {
-      return
-    }
-
     const lowercaseValues = lowercaseMarked(bareValues, lenient?.case, checks, rowChecks)
 
-    if (hasRowChecks) {
-      const filled = toCheckParams(lowercaseValues)
-      const isRefused = Object.entries(filled).some(([name, value]) => {
-        return rowChecks[name]?.(value, filled) === false
-      })
-
-      if (isRefused) {
-        return
-      }
+    if (!passesChecks(lowercaseValues)) {
+      return
     }
 
     for (const name of Object.keys(values)) {
@@ -1647,6 +1666,8 @@ const createTable = <const Row extends UrlRow>(
   type TakenTemplate = {
     template: RowTemplate
     params?: Record<string, UrlValue>
+    // The values the case mark lowercased, which the URL spells otherwise.
+    lowercaseNames: Array<string>
     tableUrl: TableUrl
     isWwwOptional: boolean
     // Whether a mark was needed for the URL to read: the other trailing slash, or `;` or `&amp;`
@@ -1673,16 +1694,26 @@ const createTable = <const Row extends UrlRow>(
         continue
       }
 
-      const params = template.readParams(tableUrl, isWwwOptional, isSlashLoose, base)
+      const writtenParams = template.readParams(tableUrl, isWwwOptional, isSlashLoose, base)
 
-      if (!params) {
+      if (!writtenParams) {
         continue
       }
 
+      // The checks and everything that reads the values later see a marked value in lowercase.
+      const params = lowercaseMarked(
+        writtenParams,
+        lenient.case,
+        checks,
+        rowChecks[template.rowIndex],
+      )
+      const lowercaseNames = Object.keys(params).filter((name) => {
+        return !isSameValue(params[name], writtenParams[name], (left, right) => left === right)
+      })
       const isCheckRefused = !template.passesChecks(params)
 
       if (!isCheckRefused && !hasUnlistedSelector(template, tableUrl, isWwwOptional)) {
-        return { template, params, tableUrl, isWwwOptional, isMarkNeeded: false }
+        return { template, params, lowercaseNames, tableUrl, isWwwOptional, isMarkNeeded: false }
       }
 
       if (!isCheckRefused) {
@@ -1690,7 +1721,7 @@ const createTable = <const Row extends UrlRow>(
       }
 
       if (!refused) {
-        refused = { template, tableUrl, isWwwOptional, isMarkNeeded: false }
+        refused = { template, lowercaseNames: [], tableUrl, isWwwOptional, isMarkNeeded: false }
       }
     }
 
@@ -1700,6 +1731,7 @@ const createTable = <const Row extends UrlRow>(
   const readRawParams = ({
     template,
     params,
+    lowercaseNames,
     tableUrl,
     isWwwOptional,
   }: FoundTemplate): RawRead | undefined => {
@@ -1713,13 +1745,13 @@ const createTable = <const Row extends UrlRow>(
       return
     }
 
-    const rawRead = template.readRawParams(tableUrl, isWwwOptional, params, false)
+    const rawRead = template.readRawParams(tableUrl, isWwwOptional, params, lowercaseNames, false)
 
     if (rawRead || !(template.isSlashFree || hasFixedCaseMark)) {
       return rawRead
     }
 
-    return template.readRawParams(tableUrl, isWwwOptional, params, true)
+    return template.readRawParams(tableUrl, isWwwOptional, params, lowercaseNames, true)
   }
 
   const hasSlashMark = compiled.some((template) => template.isSlashFree)
@@ -1902,33 +1934,28 @@ const createTable = <const Row extends UrlRow>(
         host: parsedUrl.host,
         ...(base.length > 0 && { base }),
       }
-      const match = table.readStandIn(
+      // The values read hold the scheme, host and base, a marked base in lowercase.
+      return table.readStandIn(
         `${standInOrigin}${rest.join('')}${parsedUrl.search}${parsedUrl.hash}`,
         readBase,
       )
+    }
+    const readUnder = (baseLength: number): UrlMatch<Key, Row> | undefined => {
+      const match = readBehind(false, baseLength)
 
       if (!match) {
         return
       }
 
-      return { match, values: { ...match.values, ...readBase } }
-    }
-    const readUnder = (baseLength: number): UrlMatch<Key, Row> | undefined => {
-      const read = readBehind(false, baseLength)
-
-      if (!read) {
-        return
-      }
-
-      const row = rows[read.match.row.rootRowIndex]
+      const row = rows[match.row.rootRowIndex]
 
       return toMatch({
         key: row.key,
-        values: read.values,
+        values: match.values,
         row: copyRow(row),
-        isAliasMatch: read.match.isAliasMatch || !read.match.row.isMainRead,
+        isAliasMatch: match.isAliasMatch || !match.row.isMainRead,
         isExactMatch: false,
-        isLenientMatch: read.match.isLenientMatch,
+        isLenientMatch: match.isLenientMatch,
       })
     }
 
@@ -1992,14 +2019,11 @@ const createTable = <const Row extends UrlRow>(
 
     const row = rows[found.template.rowIndex]
     // The tail is read for the checks alone: no feed is built from it.
-    const params = omit(found.params, [openTailName])
+    const values = omit(found.params, [openTailName])
     const rawRead = readRawParams(found)
-    const values = lowercaseMarked(params, lenient.case, checks, rowChecks[found.template.rowIndex])
     // A value the case mark lowercased needed the mark, and one already in lowercase did not.
-    const isLowercased = Object.keys(params).some((name) => {
-      return !isSameValue(values[name], params[name], (left, right) => left === right)
-    })
-    const isLenientMatch = found.isMarkNeeded || isLowercased || rawRead?.isRespelled === true
+    const isLenientMatch =
+      found.isMarkNeeded || found.lowercaseNames.length > 0 || rawRead?.isRespelled === true
 
     return toMatch({
       key: row.key,
@@ -2084,8 +2108,8 @@ const createTable = <const Row extends UrlRow>(
       // included.
       const rest =
         writeQuery(stayingPairs) === writeQuery(pairs)
-          ? `${writeQuery(rawRead.pairs)}${readQuery(tableUrl).hash}`
-          : `${writeQuery(stayingPairs)}${url.hash}`
+          ? `${writeQuery(rawRead.pairs)}${rawRead.hash ?? readQuery(tableUrl).hash}`
+          : `${writeQuery(stayingPairs)}${rawRead.hash ?? url.hash}`
 
       return `${origin ?? url.origin}${rawRead.pathname}${rest}`
     }

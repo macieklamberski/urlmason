@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { endsWithAnyOf, isAnyOf, isLocale } from 'trousse'
 import { defineTable } from './tables.js'
-import type { UrlMatch, UrlRow, UrlValue, UrlValues, UrlWriteOptions } from './types.js'
+import type { UrlMatch, UrlRow, UrlTable, UrlValue, UrlValues, UrlWriteOptions } from './types.js'
 
 type PlayerRow = UrlRow & { ratio?: string }
 
@@ -224,6 +224,75 @@ const localized = defineTable(
 
 const listed = defineTable([{ key: 'list', main: 'https://example.com/lists/{user}/{list}' }], {
   lenient: { case: ['user'] },
+})
+
+const checkedFormats = defineTable(
+  [{ key: 'feed', main: 'https://example.com/feed?format={format}' }],
+  { checks: { format: /^(?:rss|atom)$/ }, lenient: { case: ['format'] } },
+)
+
+const rowCheckedFormats = defineTable(
+  [
+    {
+      key: 'feed',
+      main: 'https://example.com/feed?format={format}',
+      checks: { format: (format) => format === 'rss' },
+    },
+  ],
+  { lenient: { case: ['format'] } },
+)
+
+const countryCodes = defineTable(
+  [
+    {
+      key: 'country',
+      main: 'https://example.com/{country}/{code}',
+      checks: { country: (_country, values) => values.code === 'GB' },
+    },
+  ],
+  { lenient: { case: ['code'] } },
+)
+
+const topicFirstSections = defineTable(
+  [
+    {
+      key: 'section',
+      main: 'https://example.com/{group}/{topic}',
+      checks: { topic: (topic, values) => topic === 'Main' || values.group !== 'news' },
+    },
+  ],
+  { lenient: { case: ['topic', 'group'] } },
+)
+
+const tailChecked = defineTable(
+  [
+    {
+      key: 'user',
+      main: 'https://example.com/{user}{/tail*}',
+      checks: { user: (_user, values) => values.tail === 'feed' },
+    },
+  ],
+  { lenient: { case: ['user'] } },
+)
+
+const casedPages = defineTable([{ key: 'archive', main: 'https://example.com/archive{?page}' }], {
+  lenient: { case: ['page'] },
+})
+
+const casedFragments = defineTable(
+  [
+    { key: 'view', main: 'https://example.com/view#!/{user}' },
+    {
+      key: 'profile',
+      main: 'https://example.com/u/{member}',
+      aliases: ['https://old.example.com/#!/{member}'],
+    },
+  ],
+  { lenient: { case: ['user', 'member'] } },
+)
+
+const casedBases = defineTable([{ key: 'user', main: '{scheme}://{host}{/base*}/u/{user}' }], {
+  lenient: { case: ['base', 'user'] },
 })
 
 const ampersands = defineTable(
@@ -928,6 +997,87 @@ const rowChecked = defineTable(
     lenient: { case: ['locale', 'group', 'topic'] },
   },
 )
+
+// One key of a table, so tables of different keys share one list.
+type KeyedTable = {
+  key: string
+  readUrl: (url: string) => { key: string; values: UrlValues } | undefined
+  buildUrl: (values: UrlValues, options?: UrlWriteOptions) => string | undefined
+  getMainUrl: (url: string, options?: UrlWriteOptions) => string | undefined
+}
+
+const toKeyedTable = <Key extends string, Row>(table: UrlTable<Key, Row>, key: Key): KeyedTable => {
+  return {
+    key,
+    readUrl: (url) => table.readUrl(url),
+    buildUrl: (values, options) => table.buildUrl(key, values, options),
+    getMainUrl: table.getMainUrl,
+  }
+}
+
+// Every table above with the case mark, a URL it takes with a marked value in capitals, and the
+// values in that spelling.
+const caseMarkedSpellings: Array<[string, KeyedTable, UrlValues]> = [
+  ['https://feeds.example.com/Alice', toKeyedTable(marked, 'posts'), { name: 'Alice' }],
+  ['https://example.com/Alice/feed/', toKeyedTable(marked, 'posts'), { name: 'Alice' }],
+  ['https://example.com/feed.php?name=Alice', toKeyedTable(marked, 'posts'), { name: 'Alice' }],
+  [
+    'https://feeds.example.com/search.rss?q=News',
+    toKeyedTable(marked, 'search'),
+    { query: 'News' },
+  ],
+  ['https://example.com/en-US/feed', toKeyedTable(localized, 'posts'), { locale: 'en-US' }],
+  ['https://example.com/feed.php?l=en-US', toKeyedTable(localized, 'posts'), { locale: 'en-US' }],
+  ['https://example.com/tags/News/feed', toKeyedTable(localized, 'tag'), { tag: 'News' }],
+  [
+    'https://example.com/lists/Alice/News',
+    toKeyedTable(listed, 'list'),
+    { user: 'Alice', list: 'News' },
+  ],
+  ['https://example.com/feed?format=RSS', toKeyedTable(checkedFormats, 'feed'), { format: 'RSS' }],
+  [
+    'https://example.com/feed?format=RSS',
+    toKeyedTable(rowCheckedFormats, 'feed'),
+    { format: 'RSS' },
+  ],
+  [
+    'https://example.com/uk/GB',
+    toKeyedTable(countryCodes, 'country'),
+    { country: 'uk', code: 'GB' },
+  ],
+  [
+    'https://example.com/NEWS/Main',
+    toKeyedTable(topicFirstSections, 'section'),
+    { group: 'NEWS', topic: 'Main' },
+  ],
+  [
+    'https://example.com/archive?page=Latest',
+    toKeyedTable(casedPages, 'archive'),
+    { page: 'Latest' },
+  ],
+  ['https://example.com/view#!/Alice', toKeyedTable(casedFragments, 'view'), { user: 'Alice' }],
+  [
+    'https://old.example.com/#!/Alice',
+    toKeyedTable(casedFragments, 'profile'),
+    { member: 'Alice' },
+  ],
+  [
+    'https://example.com/search?tag=News',
+    toKeyedTable(casedPassedQueries, 'search'),
+    { query: { tag: 'News' } },
+  ],
+  [
+    'https://example.com/feed/AB',
+    toKeyedTable(mirroredMarked, 'entry'),
+    { host: 'example.com', id: 'AB' },
+  ],
+  ['https://example.com/en-US/docs', toKeyedTable(rowChecked, 'docs'), { locale: 'en-US' }],
+  [
+    'https://example.com/NEWS/Main',
+    toKeyedTable(rowChecked, 'section'),
+    { group: 'NEWS', topic: 'Main' },
+  ],
+]
 
 const reservedHosts = ['api.example.com', 'open.example.com']
 
@@ -3130,6 +3280,156 @@ describe('defineTable', () => {
         'The board row marks the case of user, which shares a part of its URL with another value',
       )
     })
+
+    it('should read a value in capitals whose table check takes only its lowercase', () => {
+      const value = 'https://example.com/feed?format=RSS'
+      const expected = { format: 'rss' }
+      const match = checkedFormats.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a value in capitals whose row check takes only its lowercase', () => {
+      const value = 'https://example.com/feed?format=RSS'
+      const expected = { format: 'rss' }
+      const match = rowCheckedFormats.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a value its check takes only in lowercase as lenient, not exact', () => {
+      const value = 'https://example.com/feed?format=RSS'
+      const match = checkedFormats.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a value in capitals by the row whose check takes its lowercase', () => {
+      const table = defineTable(
+        [
+          { key: 'docs', main: 'https://example.com/{locale}/docs' },
+          { key: 'user', main: 'https://example.com/{user}/docs' },
+        ],
+        { checks: { locale: (locale) => locale === 'en' }, lenient: { case: ['locale'] } },
+      )
+      const value = 'https://example.com/EN/docs'
+      const expected = 'docs'
+      const match = table.readUrl(value)
+
+      expect(match?.key).toBe(expected)
+    })
+
+    it('should build a value in capitals whose table check takes only its lowercase', () => {
+      const value = { format: 'RSS' }
+      const expected = 'https://example.com/feed?format=rss'
+
+      expect(checkedFormats.buildUrl('feed', value)).toBe(expected)
+    })
+
+    it('should keep a value as written where the check of another value refuses its lowercase', () => {
+      const value = 'https://example.com/uk/GB'
+      const expected = {
+        country: 'uk',
+        code: 'GB',
+      }
+      const match = countryCodes.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should build the values it read where a check reads a value marked after it', () => {
+      const value = 'https://example.com/NEWS/Main'
+      const expected = 'https://example.com/NEWS/main'
+      const match = topicFirstSections.readUrl(value)
+
+      expect(topicFirstSections.buildUrl('section', match?.values)).toBe(expected)
+    })
+
+    it('should run a check that reads the tail on the value in lowercase', () => {
+      const value = 'https://example.com/Alice/feed'
+      const expected = { user: 'alice' }
+      const match = tailChecked.readUrl(value)
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should write an optional query value in lowercase', () => {
+      const value = 'https://example.com/archive?page=Latest'
+      const expected = 'https://example.com/archive?page=latest'
+
+      expect(casedPages.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value of a passed query in lowercase', () => {
+      const value = 'https://example.com/search?tag=News'
+      const expected = 'https://example.com/search?tag=news'
+
+      expect(casedPassedQueries.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value of a fragment in lowercase', () => {
+      const value = 'https://example.com/view#!/Alice'
+      const expected = 'https://example.com/view#!/alice'
+
+      expect(casedFragments.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value of a fragment in lowercase from http', () => {
+      const value = 'http://example.com/view#!/Alice'
+      const expected = 'https://example.com/view#!/alice'
+
+      expect(casedFragments.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should write a value a fragment alias reads into the path in lowercase', () => {
+      const value = 'https://old.example.com/#!/Alice'
+      const expected = 'https://example.com/u/alice'
+
+      expect(casedFragments.getMainUrl(value)).toBe(expected)
+    })
+
+    it('should read a marked base in lowercase under any host', () => {
+      const value = 'https://example.com/Forum/u/Alice'
+      const expected = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['forum'],
+        user: 'alice',
+      }
+      const match = casedBases.readUrl(value, { isAnyHost: true })
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a marked base in lowercase under the base given', () => {
+      const value = 'https://example.com/Forum/u/Alice'
+      const expected = {
+        scheme: 'https',
+        host: 'example.com',
+        base: ['forum'],
+        user: 'alice',
+      }
+      const match = casedBases.readUrl(value, { base: '/forum' })
+
+      expect(match?.values).toEqual(expected)
+    })
+
+    it.each(caseMarkedSpellings)(
+      'should read, build and rewrite %s in one spelling',
+      (value, table, values) => {
+        const match = table.readUrl(value)
+        const built = table.buildUrl(values)
+        const strictBuilt = table.buildUrl(values, { encoding: 'strict' })
+        const builtMatch = table.readUrl(built ?? '')
+
+        expect(match?.key).toBe(table.key)
+        expect(builtMatch?.values).toEqual(match?.values)
+        expect(table.buildUrl(match?.values ?? {})).toBe(built)
+        expect(table.getMainUrl(value)).toBe(built)
+        expect(table.getMainUrl(value, { encoding: 'strict' })).toBe(strictBuilt)
+      },
+    )
 
     it('should write 200 kB of a value in lowercase within a second', () => {
       const value = `https://feeds.example.com/${'A'.repeat(200000)}`
@@ -5848,6 +6148,14 @@ describe('defineTable', () => {
     it('should read fixed text of a fragment in another case as not exact', () => {
       const value = 'https://app.example.com/view#!/HOME/Sales/Sheet1'
       const match = apps.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+    })
+
+    it('should read a value the fragment repeats in another spelling as not exact', () => {
+      const table = defineTable([{ key: 'user', main: 'https://example.com/{user}#{user}' }])
+      const value = 'https://example.com/Al%69ce#Alice'
+      const match = table.readUrl(value)
 
       expect(match?.isExactMatch).toBe(false)
     })
