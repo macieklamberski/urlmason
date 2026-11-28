@@ -19,6 +19,8 @@ const digitsRegex = /^\d+$/
 const hexRegex = /^[0-9a-f]+$/i
 const globalDigitsRegex = /^\d+$/g
 const lettersAndPipesRegex = /^[a-z|]+$/
+const hyphenFreeRegex = /^[^-]+$/
+const exampleSubdomainRegex = /^.+\.example\.com$/
 
 const playerRows: Array<PlayerRow> = [
   {
@@ -5819,6 +5821,34 @@ describe('defineTable', () => {
   })
 
   describe('with a pattern as a check', () => {
+    it('should return undefined for a pattern in a shared segment that reads across a slash', () => {
+      const table = defineTable([{ key: 'page', main: 'https://example.com/{board}-{user}' }], {
+        checks: { board: hyphenFreeRegex },
+      })
+      const value = 'https://example.com/art/deco-alice'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a pattern in a flag name that reads across a slash', () => {
+      const table = defineTable(
+        [{ key: 'thread', main: 'https://forum.example.com/showthread.php?{id}-{slug}' }],
+        { checks: { id: hyphenFreeRegex } },
+      )
+      const value = 'https://forum.example.com/showthread.php?1/2-hello'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
+    it('should return undefined for a host pattern that reads across a slash', () => {
+      const table = defineTable([{ key: 'feed', main: '{scheme}://{host}/feed' }], {
+        hosts: { exact: [exampleSubdomainRegex] },
+      })
+      const value = 'https://example.org/blog.example.com/feed'
+
+      expect(table.readUrl(value)).toBeUndefined()
+    })
+
     it('should read a value of one alternative of a pattern in a shared segment', () => {
       const value = 'https://example.com/posts/latest-hello'
       const expected = {
