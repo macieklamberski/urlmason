@@ -60,8 +60,9 @@ feeds.readUrl('https://old.example.com/alice/feed')
 //   key: 'user',
 //   values: { user: 'alice' },
 //   row: {…},
-//   isAlias: true,
-//   isExact: true,
+//   isAliasMatch: true,
+//   isExactMatch: true,
+//   isLenientMatch: false,
 // }
 
 // A list takes every segment it covers:
@@ -70,8 +71,9 @@ feeds.readUrl('https://example.com/tags/news/tech.xml')
 //   key: 'tag',
 //   values: { tags: ['news', 'tech'] },
 //   row: {…},
-//   isAlias: false,
-//   isExact: true,
+//   isAliasMatch: false,
+//   isExactMatch: true,
+//   isLenientMatch: false,
 // }
 
 // No row matches, or a value fails its check:
@@ -140,8 +142,9 @@ forums.readUrl('https://example.org/community/viewtopic.php?t=42', { isAnyHost: 
 //     base: ['community'],
 //   },
 //   row: {…},
-//   isAlias: false,
-//   isExact: false,
+//   isAliasMatch: false,
+//   isExactMatch: false,
+//   isLenientMatch: false,
 // }
 
 const site = forums.forSite('https://example.org/community/')
@@ -335,7 +338,7 @@ A read matches the trailing slash exactly, so `/feed/` reads only where a templa
 
 ### `table.readUrl(url, options?)`
 
-Returns the row a URL is and its values, or `undefined`. `isAlias` says the URL matched an alias, and `isExact` that it's written exactly as its template is. With `{ isAnyHost: true }`, a `{host}` row reads a URL on any host, under the folder its path shows, and `{ base }` names that folder.
+Returns the row a URL is and its values, or `undefined`. `isAliasMatch` says the URL matched an alias, and `isExactMatch` that it's written exactly as its template is. `isLenientMatch` says a lenient mark was needed, as for `/Alice/feed/` lowercased to `alice` by the `case` mark, and such a read is never exact. With `{ isAnyHost: true }`, a `{host}` row reads a URL on any host, under the folder its path shows, and `{ base }` names that folder.
 
 ### `table.buildUrl(key, values, options?)`
 

@@ -1269,7 +1269,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/a%62c/feed?id=abc'
       const match = table.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should return undefined for two values of a name the row holds twice', () => {
@@ -1328,8 +1328,9 @@ describe('defineTable', () => {
         key: 'video',
         values: { videoId: 'x8abc' },
         row: playerRows[0],
-        isAlias: false,
-        isExact: true,
+        isAliasMatch: false,
+        isExactMatch: true,
+        isLenientMatch: false,
       }
 
       expect(players.readUrl(value)).toEqual(expected)
@@ -1339,7 +1340,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/feed/5'
       const match = mirrored.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should read a query value on a host whose pattern sets a group of its own', () => {
@@ -1357,7 +1358,7 @@ describe('defineTable', () => {
       const value = 'https://example.net/x8abc'
       const match = players.readUrl(value)
 
-      expect(match?.isAlias).toBe(true)
+      expect(match?.isAliasMatch).toBe(true)
     })
 
     it('should return a field a row adds at its root', () => {
@@ -1372,7 +1373,7 @@ describe('defineTable', () => {
       const value = 'https://www.example.com/EMBED/x8abc'
       const match = players.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should return undefined for a URL with a trailing slash the row does not write', () => {
@@ -1385,7 +1386,7 @@ describe('defineTable', () => {
       const value = 'http://example.com/embed/x8abc'
       const match = players.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should read a value from the query', () => {
@@ -1784,7 +1785,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/feed'
       const match = slashAliases.readUrl(value)
 
-      expect(match?.isAlias).toBe(true)
+      expect(match?.isAliasMatch).toBe(true)
     })
 
     it('should write the main URL of an alias that differs from it by the trailing slash', () => {
@@ -1879,7 +1880,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/items?id=7&id+=8'
       const match = moved.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should keep the order of parameters under one name', () => {
@@ -2307,7 +2308,7 @@ describe('defineTable', () => {
       const value = 'https://feeds.example.com/list.php?xml='
       const match = flaggedMain.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write the flag without the equals sign', () => {
@@ -2335,7 +2336,7 @@ describe('defineTable', () => {
       const value = 'https://feeds.example.com/list.php?xml=&xml='
       const match = flaggedMain.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should return undefined for an alias that gives a value of the main URL with an equals sign after it', () => {
@@ -2443,7 +2444,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/caf%C3%A9/lunch'
       const match = menus.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write the main URL of an alias with the fixed text percent-encoded', () => {
@@ -2699,6 +2700,40 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
+    it('should read a value the mark lowercased as lenient, not exact', () => {
+      const value = 'https://example.com/Alice/feed/'
+      const match = marked.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a marked value already in lowercase as exact, not lenient', () => {
+      const value = 'https://example.com/alice/feed/'
+      const match = marked.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(true)
+      expect(match?.isLenientMatch).toBe(false)
+    })
+
+    it('should read a marked value its check keeps as written as exact, not lenient', () => {
+      const value = 'https://example.com/en-US/feed'
+      const match = localized.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(true)
+      expect(match?.isLenientMatch).toBe(false)
+    })
+
+    it('should read a value the mark lowercased under any host as lenient', () => {
+      const table = defineTable([{ key: 'user', main: '{scheme}://{host}/{user}/feed' }], {
+        lenient: { case: ['user'] },
+      })
+      const value = 'https://example.org/Alice/feed'
+      const match = table.readUrl(value, { isAnyHost: true })
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
     it('should read a host value under the mark as exact', () => {
       const table = defineTable([{ key: 'user', main: 'https://{user}.example.com/feed' }], {
         lenient: { case: ['user'] },
@@ -2706,7 +2741,7 @@ describe('defineTable', () => {
       const value = 'https://alice.example.com/feed'
       const match = table.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write a value of a main URL in lowercase', () => {
@@ -3137,7 +3172,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/spip.php?article12='
       const match = nameFlags.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write the main URL of an alias given the flag of the main URL with an equals sign', () => {
@@ -3188,7 +3223,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/spip.php?ARTICLE12'
       const match = nameFlags.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should return undefined for a name that holds another value than the path', () => {
@@ -3271,7 +3306,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/spip.php?article12&article13'
       const match = nameFlags.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should read two flags of one fixed text each from its own pair', () => {
@@ -3362,7 +3397,22 @@ describe('defineTable', () => {
       const value = 'https://example.com/alice/feed/'
       const match = slashed.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
+    })
+
+    it('should read a URL with another trailing slash as lenient', () => {
+      const value = 'https://example.com/alice/feed/'
+      const match = slashed.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
+    })
+
+    it('should read a URL with another trailing slash and fixed text in another case as lenient', () => {
+      const value = 'https://example.com/alice/FEED/'
+      const match = slashed.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
     })
 
     it('should write a main URL without the trailing slash its template leaves out', () => {
@@ -3412,7 +3462,14 @@ describe('defineTable', () => {
       const value = 'https://example.com/3751/Rss.aspx'
       const match = fixedCased.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
+    })
+
+    it('should read fixed text in another case as lenient', () => {
+      const value = 'https://example.com/3751/Rss.aspx'
+      const match = fixedCased.readUrl(value)
+
+      expect(match?.isLenientMatch).toBe(true)
     })
 
     it('should write a fixed query value in the case of its template', () => {
@@ -3449,11 +3506,12 @@ describe('defineTable', () => {
       expect(match?.values).toEqual(expected)
     })
 
-    it('should read a URL whose pairs the mark splits as exact', () => {
+    it('should read a URL whose pairs the mark splits as lenient, not exact', () => {
       const value = 'https://example.com/story.php?storyId=5;ft=nprml'
       const match = semicolons.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
     })
 
     it('should read ; and & side by side', () => {
@@ -3526,6 +3584,14 @@ describe('defineTable', () => {
       const match = ampersands.readUrl(value)
 
       expect(match?.values).toEqual(expected)
+    })
+
+    it('should read a URL whose &amp; the mark reads as & as lenient, not exact', () => {
+      const value = 'https://example.com/Feed.ashx?M=LD&amp;ID=7&amp;GUID=a1b2'
+      const match = ampersands.readUrl(value)
+
+      expect(match?.isExactMatch).toBe(false)
+      expect(match?.isLenientMatch).toBe(true)
     })
 
     it('should refuse 8 MB of query on a host no row names within 50 ms', () => {
@@ -3621,14 +3687,14 @@ describe('defineTable', () => {
       const value = 'https://example.com/feed?a=1&amp;amp;b=2'
       const match = ampersandPairs.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should mark a URL with &amp; on a row without the mark as exact', () => {
       const value = 'https://example.com/Feed.ashx?M=LD&ID=7&GUID=a1b2&amp;x=3'
       const match = unmarkedAmpersands.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should return no main URL for an alias whose first pair starts with amp;', () => {
@@ -3641,7 +3707,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/old.rss?amp;x=2&a=1'
       const match = ampersandAlias.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should read an encoded &amp; inside a value as part of the value', () => {
@@ -3753,14 +3819,14 @@ describe('defineTable', () => {
       const value = 'https://example.com/menu?caf%c3%a9=lunch'
       const match = menus.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should mark the URL the row builds as exact', () => {
       const value = 'https://example.com/items?item%20id=5'
       const match = escapedName.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write the http spelling of the URL the row builds as its main URL', () => {
@@ -3781,7 +3847,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/items?item+id=5'
       const match = escapedName.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should leave a flag the alias gives with an equals sign as the main URL escapes it', () => {
@@ -3795,14 +3861,14 @@ describe('defineTable', () => {
       const value = 'https://example.com/items?id%FF=5'
       const match = brokenName.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should not mark a name given twice, once with an escape that is no UTF-8, as exact', () => {
       const value = 'https://example.com/items?id%FF=5&id%EF%BF%BD=5'
       const match = brokenName.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should leave a URL with a name given twice, once with an escape that is no UTF-8', () => {
@@ -4075,7 +4141,7 @@ describe('defineTable', () => {
       const value = `https://example.com/old/${'ж'.repeat(400)}-b`
       const match = movedSharedPages.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
   })
 
@@ -4224,7 +4290,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/Alice-5.xml'
       const match = casedNames.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should hold a check to the whole value when its pattern has a bar', () => {
@@ -4271,14 +4337,14 @@ describe('defineTable', () => {
       const value = 'https://feeds.example.com/posts?q=cats&q=cats'
       const match = optionalPosts.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should read an optional name in another case as not exact', () => {
       const value = 'https://feeds.example.com/posts?Q=cats'
       const match = optionalPosts.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should return undefined for an optional name given two values', () => {
@@ -4498,7 +4564,7 @@ describe('defineTable', () => {
       const value = 'https://www.example.com/pool?id=1&format=rss_200'
       const match = hostVersions.readUrl(value)
 
-      expect(match?.isAlias).toBe(false)
+      expect(match?.isAliasMatch).toBe(false)
     })
 
     it('should write the main URL of an alias behind an alias with a checked value', () => {
@@ -4801,7 +4867,7 @@ describe('defineTable', () => {
       const value = 'https://archive.example.com/web/2020/https://example.com/feed?page=2'
       const match = snapshots.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should read a value right behind the host', () => {
@@ -5371,7 +5437,7 @@ describe('defineTable', () => {
       const value = 'https://books.example.com/42'
       const match = capitalHosts.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
   })
 
@@ -5494,14 +5560,14 @@ describe('defineTable', () => {
       const value = 'https://app.example.com/view#!/home/Sales%20Q1/Sheet1'
       const match = apps.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should read fixed text of a fragment in another case as not exact', () => {
       const value = 'https://app.example.com/view#!/HOME/Sales/Sheet1'
       const match = apps.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should read a URL without a fragment as the row that writes none', () => {
@@ -5869,14 +5935,14 @@ describe('defineTable', () => {
       const value = 'https://example.com/acme/app'
       const match = openPages.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should not mark a URL with a tail as exact', () => {
       const value = 'https://example.com/acme/app/issues/12'
       const match = openPages.readUrl(value)
 
-      expect(match?.isExact).toBe(false)
+      expect(match?.isExactMatch).toBe(false)
     })
 
     it('should throw for an open tail in front of another segment', () => {
@@ -5955,8 +6021,9 @@ describe('defineTable', () => {
           main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}',
           aliases: ['{scheme}://{host}{/base*}/topic/{topicId}'],
         },
-        isAlias: false,
-        isExact: false,
+        isAliasMatch: false,
+        isExactMatch: false,
+        isLenientMatch: false,
       }
 
       expect(boards.readUrl(value, options)).toEqual(expected)
@@ -6024,7 +6091,7 @@ describe('defineTable', () => {
       const options = { base: '/community' }
       const match = boards.readUrl(value, options)
 
-      expect(match?.isAlias).toBe(true)
+      expect(match?.isAliasMatch).toBe(true)
     })
 
     it('should mark a root alias of a row whose main URL names a host as an alias', () => {
@@ -6032,7 +6099,7 @@ describe('defineTable', () => {
       const options = { base: '/community' }
       const match = mixedBoards.readUrl(value, options)
 
-      expect(match?.isAlias).toBe(true)
+      expect(match?.isAliasMatch).toBe(true)
     })
 
     it('should read a base in another letter case than the URL has', () => {
@@ -6217,8 +6284,9 @@ describe('defineTable', () => {
           main: '{scheme}://{host}{/base*}/viewtopic.php?t={topicId}',
           aliases: ['{scheme}://{host}{/base*}/topic/{topicId}'],
         },
-        isAlias: false,
-        isExact: false,
+        isAliasMatch: false,
+        isExactMatch: false,
+        isLenientMatch: false,
       }
 
       expect(boards.readUrl(value, options)).toEqual(expected)
@@ -6869,8 +6937,9 @@ describe('defineTable', () => {
           key: 'profile',
           main: 'https://example.com/{username}{/tail*}',
         },
-        isAlias: false,
-        isExact: true,
+        isAliasMatch: false,
+        isExactMatch: true,
+        isLenientMatch: false,
       }
 
       expect(fallThroughProfiles.readUrl(value)).toEqual(expected)
@@ -6888,8 +6957,9 @@ describe('defineTable', () => {
           key: 'channel',
           main: 'https://example.com/{username}/{channel}{/tail*}',
         },
-        isAlias: false,
-        isExact: true,
+        isAliasMatch: false,
+        isExactMatch: true,
+        isLenientMatch: false,
       }
 
       expect(fallThroughProfiles.readUrl(value)).toEqual(expected)
@@ -6906,8 +6976,9 @@ describe('defineTable', () => {
           key: 'profile',
           main: 'https://example.com/{username}{/tail*}',
         },
-        isAlias: false,
-        isExact: false,
+        isAliasMatch: false,
+        isExactMatch: false,
+        isLenientMatch: false,
       }
 
       expect(fallThroughProfiles.readUrl(value)).toEqual(expected)
@@ -6924,8 +6995,9 @@ describe('defineTable', () => {
           key: 'profile',
           main: 'https://example.com/{username}{/tail*}',
         },
-        isAlias: false,
-        isExact: false,
+        isAliasMatch: false,
+        isExactMatch: false,
+        isLenientMatch: false,
       }
 
       expect(fallThroughProfiles.readUrl(value)).toEqual(expected)
@@ -6940,8 +7012,9 @@ describe('defineTable', () => {
           key: 'editorial',
           main: 'https://example.com/editorial{/tail*}',
         },
-        isAlias: false,
-        isExact: false,
+        isAliasMatch: false,
+        isExactMatch: false,
+        isLenientMatch: false,
       }
 
       expect(fallThroughProfiles.readUrl(value)).toEqual(expected)
@@ -6984,7 +7057,7 @@ describe('defineTable', () => {
       const value = 'https://example.com/alice/followers'
       const match = fallThroughRowChecked.readUrl(value)
 
-      expect(match?.isExact).toBe(true)
+      expect(match?.isExactMatch).toBe(true)
     })
 
     it('should write the main URL of the row that took the URL', () => {
@@ -7211,8 +7284,9 @@ describe('defineTable', () => {
             key: 'profile',
             main: '{scheme}://{host}{/base*}/{username}{/tail*}',
           },
-          isAlias: false,
-          isExact: false,
+          isAliasMatch: false,
+          isExactMatch: false,
+          isLenientMatch: false,
         }
 
         expect(fallThroughRootProfiles.readUrl(value, options)).toEqual(expected)
